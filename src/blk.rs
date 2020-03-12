@@ -3,8 +3,8 @@ use core::mem::size_of;
 use super::*;
 use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
-use bitflags::_core::sync::atomic::spin_loop_hint;
 use bitflags::*;
+use core::sync::atomic::spin_loop_hint;
 use log::*;
 use volatile::Volatile;
 
@@ -122,6 +122,9 @@ struct BlkResp {
 enum ReqType {
     In = 0,
     Out = 1,
+    Flush = 4,
+    Discard = 11,
+    WriteZeroes = 13,
 }
 
 #[repr(u32)]
@@ -144,17 +147,33 @@ const BLK_SIZE: usize = 512;
 
 bitflags! {
     struct BlkFeature: u64 {
+        /// Device supports request barriers. (legacy)
         const BARRIER       = 1 << 0;
+        /// Maximum size of any single segment is in `size_max`.
         const SIZE_MAX      = 1 << 1;
+        /// Maximum number of segments in a request is in `seg_max`.
         const SEG_MAX       = 1 << 2;
+        /// Disk-style geometry specified in geometry.
         const GEOMETRY      = 1 << 4;
+        /// Device is read-only.
         const RO            = 1 << 5;
+        /// Block size of disk is in `blk_size`.
         const BLK_SIZE      = 1 << 6;
+        /// Device supports scsi packet commands. (legacy)
         const SCSI          = 1 << 7;
+        /// Cache flush command support.
         const FLUSH         = 1 << 9;
+        /// Device exports information on optimal I/O alignment.
         const TOPOLOGY      = 1 << 10;
+        /// Device can toggle its cache between writeback and writethrough modes.
         const CONFIG_WCE    = 1 << 11;
+        /// Device can support discard command, maximum discard sectors size in
+        /// `max_discard_sectors` and maximum discard segment number in
+        /// `max_discard_seg`.
         const DISCARD       = 1 << 13;
+        /// Device can support write zeroes command, maximum write zeroes sectors
+        /// size in `max_write_zeroes_sectors` and maximum write zeroes segment
+        /// number in `max_write_zeroes_seg`.
         const WRITE_ZEROES  = 1 << 14;
 
         // device independent

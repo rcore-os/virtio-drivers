@@ -152,6 +152,19 @@ impl VirtIOHeader {
         self.magic.read() == 0x74726976 && self.version.read() == 1 && self.device_id.read() != 0
     }
 
+    /// Get the device type.
+    pub fn device_type(&self) -> DeviceType {
+        match self.device_id.read() {
+            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
+            _ => DeviceType::Invalid,
+        }
+    }
+
+    /// Get the vendor ID.
+    pub fn vendor_id(&self) -> u32 {
+        self.vendor_id.read()
+    }
+
     /// Begin initializing the device.
     ///
     /// Ref: virtio 3.1.1 Device Initialization
@@ -263,4 +276,34 @@ bitflags! {
     }
 }
 
-pub const CONFIG_SPACE_OFFSET: usize = 0x100;
+const CONFIG_SPACE_OFFSET: usize = 0x100;
+
+/// Types of virtio devices.
+#[repr(u8)]
+#[derive(Debug, Eq, PartialEq)]
+#[allow(missing_docs)]
+pub enum DeviceType {
+    Invalid = 0,
+    Network = 1,
+    Block = 2,
+    Console = 3,
+    EntropySource = 4,
+    MemoryBallooning = 5,
+    IoMemory = 6,
+    Rpmsg = 7,
+    ScsiHost = 8,
+    _9P = 9,
+    Mac80211 = 10,
+    RprocSerial = 11,
+    VirtioCAIF = 12,
+    MemoryBalloon = 13,
+    GPU = 16,
+    Timer = 17,
+    Input = 18,
+    Socket = 19,
+    Crypto = 20,
+    SignalDistributionModule = 21,
+    Pstore = 22,
+    IOMMU = 23,
+    Memory = 24,
+}
