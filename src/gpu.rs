@@ -1,5 +1,3 @@
-use core::slice;
-
 use super::*;
 use crate::queue::VirtQueue;
 use bitflags::*;

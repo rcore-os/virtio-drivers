@@ -149,7 +149,7 @@ pub struct VirtIOHeader {
 impl VirtIOHeader {
     /// Verify a valid header.
     pub fn verify(&self) -> bool {
-        self.magic.read() == 0x74726976 && self.version.read() == 1 && self.device_id.read() != 0
+        self.magic.read() == 0x7472_6976 && self.version.read() == 1 && self.device_id.read() != 0
     }
 
     /// Get the device type.
@@ -242,7 +242,7 @@ impl VirtIOHeader {
     }
 
     /// Get the pointer to config space (at offset 0x100)
-    pub fn config_space(&self) -> *mut u8 {
+    pub fn config_space(&self) -> *mut u64 {
         (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
     }
 }

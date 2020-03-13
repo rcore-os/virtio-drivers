@@ -2,8 +2,10 @@
 
 #![no_std]
 #![deny(unused_must_use, missing_docs)]
+#![allow(clippy::identity_op)]
+#![allow(dead_code)]
 
-#[macro_use]
+// #[macro_use]
 extern crate log;
 
 mod blk;
