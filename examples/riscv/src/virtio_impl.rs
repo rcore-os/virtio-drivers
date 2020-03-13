@@ -3,21 +3,16 @@ use core::sync::atomic::*;
 static DMA_PADDR: AtomicUsize = AtomicUsize::new(0x80300000);
 
 #[no_mangle]
-extern "C" fn virtio_alloc_dma(pages: usize) -> (VirtAddr, PhysAddr) {
+extern "C" fn virtio_dma_alloc(pages: usize) -> PhysAddr {
     let paddr = DMA_PADDR.fetch_add(0x1000 * pages, Ordering::SeqCst);
-    trace!(
-        "alloc DMA: vaddr={:#x}, paddr={:#x}, pages={}",
-        paddr,
-        paddr,
-        pages
-    );
-    (paddr, paddr)
+    trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
+    paddr
 }
 
 #[no_mangle]
-extern "C" fn virtio_dealloc_dma(paddr: PhysAddr, pages: usize) -> bool {
+extern "C" fn virtio_dma_dealloc(paddr: PhysAddr, pages: usize) -> i32 {
     trace!("dealloc DMA: paddr={:#x}, pages={}", paddr, pages);
-    true
+    0
 }
 
 #[no_mangle]

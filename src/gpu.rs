@@ -16,12 +16,15 @@ use volatile::{ReadOnly, Volatile, WriteOnly};
 /// and multiple scanouts (aka heads).
 pub struct VirtIOGpu<'a> {
     header: &'static mut VirtIOHeader,
-    rect: GpuRect,
-    frame_buffer: &'a mut [u8],
+    rect: Rect,
+    /// DMA area of frame buffer.
+    frame_buffer_dma: Option<DMA>,
     /// Queue for sending control commands.
     control_queue: VirtQueue<'a>,
     /// Queue for sending cursor commands.
     cursor_queue: VirtQueue<'a>,
+    /// Queue buffer DMA
+    queue_buf_dma: DMA,
     /// Send buffer for queue.
     queue_buf_send: &'a mut [u8],
     /// Recv buffer for queue.
@@ -32,105 +35,105 @@ impl VirtIOGpu<'_> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
         header.begin_init(|features| {
-            let features = GpuFeature::from_bits_truncate(features);
+            let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
-            let supported_features = GpuFeature::empty();
+            let supported_features = Features::empty();
             (features & supported_features).bits()
         });
 
         // read configuration space
-        let config = unsafe { &mut *(header.config_space() as *mut GpuConfig) };
+        let config = unsafe { &mut *(header.config_space() as *mut Config) };
         info!("Config: {:?}", config);
 
         let control_queue = VirtQueue::new(header, QUEUE_TRANSMIT, 2)?;
         let cursor_queue = VirtQueue::new(header, QUEUE_CURSOR, 2)?;
 
-        let (vaddr, _) = alloc_dma(1)?;
-        let queue_buf_send = unsafe { slice::from_raw_parts_mut(vaddr as _, PAGE_SIZE) };
-        let (vaddr, _) = alloc_dma(1)?;
-        let queue_buf_recv = unsafe { slice::from_raw_parts_mut(vaddr as _, PAGE_SIZE) };
+        let queue_buf_dma = DMA::new(2)?;
+        let queue_buf_send = unsafe { &mut queue_buf_dma.as_buf()[..PAGE_SIZE] };
+        let queue_buf_recv = unsafe { &mut queue_buf_dma.as_buf()[PAGE_SIZE..] };
 
         header.finish_init();
 
-        let mut driver = VirtIOGpu {
+        Ok(VirtIOGpu {
             header,
-            frame_buffer: &mut [],
-            rect: GpuRect::default(),
+            frame_buffer_dma: None,
+            rect: Rect::default(),
             control_queue,
             cursor_queue,
+            queue_buf_dma,
             queue_buf_send,
             queue_buf_recv,
-        };
-        driver.setup_framebuffer()?;
-        Ok(driver)
+        })
     }
 
-    fn setup_framebuffer(&mut self) -> Result {
+    /// Setup framebuffer
+    pub fn setup_framebuffer(&mut self) -> Result<&mut [u8]> {
         // get display info
-        let display_info: GpuRespDisplayInfo =
-            self.request(GpuCtrlHdr::with_type(Command::GetDisplayInfo))?;
-        info!("get display info => {:?}", display_info);
+        let display_info: RespDisplayInfo =
+            self.request(CtrlHeader::with_type(Command::GetDisplayInfo))?;
+        display_info.header.check_type(Command::OkDisplayInfo)?;
+        info!("=> {:?}", display_info);
         self.rect = display_info.rect;
 
         // create resource 2d
-        let rsp: GpuCtrlHdr = self.request(GpuResourceCreate2D {
-            header: GpuCtrlHdr::with_type(Command::ResourceCreate2d),
-            resource_id: GPU_RESOURCE_ID,
-            format: GPU_FORMAT_B8G8R8A8_UNORM,
+        let rsp: CtrlHeader = self.request(ResourceCreate2D {
+            header: CtrlHeader::with_type(Command::ResourceCreate2d),
+            resource_id: RESOURCE_ID,
+            format: Format::B8G8R8A8UNORM,
             width: display_info.rect.width,
             height: display_info.rect.height,
         })?;
-        info!("create resource 2d => {:?}", rsp);
+        rsp.check_type(Command::OkNodata)?;
 
         // alloc continuous pages for the frame buffer
         let size = display_info.rect.width * display_info.rect.height * 4;
-        let (vaddr, paddr) = alloc_dma(pages(size as usize))?;
-        self.frame_buffer = unsafe { slice::from_raw_parts_mut(vaddr as _, size as usize) };
+        let frame_buffer_dma = DMA::new(pages(size as usize))?;
 
         // resource_attach_backing
-        let rsp: GpuCtrlHdr = self.request(GpuResourceAttachBacking {
-            header: GpuCtrlHdr::with_type(Command::ResourceAttachBacking),
-            resource_id: GPU_RESOURCE_ID,
+        let rsp: CtrlHeader = self.request(ResourceAttachBacking {
+            header: CtrlHeader::with_type(Command::ResourceAttachBacking),
+            resource_id: RESOURCE_ID,
             nr_entries: 1,
-            addr: paddr as u64,
+            addr: frame_buffer_dma.paddr() as u64,
             length: size,
             padding: 0,
         })?;
-        info!("resource attach backing => {:?}", rsp);
+        rsp.check_type(Command::OkNodata)?;
 
         // map frame buffer to screen
-        let rsp: GpuCtrlHdr = self.request(GpuSetScanout {
-            header: GpuCtrlHdr::with_type(Command::SetScanout),
+        let rsp: CtrlHeader = self.request(SetScanout {
+            header: CtrlHeader::with_type(Command::SetScanout),
             rect: display_info.rect,
             scanout_id: 0,
-            resource_id: GPU_RESOURCE_ID,
+            resource_id: RESOURCE_ID,
         })?;
-        info!("set scanout => {:?}", rsp);
+        rsp.check_type(Command::OkNodata)?;
 
-        self.flush()?;
-        Ok(())
+        let buf = unsafe { frame_buffer_dma.as_buf() };
+        self.frame_buffer_dma = Some(frame_buffer_dma);
+        Ok(buf)
     }
 
     /// Flush framebuffer to screen.
     pub fn flush(&mut self) -> Result {
         // copy data from guest to host
-        let rsp: GpuCtrlHdr = self.request(GpuTransferToHost2D {
-            header: GpuCtrlHdr::with_type(Command::TransferToHost2d),
+        let rsp: CtrlHeader = self.request(TransferToHost2D {
+            header: CtrlHeader::with_type(Command::TransferToHost2d),
             rect: self.rect,
             offset: 0,
-            resource_id: GPU_RESOURCE_ID,
+            resource_id: RESOURCE_ID,
             padding: 0,
         })?;
-        info!("transfer to host 2d => {:?}", rsp);
+        rsp.check_type(Command::OkNodata)?;
 
         // flush data to screen
-        let rsp: GpuCtrlHdr = self.request(GpuResourceFlush {
-            header: GpuCtrlHdr::with_type(Command::ResourceFlush),
+        let rsp: CtrlHeader = self.request(ResourceFlush {
+            header: CtrlHeader::with_type(Command::ResourceFlush),
             rect: self.rect,
-            resource_id: GPU_RESOURCE_ID,
+            resource_id: RESOURCE_ID,
             padding: 0,
         })?;
-        info!("resource flush => {:?}", rsp);
+        rsp.check_type(Command::OkNodata)?;
 
         Ok(())
     }
@@ -153,7 +156,7 @@ impl VirtIOGpu<'_> {
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuConfig {
+struct Config {
     /// Signals pending events to the driver。
     events_read: ReadOnly<u32>,
 
@@ -167,10 +170,10 @@ struct GpuConfig {
 }
 
 /// Display configuration has changed.
-const GPU_EVENT_DISPLAY: u32 = 1 << 0;
+const EVENT_DISPLAY: u32 = 1 << 0;
 
 bitflags! {
-    struct GpuFeature: u64 {
+    struct Features: u64 {
         /// virgl 3D mode is supported.
         const VIRGL                 = 1 << 0;
         /// EDID is supported.
@@ -195,7 +198,7 @@ bitflags! {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum Command {
     GetDisplayInfo = 0x100,
     ResourceCreate2d = 0x101,
@@ -227,7 +230,7 @@ const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuCtrlHdr {
+struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
     fence_id: u64,
@@ -235,9 +238,9 @@ struct GpuCtrlHdr {
     padding: u32,
 }
 
-impl GpuCtrlHdr {
-    fn with_type(hdr_type: Command) -> GpuCtrlHdr {
-        GpuCtrlHdr {
+impl CtrlHeader {
+    fn with_type(hdr_type: Command) -> CtrlHeader {
+        CtrlHeader {
             hdr_type,
             flags: 0,
             fence_id: 0,
@@ -245,11 +248,20 @@ impl GpuCtrlHdr {
             padding: 0,
         }
     }
+
+    /// Return error if the type is not same as expected.
+    fn check_type(&self, expected: Command) -> Result {
+        if self.hdr_type == expected {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-struct GpuRect {
+struct Rect {
     x: u32,
     y: u32,
     width: u32,
@@ -258,29 +270,33 @@ struct GpuRect {
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuRespDisplayInfo {
-    header: GpuCtrlHdr,
-    rect: GpuRect,
+struct RespDisplayInfo {
+    header: CtrlHeader,
+    rect: Rect,
     enabled: u32,
     flags: u32,
 }
 
-const GPU_FORMAT_B8G8R8A8_UNORM: u32 = 1;
-
 #[repr(C)]
 #[derive(Debug)]
-struct GpuResourceCreate2D {
-    header: GpuCtrlHdr,
+struct ResourceCreate2D {
+    header: CtrlHeader,
     resource_id: u32,
-    format: u32,
+    format: Format,
     width: u32,
     height: u32,
 }
 
+#[repr(u32)]
+#[derive(Debug)]
+enum Format {
+    B8G8R8A8UNORM = 1,
+}
+
 #[repr(C)]
 #[derive(Debug)]
-struct GpuResourceAttachBacking {
-    header: GpuCtrlHdr,
+struct ResourceAttachBacking {
+    header: CtrlHeader,
     resource_id: u32,
     nr_entries: u32, // always 1
     addr: u64,
@@ -290,18 +306,18 @@ struct GpuResourceAttachBacking {
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuSetScanout {
-    header: GpuCtrlHdr,
-    rect: GpuRect,
+struct SetScanout {
+    header: CtrlHeader,
+    rect: Rect,
     scanout_id: u32,
     resource_id: u32,
 }
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuTransferToHost2D {
-    header: GpuCtrlHdr,
-    rect: GpuRect,
+struct TransferToHost2D {
+    header: CtrlHeader,
+    rect: Rect,
     offset: u64,
     resource_id: u32,
     padding: u32,
@@ -309,9 +325,9 @@ struct GpuTransferToHost2D {
 
 #[repr(C)]
 #[derive(Debug)]
-struct GpuResourceFlush {
-    header: GpuCtrlHdr,
-    rect: GpuRect,
+struct ResourceFlush {
+    header: CtrlHeader,
+    rect: Rect,
     resource_id: u32,
     padding: u32,
 }
@@ -319,4 +335,4 @@ struct GpuResourceFlush {
 const QUEUE_TRANSMIT: usize = 0;
 const QUEUE_CURSOR: usize = 1;
 
-const GPU_RESOURCE_ID: u32 = 0xbabe;
+const RESOURCE_ID: u32 = 0xbabe;

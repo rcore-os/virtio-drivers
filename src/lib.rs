@@ -8,50 +8,16 @@ extern crate log;
 
 mod blk;
 mod gpu;
+mod hal;
 mod header;
 mod queue;
 
 pub use self::blk::VirtIOBlk;
 pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
+use hal::*;
 
 const PAGE_SIZE: usize = 0x1000;
-
-type VirtAddr = usize;
-type PhysAddr = usize;
-
-fn alloc_dma(pages: usize) -> Result<(VirtAddr, PhysAddr)> {
-    let (vaddr, paddr) = unsafe { virtio_alloc_dma(pages) };
-    if vaddr == 0 {
-        Err(Error::DmaError)
-    } else {
-        Ok((vaddr, paddr))
-    }
-}
-
-fn dealloc_dma(paddr: PhysAddr, pages: usize) -> Result {
-    let ok = unsafe { virtio_dealloc_dma(paddr, pages) };
-    if ok {
-        Ok(())
-    } else {
-        Err(Error::DmaError)
-    }
-}
-
-fn phys_to_virt(paddr: PhysAddr) -> VirtAddr {
-    unsafe { virtio_phys_to_virt(paddr) }
-}
-
-fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
-    unsafe { virtio_virt_to_phys(vaddr) }
-}
-
-extern "C" {
-    fn virtio_alloc_dma(pages: usize) -> (VirtAddr, PhysAddr);
-    fn virtio_dealloc_dma(paddr: PhysAddr, pages: usize) -> bool;
-    fn virtio_phys_to_virt(paddr: PhysAddr) -> VirtAddr;
-    fn virtio_virt_to_phys(vaddr: VirtAddr) -> PhysAddr;
-}
 
 /// The type returned by driver methods.
 pub type Result<T = ()> = core::result::Result<T, Error>;

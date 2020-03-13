@@ -13,6 +13,8 @@ use volatile::Volatile;
 /// Each device can have zero or more virtqueues.
 #[repr(C)]
 pub struct VirtQueue<'a> {
+    /// DMA guard
+    dma: DMA,
     /// Descriptor table
     desc: &'a mut [Descriptor],
     /// Available ring
@@ -46,18 +48,14 @@ impl VirtQueue<'_> {
         let layout = VirtQueueLayout::new(size);
         let pages = layout.size / PAGE_SIZE;
         // alloc continuous pages
-        let (vaddr, paddr) = alloc_dma(pages)?;
+        let dma = DMA::new(pages)?;
 
-        header.queue_set(
-            idx as u32,
-            size as u32,
-            PAGE_SIZE as u32,
-            (paddr as u32) >> 12,
-        );
+        header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
 
-        let desc = unsafe { slice::from_raw_parts_mut(vaddr as *mut Descriptor, size as usize) };
-        let avail = unsafe { &mut *((vaddr + layout.avail_offset) as *mut AvailRing) };
-        let used = unsafe { &mut *((vaddr + layout.used_offset) as *mut UsedRing) };
+        let desc =
+            unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
+        let avail = unsafe { &mut *((dma.vaddr() + layout.avail_offset) as *mut AvailRing) };
+        let used = unsafe { &mut *((dma.vaddr() + layout.used_offset) as *mut UsedRing) };
 
         // link descriptors together
         for i in 0..(size - 1) {
@@ -65,6 +63,7 @@ impl VirtQueue<'_> {
         }
 
         Ok(VirtQueue {
+            dma,
             desc,
             avail,
             used,
@@ -169,12 +168,6 @@ impl VirtQueue<'_> {
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok(len as usize)
-    }
-}
-
-impl Drop for VirtQueue<'_> {
-    fn drop(&mut self) {
-        dealloc_dma(virt_to_phys(self.desc.as_ptr() as _), self.pages).unwrap()
     }
 }
 
