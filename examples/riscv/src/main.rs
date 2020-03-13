@@ -66,6 +66,7 @@ fn virtio_probe(node: &Node) {
             DeviceType::Block => virtio_blk(header),
             DeviceType::GPU => virtio_gpu(header),
             DeviceType::Input => virtio_input(header),
+            DeviceType::Network => virtio_net(header),
             t => warn!("Unrecognized virtio device: {:?}", t),
         }
     }
@@ -110,4 +111,13 @@ fn virtio_input(header: &'static mut VirtIOHeader) {
     //     info!("mouse: {:?}", input.mouse_xy());
     // }
     // TODO: handle external interrupt
+}
+
+fn virtio_net(header: &'static mut VirtIOHeader) {
+    let mut net = VirtIONet::new(header).expect("failed to create net driver");
+    let mut buf = [0u8; 0x100];
+    let len = net.recv(&mut buf).expect("failed to recv");
+    info!("recv: {:?}", &buf[..len]);
+    net.send(&buf[..len]).expect("failed to send");
+    info!("virtio-net test finished");
 }

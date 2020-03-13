@@ -21,8 +21,6 @@ pub struct VirtQueue<'a> {
     avail: &'a mut AvailRing,
     /// Used ring
     used: &'a mut UsedRing,
-    /// Pages of DMA region
-    pages: usize,
 
     /// The index of queue
     queue_idx: u32,
@@ -46,9 +44,8 @@ impl VirtQueue<'_> {
             return Err(Error::InvalidParam);
         }
         let layout = VirtQueueLayout::new(size);
-        let pages = layout.size / PAGE_SIZE;
         // alloc continuous pages
-        let dma = DMA::new(pages)?;
+        let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
         header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
 
@@ -67,7 +64,6 @@ impl VirtQueue<'_> {
             desc,
             avail,
             used,
-            pages,
             queue_size: size,
             queue_idx: idx as u32,
             num_used: 0,
@@ -129,6 +125,11 @@ impl VirtQueue<'_> {
     /// Whether there is a used element that can pop.
     pub fn can_pop(&self) -> bool {
         self.last_used_idx != self.used.idx.read()
+    }
+
+    /// The number of free descriptors.
+    pub fn available_desc(&self) -> usize {
+        (self.queue_size - self.num_used) as usize
     }
 
     /// Recycle descriptors in the list specified by head.

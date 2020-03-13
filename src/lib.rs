@@ -13,12 +13,14 @@ mod gpu;
 mod hal;
 mod header;
 mod input;
+mod net;
 mod queue;
 
 pub use self::blk::VirtIOBlk;
 pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
 pub use self::input::VirtIOInput;
+pub use self::net::VirtIONet;
 use self::queue::VirtQueue;
 use core::mem::size_of;
 use hal::*;

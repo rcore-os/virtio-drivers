@@ -8,14 +8,14 @@ VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 
 ## Components
 
-| Module | Status                                                       |
-| ------ | ------------------------------------------------------------ |
-| Queue  | ✅                                                            |
-| Block  | ✅                                                            |
-| Net    | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/net/virtio_net.rs) |
-| GPU    | ⚠️ Not tested                                                 |
-| Input  | ✅                                                            |
-| ...    | ❌ Not implemented                                            |
+| Device | Status            |
+| ------ | ----------------- |
+| Queue  | ✅                 |
+| Block  | ✅                 |
+| Net    | ✅                 |
+| GPU    | ✅                 |
+| Input  | ✅                 |
+| ...    | ❌ Not implemented |
 
 ## Examples & Tests
 
