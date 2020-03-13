@@ -144,10 +144,10 @@ impl VirtIOGpu<'_> {
         self.control_queue
             .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
         self.header.notify(QUEUE_TRANSMIT as u32);
-        while !self.control_queue.can_get() {
+        while !self.control_queue.can_pop() {
             spin_loop_hint();
         }
-        self.control_queue.get()?;
+        self.control_queue.pop_used()?;
         Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })
     }
 }

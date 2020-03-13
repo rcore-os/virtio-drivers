@@ -14,7 +14,7 @@ VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 | Block  | ✅                                                            |
 | Net    | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/net/virtio_net.rs) |
 | GPU    | ⚠️ Not tested                                                 |
-| Input  | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/input/virtio_input.rs) |
+| Input  | ✅                                                            |
 | ...    | ❌ Not implemented                                            |
 
 ## Examples & Tests

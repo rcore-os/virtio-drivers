@@ -54,7 +54,8 @@ qemu: $(bin) $(img)
 		-device loader,file=$(bin),addr=$(START_ADDR) \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0 \
-		-device virtio-gpu-device
+		-device virtio-gpu-device \
+		-device virtio-mouse-device
 
 $(img):
 	dd if=/dev/zero of=$@ bs=512 count=32

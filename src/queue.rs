@@ -77,12 +77,12 @@ impl VirtQueue<'_> {
         })
     }
 
-    /// Add buffers to the virtqueue.
+    /// Add buffers to the virtqueue, return a token.
     ///
     /// Ref: linux virtio_ring.c virtqueue_add
-    pub fn add(&mut self, inputs: &[&[u8]], outputs: &[&mut [u8]]) -> Result {
+    pub fn add(&mut self, inputs: &[&[u8]], outputs: &[&mut [u8]]) -> Result<u16> {
         if inputs.is_empty() && outputs.is_empty() {
-            return Ok(());
+            return Err(Error::InvalidParam);
         }
         if inputs.len() + outputs.len() + self.num_used as usize > self.queue_size as usize {
             return Err(Error::BufferTooSmall);
@@ -123,11 +123,11 @@ impl VirtQueue<'_> {
         // increase head of avail ring
         self.avail_idx = self.avail_idx.wrapping_add(1);
         self.avail.idx.write(self.avail_idx);
-        Ok(())
+        Ok(head)
     }
 
-    ///
-    pub fn can_get(&self) -> bool {
+    /// Whether there is a used element that can pop.
+    pub fn can_pop(&self) -> bool {
         self.last_used_idx != self.used.idx.read()
     }
 
@@ -150,24 +150,24 @@ impl VirtQueue<'_> {
         }
     }
 
-    /// Get device used buffers.
+    /// Get a token from device used buffers, return (token, len).
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
-    pub fn get(&mut self) -> Result<usize> {
-        if !self.can_get() {
+    pub fn pop_used(&mut self) -> Result<(u16, u32)> {
+        if !self.can_pop() {
             return Err(Error::NotReady);
         }
         // read barrier
         fence(Ordering::SeqCst);
 
         let last_used_slot = self.last_used_idx & (self.queue_size - 1);
-        let index = self.used.ring[last_used_slot as usize].id.read();
+        let index = self.used.ring[last_used_slot as usize].id.read() as u16;
         let len = self.used.ring[last_used_slot as usize].len.read();
 
-        self.recycle_descriptors(index as u16);
+        self.recycle_descriptors(index);
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
-        Ok(len as usize)
+        Ok((index, len))
     }
 }
 

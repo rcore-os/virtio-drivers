@@ -12,11 +12,15 @@ mod blk;
 mod gpu;
 mod hal;
 mod header;
+mod input;
 mod queue;
 
 pub use self::blk::VirtIOBlk;
 pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
+pub use self::input::VirtIOInput;
+use self::queue::VirtQueue;
+use core::mem::size_of;
 use hal::*;
 
 const PAGE_SIZE: usize = 0x1000;
@@ -54,4 +58,14 @@ fn align_up(size: usize) -> usize {
 /// Pages of `size`.
 fn pages(size: usize) -> usize {
     (size + PAGE_SIZE - 1) / PAGE_SIZE
+}
+
+/// Convert a struct into buffer.
+unsafe trait AsBuf: Sized {
+    fn as_buf(&self) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(self as *const _ as _, size_of::<Self>()) }
+    }
+    fn as_buf_mut(&mut self) -> &mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self as *mut _ as _, size_of::<Self>()) }
+    }
 }

@@ -12,7 +12,7 @@ extern crate opensbi_rt;
 use device_tree::util::SliceRead;
 use device_tree::{DeviceTree, Node};
 use log::LevelFilter;
-use virtio_drivers::{DeviceType, VirtIOBlk, VirtIOGpu, VirtIOHeader};
+use virtio_drivers::*;
 
 mod virtio_impl;
 
@@ -65,6 +65,7 @@ fn virtio_probe(node: &Node) {
         match header.device_type() {
             DeviceType::Block => virtio_blk(header),
             DeviceType::GPU => virtio_gpu(header),
+            DeviceType::Input => virtio_input(header),
             t => warn!("Unrecognized virtio device: {:?}", t),
         }
     }
@@ -86,8 +87,8 @@ fn virtio_blk(header: &'static mut VirtIOHeader) {
 }
 
 fn virtio_gpu(header: &'static mut VirtIOHeader) {
-    let mut blk = VirtIOGpu::new(header).expect("failed to create blk driver");
-    let fb = blk.setup_framebuffer().expect("failed to get fb");
+    let mut gpu = VirtIOGpu::new(header).expect("failed to create gpu driver");
+    let fb = gpu.setup_framebuffer().expect("failed to get fb");
     for y in 0..768 {
         for x in 0..1024 {
             let idx = (y * 1024 + x) * 4;
@@ -96,6 +97,17 @@ fn virtio_gpu(header: &'static mut VirtIOHeader) {
             fb[idx + 2] = (x + y) as u8;
         }
     }
-    blk.flush().expect("failed to flush");
+    gpu.flush().expect("failed to flush");
     info!("virtio-gpu test finished");
+}
+
+fn virtio_input(header: &'static mut VirtIOHeader) {
+    let mut event_buf = [0u64; 32];
+    let mut _input =
+        VirtIOInput::new(header, &mut event_buf).expect("failed to create input driver");
+    // loop {
+    //     input.ack_interrupt().expect("failed to ack");
+    //     info!("mouse: {:?}", input.mouse_xy());
+    // }
+    // TODO: handle external interrupt
 }
