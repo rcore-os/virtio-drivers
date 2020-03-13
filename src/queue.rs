@@ -260,8 +260,3 @@ struct UsedElem {
     id: Volatile<u32>,
     len: Volatile<u32>,
 }
-
-/// Align `size` up to a page.
-fn align_up(size: usize) -> usize {
-    (size + PAGE_SIZE) & !(PAGE_SIZE - 1)
-}

@@ -3,11 +3,16 @@
 #![no_std]
 #![deny(unused_must_use, missing_docs)]
 
+#[macro_use]
+extern crate log;
+
 mod blk;
+mod gpu;
 mod header;
 mod queue;
 
 pub use self::blk::VirtIOBlk;
+pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
 
 const PAGE_SIZE: usize = 0x1000;
@@ -71,4 +76,14 @@ pub enum Error {
     DmaError,
     /// I/O Error
     IoError,
+}
+
+/// Align `size` up to a page.
+fn align_up(size: usize) -> usize {
+    (size + PAGE_SIZE) & !(PAGE_SIZE - 1)
+}
+
+/// Pages of `size`.
+fn pages(size: usize) -> usize {
+    (size + PAGE_SIZE - 1) / PAGE_SIZE
 }

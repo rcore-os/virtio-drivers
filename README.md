@@ -10,10 +10,10 @@ VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 
 | Module | Status                                                       |
 | ------ | ------------------------------------------------------------ |
-| Queue  | ⚠️ Not tested                                                 |
-| Block  | ⚠️ Not tested                                                 |
+| Queue  | ✅                                                            |
+| Block  | ✅                                                            |
 | Net    | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/net/virtio_net.rs) |
-| GPU    | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/gpu/virtio_gpu.rs) |
+| GPU    | ⚠️ Not tested                                                 |
 | Input  | 🚧 [TODO](https://github.com/rcore-os/rCore/blob/master/kernel/src/drivers/input/virtio_input.rs) |
 | ...    | ❌ Not implemented                                            |
 
