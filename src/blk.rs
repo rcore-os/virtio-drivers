@@ -69,7 +69,7 @@ impl VirtIOBlk<'_> {
         self.queue.get()?;
         match resp.status {
             RespStatus::Ok => Ok(()),
-            _ => panic!("{:?}", resp.status),
+            _ => Err(Error::IoError),
         }
     }
 
@@ -90,7 +90,7 @@ impl VirtIOBlk<'_> {
         self.queue.get()?;
         match resp.status {
             RespStatus::Ok => Ok(()),
-            _ => panic!("{:?}", resp.status),
+            _ => Err(Error::IoError),
         }
     }
 }
@@ -100,6 +100,16 @@ impl VirtIOBlk<'_> {
 struct BlkConfig {
     /// Number of 512 Bytes sectors
     capacity: Volatile<u64>,
+    size_max: Volatile<u32>,
+    seg_max: Volatile<u32>,
+    cylinders: Volatile<u16>,
+    heads: Volatile<u8>,
+    sectors: Volatile<u8>,
+    blk_size: Volatile<u32>,
+    physical_block_exp: Volatile<u8>,
+    alignment_offset: Volatile<u8>,
+    min_io_size: Volatile<u16>,
+    opt_io_size: Volatile<u32>,
     // ... ignored
 }
 
@@ -127,18 +137,19 @@ enum ReqType {
     WriteZeroes = 13,
 }
 
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, Eq, PartialEq)]
 enum RespStatus {
     Ok = 0,
     IoErr = 1,
     Unsupported = 2,
+    _NotReady = 3,
 }
 
 impl Default for BlkResp {
     fn default() -> Self {
         BlkResp {
-            status: RespStatus::Unsupported,
+            status: RespStatus::_NotReady,
         }
     }
 }

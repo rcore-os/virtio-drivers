@@ -69,4 +69,6 @@ pub enum Error {
     InvalidParam,
     /// Failed to alloc DMA memory.
     DmaError,
+    /// I/O Error
+    IoError,
 }

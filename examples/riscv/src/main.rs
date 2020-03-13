@@ -1,9 +1,12 @@
 #![no_std]
 #![no_main]
+#![deny(warnings)]
 
 #[macro_use]
-extern crate log;
+extern crate alloc;
 #[macro_use]
+extern crate log;
+// #[macro_use]
 extern crate opensbi_rt;
 
 use device_tree::util::SliceRead;
@@ -67,7 +70,15 @@ fn virtio_probe(node: &Node) {
 
 fn virtio_blk(header: &'static mut VirtIOHeader) {
     let mut blk = VirtIOBlk::new(header).expect("failed to create blk driver");
-    let mut buf = [0u8; 512];
-    blk.read_block(0, &mut buf);
-    unimplemented!()
+    let mut input = vec![0xffu8; 512];
+    let mut output = vec![0; 512];
+    for i in 0..32 {
+        for x in input.iter_mut() {
+            *x = i as u8;
+        }
+        blk.write_block(i, &input).expect("failed to write");
+        blk.read_block(i, &mut output).expect("failed to read");
+        assert_eq!(input, output);
+    }
+    info!("virtio-blk test finished");
 }

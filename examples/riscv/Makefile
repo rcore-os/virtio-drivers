@@ -3,7 +3,7 @@ target := $(arch)imac-unknown-none-elf
 mode := release
 kernel := target/$(target)/$(mode)/riscv
 bin := target/$(target)/$(mode)/kernel.bin
-img := $(bin)
+img := target/$(target)/$(mode)/img
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=$(arch)
@@ -46,7 +46,7 @@ header:
 clean:
 	cargo clean
 
-qemu: $(bin)
+qemu: $(bin) $(img)
 	qemu-system-$(arch) \
 		-machine virt \
 		-nographic \
@@ -54,5 +54,8 @@ qemu: $(bin)
 		-device loader,file=$(bin),addr=$(START_ADDR) \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+
+$(img):
+	dd if=/dev/zero of=$@ bs=512 count=32
 
 run: build qemu
