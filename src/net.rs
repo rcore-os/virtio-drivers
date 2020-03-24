@@ -48,6 +48,16 @@ impl VirtIONet<'_> {
         })
     }
 
+    /// Acknowledge interrupt.
+    pub fn ack_interrupt(&mut self) -> bool {
+        self.header.ack_interrupt()
+    }
+
+    /// Get MAC address.
+    pub fn mac(&self) -> EthernetAddress {
+        self.mac
+    }
+
     /// Whether can send packet.
     pub fn can_send(&self) -> bool {
         self.send_queue.available_desc() >= 2

@@ -64,6 +64,16 @@ impl VirtIOGpu<'_> {
         })
     }
 
+    /// Acknowledge interrupt.
+    pub fn ack_interrupt(&mut self) -> bool {
+        self.header.ack_interrupt()
+    }
+
+    /// Get the resolution (width, height).
+    pub fn resolution(&self) -> (u32, u32) {
+        (self.rect.width, self.rect.height)
+    }
+
     /// Setup framebuffer
     pub fn setup_framebuffer(&mut self) -> Result<&mut [u8]> {
         // get display info
