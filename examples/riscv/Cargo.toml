@@ -12,3 +12,4 @@ riscv = "0.5"
 opensbi-rt = { git = "https://github.com/rcore-os/opensbi-rt.git", rev = "38399b6" }
 device_tree = { git = "https://github.com/rcore-os/device_tree-rs", rev = "2fa8411" }
 virtio-drivers = { path = "../.." }
+lazy_static = { version = "1.4", features = ["spin_no_std"] }

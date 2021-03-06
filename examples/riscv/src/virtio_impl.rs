@@ -1,6 +1,13 @@
 use core::sync::atomic::*;
+use lazy_static::lazy_static;
 
-static DMA_PADDR: AtomicUsize = AtomicUsize::new(0x80300000);
+extern "C" {
+    fn end();
+}
+
+lazy_static! {
+    static ref DMA_PADDR: AtomicUsize = AtomicUsize::new(end as usize);
+}
 
 #[no_mangle]
 extern "C" fn virtio_dma_alloc(pages: usize) -> PhysAddr {
