@@ -4,8 +4,6 @@
 
 VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 
-🚧 Working In Progress. We are now moving code from [rCore kernel](https://github.com/rcore-os/rCore/tree/master/kernel/src/drivers) to here.
-
 ## Components
 
 | Device | Status            |

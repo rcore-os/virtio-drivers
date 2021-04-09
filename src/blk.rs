@@ -2,7 +2,7 @@ use super::*;
 use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
 use bitflags::*;
-use core::sync::atomic::spin_loop_hint;
+use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
 
@@ -62,7 +62,7 @@ impl VirtIOBlk<'_> {
         self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
         while !self.queue.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
         self.queue.pop_used()?;
         match resp.status {
@@ -83,7 +83,7 @@ impl VirtIOBlk<'_> {
         self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
         while !self.queue.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
         self.queue.pop_used()?;
         match resp.status {

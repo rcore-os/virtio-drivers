@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use bitflags::*;
-use core::sync::atomic::spin_loop_hint;
+use core::hint::spin_loop;
 use log::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
@@ -155,7 +155,7 @@ impl VirtIOGpu<'_> {
             .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
         self.header.notify(QUEUE_TRANSMIT as u32);
         while !self.control_queue.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
         self.control_queue.pop_used()?;
         Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })

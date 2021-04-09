@@ -2,7 +2,7 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use bitflags::*;
-use core::sync::atomic::spin_loop_hint;
+use core::hint::spin_loop;
 use log::*;
 use volatile::{ReadOnly, Volatile};
 
@@ -75,7 +75,7 @@ impl VirtIONet<'_> {
         self.recv_queue.add(&[], &[header_buf, buf])?;
         self.header.notify(QUEUE_RECEIVE as u32);
         while !self.recv_queue.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
 
         let (_, len) = self.recv_queue.pop_used()?;
@@ -89,7 +89,7 @@ impl VirtIONet<'_> {
         self.send_queue.add(&[header.as_buf(), buf], &[])?;
         self.header.notify(QUEUE_TRANSMIT as u32);
         while !self.send_queue.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
         self.send_queue.pop_used()?;
         Ok(())

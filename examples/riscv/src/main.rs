@@ -25,6 +25,7 @@ extern "C" fn main(_hartid: usize, device_tree_paddr: usize) {
 
 fn init_dt(dtb: usize) {
     info!("device tree @ {:#x}", dtb);
+    #[repr(C)]
     struct DtbHeader {
         be_magic: u32,
         be_size: u32,
