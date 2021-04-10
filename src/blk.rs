@@ -5,6 +5,9 @@ use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
+use spin::Mutex;
+
+const QUEUE_SIZE : usize = 16;
 
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
@@ -14,6 +17,7 @@ pub struct VirtIOBlk<'a> {
     header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
+    notification : [Mutex<bool>;QUEUE_SIZE]
 }
 
 impl VirtIOBlk<'_> {
@@ -35,19 +39,69 @@ impl VirtIOBlk<'_> {
             config.capacity.read() / 2
         );
 
-        let queue = VirtQueue::new(header, 0, 16)?;
+        let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
+        let notification = [Mutex::new(false);QUEUE_SIZE];
 
         Ok(VirtIOBlk {
             header,
             queue,
             capacity: config.capacity.read() as usize,
+            notification,
         })
     }
 
     /// Acknowledge interrupt.
     pub fn ack_interrupt(&mut self) -> bool {
         self.header.ack_interrupt()
+    }
+
+    pub fn sync_read(&mut self, block_id: usize, buf: &mut [u8])->Result {
+        assert_eq!(buf.len(), BLK_SIZE);
+        let req = BlkReq {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.header.notify(0);
+
+        let idx = self.queue.get_current_head();
+        {
+            let t = self.notification[idx].lock();
+            if *t {
+                return Err(Error::IoError);
+            }
+            *t = true;
+        }
+        while *self.notification[idx].lock() {
+            spin_loop();
+        }
+
+        match resp.status {
+            RespStatus::Ok => Ok(()),
+            _ => Err(Error::IoError),
+        }
+    }
+
+    pub fn pending(&mut self)->Result {
+        assert!(self.queue.can_pop());
+        let rt = self.queue.pop_used();
+        match rt {
+            _core::result::Result::Ok((idx, len)) => {
+                let idx = idx as usize;
+                {
+                    let t = self.notification[idx].lock();
+                    if !*t {
+                        return Err(Error::IoError);
+                    }
+                    *t = false;
+                }
+                Ok(())
+            }
+            _core::result::Result::Err(err) => {Err(err)}
+        }
     }
 
     /// Read a block.

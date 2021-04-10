@@ -170,6 +170,10 @@ impl VirtQueue<'_> {
 
         Ok((index, len))
     }
+
+    pub fn get_current_head(&self)->usize {
+        self.free_head as usize
+    }
 }
 
 /// The inner layout of a VirtQueue.
