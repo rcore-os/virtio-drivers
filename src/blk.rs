@@ -69,7 +69,7 @@ impl VirtIOBlk<'_> {
 
         let idx = self.queue.get_current_head();
         {
-            let t = self.notification[idx].lock();
+            let mut t = self.notification[idx].lock();
             if *t {
                 return Err(Error::IoError);
             }
@@ -92,7 +92,7 @@ impl VirtIOBlk<'_> {
             _core::result::Result::Ok((idx, len)) => {
                 let idx = idx as usize;
                 {
-                    let t = self.notification[idx].lock();
+                    let mut t = self.notification[idx].lock();
                     if !*t {
                         return Err(Error::IoError);
                     }
