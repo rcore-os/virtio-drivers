@@ -1,6 +1,7 @@
 use super::*;
 use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
+use _core::slice;
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
@@ -14,10 +15,11 @@ const QUEUE_SIZE : usize = 16;
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
 pub struct VirtIOBlk<'a> {
-    header: &'static mut VirtIOHeader,
+    /// a
+    pub header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
-    notification : [Mutex<bool>;QUEUE_SIZE]
+    notification : &'a mut [Mutex<bool>]
 }
 
 impl VirtIOBlk<'_> {
@@ -41,7 +43,15 @@ impl VirtIOBlk<'_> {
 
         let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
-        let notification = [Mutex::new(false);QUEUE_SIZE];
+        let dma = DMA::new(1)?;
+
+        let notification =
+            unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Mutex<bool>,
+                QUEUE_SIZE) };
+        
+        for i in 0..QUEUE_SIZE {
+            notification[i] = Mutex::new(false);
+        }
 
         Ok(VirtIOBlk {
             header,
@@ -56,7 +66,8 @@ impl VirtIOBlk<'_> {
         self.header.ack_interrupt()
     }
 
-    pub fn sync_read(&mut self, block_id: usize, buf: &mut [u8])->Result {
+    /// sync read block with interrupt
+    pub fn sync_read(&mut self, block_id: usize,buf: &mut [u8])->Result<usize> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
@@ -64,10 +75,8 @@ impl VirtIOBlk<'_> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
-        self.header.notify(0);
-
-        let idx = self.queue.get_current_head();
+        let idx = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        let idx = idx as usize;
         {
             let mut t = self.notification[idx].lock();
             if *t {
@@ -75,21 +84,23 @@ impl VirtIOBlk<'_> {
             }
             *t = true;
         }
-        while *self.notification[idx].lock() {
-            spin_loop();
-        }
+        self.header.notify(0);
 
-        match resp.status {
-            RespStatus::Ok => Ok(()),
-            _ => Err(Error::IoError),
+        loop {
+            if !*self.notification[idx].lock() {break}
+            unsafe {llvm_asm!("wfi"::::"volatile")}
         }
+        Ok((idx))
     }
 
+    /// handle interrupt
     pub fn pending(&mut self)->Result {
-        assert!(self.queue.can_pop());
+        if !self.queue.can_pop() {
+            return Err(Error::IoError);
+        }
         let rt = self.queue.pop_used();
         match rt {
-            _core::result::Result::Ok((idx, len)) => {
+            _core::result::Result::Ok((idx, _len)) => {
                 let idx = idx as usize;
                 {
                     let mut t = self.notification[idx].lock();

@@ -4,8 +4,8 @@
 #![deny(unused_must_use, missing_docs)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
+#![feature(llvm_asm)]
 
-// #[macro_use]
 extern crate log;
 
 mod blk;
