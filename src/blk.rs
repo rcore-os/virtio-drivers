@@ -43,7 +43,7 @@ impl VirtIOBlk<'_> {
 
         let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
-        let dma = DMA::new(1)?;
+        let dma = DMA::new(3)?;
 
         let notification =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Mutex<bool>,
@@ -67,7 +67,7 @@ impl VirtIOBlk<'_> {
     }
 
     /// sync read block with interrupt
-    pub fn sync_read(&mut self, block_id: usize,buf: &mut [u8])->Result<usize> {
+    pub fn sync_read(&mut self, block_id: usize,buf: &mut [u8])->Result {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
@@ -90,7 +90,7 @@ impl VirtIOBlk<'_> {
             if !*self.notification[idx].lock() {break}
             unsafe {llvm_asm!("wfi"::::"volatile")}
         }
-        Ok((idx))
+        Ok(())
     }
 
     /// handle interrupt
