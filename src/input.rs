@@ -1,4 +1,5 @@
 use super::*;
+use _core::u32;
 use bitflags::*;
 use log::*;
 use volatile::Volatile;
@@ -26,7 +27,7 @@ impl<'a> VirtIOInput<'a> {
         let event_buf: &mut [Event] = unsafe { core::mem::transmute(event_buf) };
         header.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
-            info!("Device features: {:?}", features);
+            // info!("Device features: {:?}", features);
             // negotiate these flags only
             let supported_features = Feature::empty();
             (features & supported_features).bits()
@@ -34,7 +35,7 @@ impl<'a> VirtIOInput<'a> {
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
-        info!("Config: {:?}", config);
+        // info!("Config: {:?}", config);
 
         let mut event_queue = VirtQueue::new(header, QUEUE_EVENT, QUEUE_SIZE as u16)?;
         let status_queue = VirtQueue::new(header, QUEUE_STATUS, QUEUE_SIZE as u16)?;
@@ -64,8 +65,6 @@ impl<'a> VirtIOInput<'a> {
         while let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             match EventRepr::from(*event) {
-                EventRepr::RelX(dx) => self.x += dx,
-                EventRepr::RelY(dy) => self.y += dy,
                 r => warn!("{:?}", r),
             }
             // requeue
@@ -77,6 +76,29 @@ impl<'a> VirtIOInput<'a> {
     /// Get the coordinate of mouse.
     pub fn mouse_xy(&self) -> (i32, i32) {
         (self.x, self.y)
+    }
+
+    /// handle interrupt
+    pub fn pending(&mut self)->Result<InputRepr> {
+        assert!(self.header.ack_interrupt());
+        if let Ok((token, _)) = self.event_queue.pop_used() {
+            let event = &mut self.event_buf[token as usize];
+            let rt = match EventRepr::from(*event) {
+                EventRepr::ABSX(x) => {InputRepr::ABSX(x)}
+                EventRepr::ABSY(y) => {InputRepr::ABSY(y)}
+                EventRepr::KeyPress(key) => {InputRepr::KeyPress(key)}
+                EventRepr::KeyRelease(key) => {InputRepr::KeyRelease(key)}
+                EventRepr::ScrollUp => {InputRepr::ScrollUp}
+                EventRepr::ScrollDown => {InputRepr::ScrollDown}
+                _ => InputRepr::None,
+            };
+            // requeue
+            self.event_queue.add(&[], &[event.as_buf_mut()])?;
+            Ok(rt)
+        }
+        else {
+            Err(Error::IoError)
+        }
     }
 }
 
@@ -133,10 +155,28 @@ struct Event {
 enum EventRepr {
     SynReport,
     SynUnknown(u16),
-    RelX(i32),
-    RelY(i32),
-    RelUnknown(u16),
+    ABSX(u32),
+    ABSY(u32),
+    UnknownABS(u16),
+    KeyPress(u16),
+    KeyRelease(u16),
+    UnknownKey(u32),
+    ScrollUp,
+    ScrollDown,
+    UnknownRel(u16),
+    UnknownScroll(u32),
     Unknown(u16),
+}
+
+#[derive(Debug)]
+pub enum InputRepr {
+    None,
+    ABSX(u32),
+    ABSY(u32),
+    KeyPress(u16),
+    KeyRelease(u16),
+    ScrollUp,
+    ScrollDown,
 }
 
 unsafe impl AsBuf for Event {}
@@ -149,11 +189,30 @@ impl From<Event> for EventRepr {
                 0 => EventRepr::SynReport,
                 _ => EventRepr::SynUnknown(e.code),
             },
+            // key
+            1 => match e.code {
+                1..275 => match e.value {
+                    1 => EventRepr::KeyPress(e.code),
+                    0 => EventRepr::KeyRelease(e.code),
+                    _ => EventRepr::UnknownKey(e.value),
+                }
+                _ => EventRepr::UnknownKey(e.value),
+            }
+            // mouse scroll
             2 => match e.code {
-                0 => EventRepr::RelX(e.value as i32),
-                1 => EventRepr::RelY(e.value as i32),
-                _ => EventRepr::RelUnknown(e.code),
+                8 => match e.value {
+                    1 => EventRepr::ScrollUp,
+                    0xffffffff => EventRepr::ScrollDown,
+                    _ => EventRepr::UnknownScroll(e.value)
+                }
+                _ => EventRepr::UnknownRel(e.code),
             },
+            // mouse pos
+            3 => match e.code {
+                0 => EventRepr::ABSX(e.value),
+                1 => EventRepr::ABSY(e.value),
+                _ => EventRepr::UnknownRel(e.code),
+            }
             _ => EventRepr::Unknown(e.event_type),
         }
     }

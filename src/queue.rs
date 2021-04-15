@@ -40,8 +40,11 @@ impl VirtQueue<'_> {
         if header.queue_used(idx as u32) {
             return Err(Error::AlreadyUsed);
         }
-        if !size.is_power_of_two() || header.max_queue_size() < size as u32 {
+        if !size.is_power_of_two() {
             return Err(Error::InvalidParam);
+        }
+        if header.max_queue_size() < size as u32 {
+            return Err(Error::QueueMaxErr(header.max_queue_size() as usize));
         }
         let layout = VirtQueueLayout::new(size);
         // alloc continuous pages

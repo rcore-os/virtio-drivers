@@ -17,6 +17,7 @@ const QUEUE_SIZE : usize = 16;
 pub struct VirtIOBlk<'a> {
     /// a
     pub header: &'static mut VirtIOHeader,
+    dma : DMA,
     queue: VirtQueue<'a>,
     capacity: usize,
     notification : &'a mut [Mutex<bool>]
@@ -43,7 +44,7 @@ impl VirtIOBlk<'_> {
 
         let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
-        let dma = DMA::new(3)?;
+        let dma = DMA::new(size_of::<Mutex<bool>>() / PAGE_SIZE + 3)?;
 
         let notification =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Mutex<bool>,
@@ -55,6 +56,7 @@ impl VirtIOBlk<'_> {
 
         Ok(VirtIOBlk {
             header,
+            dma,
             queue,
             capacity: config.capacity.read() as usize,
             notification,
@@ -76,6 +78,35 @@ impl VirtIOBlk<'_> {
         };
         let mut resp = BlkResp::default();
         let idx = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        let idx = idx as usize;
+        {
+            let mut t = self.notification[idx].lock();
+            if *t {
+                return Err(Error::IoError);
+            }
+            *t = true;
+        }
+        self.header.notify(0);
+
+        loop {
+            if !*self.notification[idx].lock() {break}
+            unsafe {llvm_asm!("wfi"::::"volatile")}
+        }
+        Ok(())
+    }
+
+    /// sync write block with interrupt
+    pub fn sync_write(&mut self, block_id: usize, buf: &[u8]) -> Result {
+        assert_eq!(buf.len(), BLK_SIZE);
+        let req = BlkReq {
+            type_: ReqType::Out,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+        let idx = self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        let idx = idx as usize;
+        self.header.notify(0);
         let idx = idx as usize;
         {
             let mut t = self.notification[idx].lock();

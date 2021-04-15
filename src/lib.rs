@@ -4,7 +4,10 @@
 #![deny(unused_must_use, missing_docs)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
-#![feature(llvm_asm)]
+#![feature(
+    llvm_asm,
+    exclusive_range_pattern,
+)]
 
 extern crate log;
 
@@ -48,6 +51,8 @@ pub enum Error {
     InvalidParam,
     /// Failed to alloc DMA memory.
     DmaError,
+    /// QueueMax too small
+    QueueMaxErr(usize),
     /// I/O Error
     IoError,
 }
