@@ -125,7 +125,6 @@ impl VirtIOBlk<'_> {
         while !self.queue.can_pop() {
             spin_loop();
         }
-        self.queue.pop_used()?;
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),
@@ -146,7 +145,6 @@ impl VirtIOBlk<'_> {
         while !self.queue.can_pop() {
             spin_loop();
         }
-        self.queue.pop_used()?;
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),
@@ -154,11 +152,13 @@ impl VirtIOBlk<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct PendingResult {
     block_id : usize,
     read_write : ReadWrite,
 }
 
+#[derive(Debug)]
 pub enum ReadWrite {
     None,
     Read,

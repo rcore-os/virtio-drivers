@@ -1,5 +1,6 @@
 use super::*;
 use crate::queue::VirtQueue;
+use _core::ptr::slice_from_raw_parts;
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
@@ -72,6 +73,32 @@ impl VirtIOGpu<'_> {
     /// Get the resolution (width, height).
     pub fn resolution(&self) -> (u32, u32) {
         (self.rect.width, self.rect.height)
+    }
+
+    /// draw a rect on framebuffer
+    pub fn draw_rect(&mut self,
+        x : usize,
+        y : usize,
+        width : usize,
+        height : usize,
+        data : &[u32]
+    ) {
+        if let Some(addr) = &mut self.frame_buffer_dma {
+            let addr = addr.paddr() as *mut u32;
+            let size = (self.rect.width * self.rect.height * 4) as usize;
+            let buffer = unsafe {
+                &mut *(slice_from_raw_parts(addr, size) as *mut [u32])
+            };
+            for row in 0..height {
+                let st = row * width as usize;
+                let slice = &data[st] as *const u32 as *mut u32;
+                let addr = &buffer[((y + row) * self.rect.width as usize + x)];
+                let addr = addr as *const u32 as *mut u32;
+                unsafe {
+                    addr.copy_from(slice, width);
+                }
+            }
+        }
     }
 
     /// Setup framebuffer
