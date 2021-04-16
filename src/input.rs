@@ -1,5 +1,4 @@
 use super::*;
-use _core::u32;
 use bitflags::*;
 use log::*;
 use volatile::Volatile;
@@ -84,8 +83,8 @@ impl<'a> VirtIOInput<'a> {
         if let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             let rt = match EventRepr::from(*event) {
-                EventRepr::ABSX(x) => InputRepr::ABSX(x),
-                EventRepr::ABSY(y) => InputRepr::ABSY(y),
+                EventRepr::AbsX(x) => InputRepr::AbsX(x),
+                EventRepr::AbsY(y) => InputRepr::AbsY(y),
                 EventRepr::KeyPress(key) => InputRepr::KeyPress(key),
                 EventRepr::KeyRelease(key) => InputRepr::KeyRelease(key),
                 EventRepr::ScrollUp => InputRepr::ScrollUp,
@@ -154,8 +153,8 @@ struct Event {
 enum EventRepr {
     SynReport,
     SynUnknown(u16),
-    ABSX(u32),
-    ABSY(u32),
+    AbsX(u32),
+    AbsY(u32),
     UnknownABS(u16),
     KeyPress(u16),
     KeyRelease(u16),
@@ -170,8 +169,8 @@ enum EventRepr {
 #[derive(Debug)]
 pub enum InputRepr {
     None,
-    ABSX(u32),
-    ABSY(u32),
+    AbsX(u32),
+    AbsY(u32),
     KeyPress(u16),
     KeyRelease(u16),
     ScrollUp,
@@ -190,7 +189,7 @@ impl From<Event> for EventRepr {
             },
             // key
             1 => match e.code {
-                1..275 => match e.value {
+                1..=274 => match e.value {
                     1 => EventRepr::KeyPress(e.code),
                     0 => EventRepr::KeyRelease(e.code),
                     _ => EventRepr::UnknownKey(e.value),
@@ -208,8 +207,8 @@ impl From<Event> for EventRepr {
             },
             // mouse pos
             3 => match e.code {
-                0 => EventRepr::ABSX(e.value),
-                1 => EventRepr::ABSY(e.value),
+                0 => EventRepr::AbsX(e.value),
+                1 => EventRepr::AbsY(e.value),
                 _ => EventRepr::UnknownRel(e.code),
             },
             _ => EventRepr::Unknown(e.event_type),

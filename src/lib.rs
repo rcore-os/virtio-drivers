@@ -4,7 +4,6 @@
 #![deny(unused_must_use, missing_docs)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
-#![feature(llvm_asm, exclusive_range_pattern)]
 
 extern crate log;
 

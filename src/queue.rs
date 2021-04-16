@@ -159,7 +159,7 @@ impl VirtQueue<'_> {
         }
     }
 
-    pub fn get_desc(&'static self, id: usize) -> &'static Descriptor {
+    pub fn get_desc(&self, id: usize) -> &Descriptor {
         &self.desc[id]
     }
 

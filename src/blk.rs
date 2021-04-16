@@ -13,8 +13,7 @@ const QUEUE_SIZE: usize = 16;
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
 pub struct VirtIOBlk<'a> {
-    /// a
-    pub header: &'static mut VirtIOHeader,
+    header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
     request_pool: [BlkReq; QUEUE_SIZE],
@@ -60,27 +59,19 @@ impl VirtIOBlk<'_> {
     }
 
     /// handle interrupt
-    pub fn pending(&'static mut self) -> Result<PendingResult> {
-        if !self.queue.can_pop() {
-            return Err(Error::IoError);
-        }
-        let rt = self.queue.pop_used();
-        match rt {
-            _core::result::Result::Ok((idx, _len)) => {
-                let desc = self.queue.get_desc(idx as usize);
-                let rq = unsafe { &*(desc.addr.read() as *const BlkReq) };
-                let rw = match rq.type_ {
-                    ReqType::In => ReadWrite::Read,
-                    ReqType::Out => ReadWrite::Write,
-                    _ => ReadWrite::None,
-                };
-                Ok(PendingResult {
-                    block_id: rq.sector as usize,
-                    read_write: rw,
-                })
-            }
-            _core::result::Result::Err(err) => Err(err),
-        }
+    pub fn pending(&mut self) -> Result<PendingResult> {
+        let (idx, _len) = self.queue.pop_used()?;
+        let desc = self.queue.get_desc(idx as usize);
+        let rq = unsafe { &*(desc.addr.read() as *const BlkReq) };
+        let rw = match rq.type_ {
+            ReqType::In => ReadWrite::Read,
+            ReqType::Out => ReadWrite::Write,
+            _ => ReadWrite::None,
+        };
+        Ok(PendingResult {
+            block_id: rq.sector as usize,
+            read_write: rw,
+        })
     }
 
     /// read block without blocking
@@ -196,11 +187,9 @@ struct BlkConfig {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct BlkReq {
-    /// type
-    pub type_: ReqType,
+    type_: ReqType,
     reserved: u32,
-    /// sector
-    pub sector: u64,
+    sector: u64,
 }
 
 #[repr(C)]
