@@ -76,6 +76,11 @@ impl VirtQueue<'_> {
         })
     }
 
+    /// get current idx
+    pub fn get_desc_idx(&self)->usize {
+        self.free_head as usize
+    }
+
     /// Add buffers to the virtqueue, return a token.
     ///
     /// Ref: linux virtio_ring.c virtqueue_add

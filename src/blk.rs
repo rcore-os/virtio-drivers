@@ -17,6 +17,7 @@ pub struct VirtIOBlk<'a> {
     pub header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
+    request_pool : [BlkReq;QUEUE_SIZE],
 }
 
 impl VirtIOBlk<'_> {
@@ -45,6 +46,7 @@ impl VirtIOBlk<'_> {
             header,
             queue,
             capacity: config.capacity.read() as usize,
+            request_pool : [BlkReq{type_: ReqType::In, reserved: 0, sector: 0};QUEUE_SIZE],
         })
     }
 
@@ -80,13 +82,15 @@ impl VirtIOBlk<'_> {
     /// read block without blocking
     pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8])->Result {
         assert_eq!(buf.len(), BLK_SIZE);
+        let idx = self.queue.get_desc_idx();
         let req = BlkReq {
             type_: ReqType::In,
             reserved: 0,
             sector: block_id as u64,
         };
+        self.request_pool[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.queue.add(&[self.request_pool[idx].as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
         Ok(())
     }
@@ -94,13 +98,15 @@ impl VirtIOBlk<'_> {
     /// write block without blocking
     pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8])->Result {
         assert_eq!(buf.len(), BLK_SIZE);
+        let idx = self.queue.get_desc_idx();
         let req = BlkReq {
             type_: ReqType::Out,
             reserved: 0,
             sector: block_id as u64,
         };
+        self.request_pool[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        self.queue.add(&[self.request_pool[idx].as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
         Ok(())
     }
@@ -178,7 +184,7 @@ struct BlkConfig {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct BlkReq {
     /// type
     pub type_: ReqType,
@@ -194,7 +200,7 @@ struct BlkResp {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum ReqType {
     In = 0,
     Out = 1,
