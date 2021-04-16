@@ -1,4 +1,4 @@
-use core::mem::{MaybeUninit};
+use core::mem::MaybeUninit;
 
 use super::*;
 use bitflags::*;

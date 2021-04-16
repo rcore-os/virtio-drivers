@@ -6,7 +6,7 @@ use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
 
-const QUEUE_SIZE : usize = 16;
+const QUEUE_SIZE: usize = 16;
 
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
@@ -17,7 +17,7 @@ pub struct VirtIOBlk<'a> {
     pub header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a>,
     capacity: usize,
-    request_pool : [BlkReq;QUEUE_SIZE],
+    request_pool: [BlkReq; QUEUE_SIZE],
 }
 
 impl VirtIOBlk<'_> {
@@ -46,7 +46,11 @@ impl VirtIOBlk<'_> {
             header,
             queue,
             capacity: config.capacity.read() as usize,
-            request_pool : [BlkReq{type_: ReqType::In, reserved: 0, sector: 0};QUEUE_SIZE],
+            request_pool: [BlkReq {
+                type_: ReqType::In,
+                reserved: 0,
+                sector: 0,
+            }; QUEUE_SIZE],
         })
     }
 
@@ -56,7 +60,7 @@ impl VirtIOBlk<'_> {
     }
 
     /// handle interrupt
-    pub fn pending(&'static mut self)->Result<PendingResult> {
+    pub fn pending(&'static mut self) -> Result<PendingResult> {
         if !self.queue.can_pop() {
             return Err(Error::IoError);
         }
@@ -64,23 +68,23 @@ impl VirtIOBlk<'_> {
         match rt {
             _core::result::Result::Ok((idx, _len)) => {
                 let desc = self.queue.get_desc(idx as usize);
-                let rq = unsafe{&*(desc.addr.read() as *const BlkReq)};
-                let rw = match rq.type_{
-                    ReqType::In => {ReadWrite::Read}
-                    ReqType::Out => {ReadWrite::Write}
-                    _ => {ReadWrite::None}
+                let rq = unsafe { &*(desc.addr.read() as *const BlkReq) };
+                let rw = match rq.type_ {
+                    ReqType::In => ReadWrite::Read,
+                    ReqType::Out => ReadWrite::Write,
+                    _ => ReadWrite::None,
                 };
                 Ok(PendingResult {
                     block_id: rq.sector as usize,
                     read_write: rw,
                 })
             }
-            _core::result::Result::Err(err) => {Err(err)}
+            _core::result::Result::Err(err) => Err(err),
         }
     }
 
     /// read block without blocking
-    pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8])->Result {
+    pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
         assert_eq!(buf.len(), BLK_SIZE);
         let idx = self.queue.get_desc_idx();
         let req = BlkReq {
@@ -90,13 +94,16 @@ impl VirtIOBlk<'_> {
         };
         self.request_pool[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[self.request_pool[idx].as_buf()], &[buf, resp.as_buf_mut()])?;
+        self.queue.add(
+            &[self.request_pool[idx].as_buf()],
+            &[buf, resp.as_buf_mut()],
+        )?;
         self.header.notify(0);
         Ok(())
     }
 
     /// write block without blocking
-    pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8])->Result {
+    pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8]) -> Result {
         assert_eq!(buf.len(), BLK_SIZE);
         let idx = self.queue.get_desc_idx();
         let req = BlkReq {
@@ -106,7 +113,10 @@ impl VirtIOBlk<'_> {
         };
         self.request_pool[idx] = req;
         let mut resp = BlkResp::default();
-        self.queue.add(&[self.request_pool[idx].as_buf(), buf], &[resp.as_buf_mut()])?;
+        self.queue.add(
+            &[self.request_pool[idx].as_buf(), buf],
+            &[resp.as_buf_mut()],
+        )?;
         self.header.notify(0);
         Ok(())
     }
@@ -154,8 +164,8 @@ impl VirtIOBlk<'_> {
 
 #[derive(Debug)]
 pub struct PendingResult {
-    block_id : usize,
-    read_write : ReadWrite,
+    block_id: usize,
+    read_write: ReadWrite,
 }
 
 #[derive(Debug)]

@@ -76,19 +76,11 @@ impl VirtIOGpu<'_> {
     }
 
     /// draw a rect on framebuffer
-    pub fn draw_rect(&mut self,
-        x : usize,
-        y : usize,
-        width : usize,
-        height : usize,
-        data : &[u32]
-    ) {
+    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, data: &[u32]) {
         if let Some(addr) = &mut self.frame_buffer_dma {
             let addr = addr.paddr() as *mut u32;
             let size = (self.rect.width * self.rect.height * 4) as usize;
-            let buffer = unsafe {
-                &mut *(slice_from_raw_parts(addr, size) as *mut [u32])
-            };
+            let buffer = unsafe { &mut *(slice_from_raw_parts(addr, size) as *mut [u32]) };
             for row in 0..height {
                 let st = row * width as usize;
                 let slice = &data[st] as *const u32 as *mut u32;

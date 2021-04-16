@@ -77,7 +77,7 @@ impl VirtQueue<'_> {
     }
 
     /// get current idx
-    pub fn get_desc_idx(&self)->usize {
+    pub fn get_desc_idx(&self) -> usize {
         self.free_head as usize
     }
 
@@ -159,7 +159,7 @@ impl VirtQueue<'_> {
         }
     }
 
-    pub fn get_desc(&'static self, id : usize)->&'static Descriptor {
+    pub fn get_desc(&'static self, id: usize) -> &'static Descriptor {
         &self.desc[id]
     }
 

@@ -79,24 +79,23 @@ impl<'a> VirtIOInput<'a> {
     }
 
     /// handle interrupt
-    pub fn pending(&mut self)->Result<InputRepr> {
+    pub fn pending(&mut self) -> Result<InputRepr> {
         assert!(self.header.ack_interrupt());
         if let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             let rt = match EventRepr::from(*event) {
-                EventRepr::ABSX(x) => {InputRepr::ABSX(x)}
-                EventRepr::ABSY(y) => {InputRepr::ABSY(y)}
-                EventRepr::KeyPress(key) => {InputRepr::KeyPress(key)}
-                EventRepr::KeyRelease(key) => {InputRepr::KeyRelease(key)}
-                EventRepr::ScrollUp => {InputRepr::ScrollUp}
-                EventRepr::ScrollDown => {InputRepr::ScrollDown}
+                EventRepr::ABSX(x) => InputRepr::ABSX(x),
+                EventRepr::ABSY(y) => InputRepr::ABSY(y),
+                EventRepr::KeyPress(key) => InputRepr::KeyPress(key),
+                EventRepr::KeyRelease(key) => InputRepr::KeyRelease(key),
+                EventRepr::ScrollUp => InputRepr::ScrollUp,
+                EventRepr::ScrollDown => InputRepr::ScrollDown,
                 _ => InputRepr::None,
             };
             // requeue
             self.event_queue.add(&[], &[event.as_buf_mut()])?;
             Ok(rt)
-        }
-        else {
+        } else {
             Err(Error::IoError)
         }
     }
@@ -195,16 +194,16 @@ impl From<Event> for EventRepr {
                     1 => EventRepr::KeyPress(e.code),
                     0 => EventRepr::KeyRelease(e.code),
                     _ => EventRepr::UnknownKey(e.value),
-                }
+                },
                 _ => EventRepr::UnknownKey(e.value),
-            }
+            },
             // mouse scroll
             2 => match e.code {
                 8 => match e.value {
                     1 => EventRepr::ScrollUp,
                     0xffffffff => EventRepr::ScrollDown,
-                    _ => EventRepr::UnknownScroll(e.value)
-                }
+                    _ => EventRepr::UnknownScroll(e.value),
+                },
                 _ => EventRepr::UnknownRel(e.code),
             },
             // mouse pos
@@ -212,7 +211,7 @@ impl From<Event> for EventRepr {
                 0 => EventRepr::ABSX(e.value),
                 1 => EventRepr::ABSY(e.value),
                 _ => EventRepr::UnknownRel(e.code),
-            }
+            },
             _ => EventRepr::Unknown(e.event_type),
         }
     }
