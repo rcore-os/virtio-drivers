@@ -154,6 +154,10 @@ impl VirtQueue<'_> {
         }
     }
 
+    pub fn get_desc(&'static self, id : usize)->&'static Descriptor {
+        &self.desc[id]
+    }
+
     /// Get a token from device used buffers, return (token, len).
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
@@ -172,10 +176,6 @@ impl VirtQueue<'_> {
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok((index, len))
-    }
-
-    pub fn get_current_head(&self)->usize {
-        self.free_head as usize
     }
 }
 
@@ -208,10 +208,12 @@ impl VirtQueueLayout {
 
 #[repr(C, align(16))]
 #[derive(Debug)]
-struct Descriptor {
-    addr: Volatile<u64>,
+pub struct Descriptor {
+    /// addr
+    pub addr: Volatile<u64>,
     len: Volatile<u32>,
-    flags: Volatile<DescFlags>,
+    /// flag
+    pub flags: Volatile<DescFlags>,
     next: Volatile<u16>,
 }
 
@@ -224,7 +226,7 @@ impl Descriptor {
 
 bitflags! {
     /// Descriptor flags
-    struct DescFlags: u16 {
+    pub struct DescFlags: u16 {
         const NEXT = 1;
         const WRITE = 2;
         const INDIRECT = 4;

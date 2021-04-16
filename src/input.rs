@@ -35,7 +35,7 @@ impl<'a> VirtIOInput<'a> {
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
-        // info!("Config: {:?}", config);
+        info!("Config: {:?}", config);
 
         let mut event_queue = VirtQueue::new(header, QUEUE_EVENT, QUEUE_SIZE as u16)?;
         let status_queue = VirtQueue::new(header, QUEUE_STATUS, QUEUE_SIZE as u16)?;

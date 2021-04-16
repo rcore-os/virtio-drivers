@@ -1,12 +1,10 @@
 use super::*;
 use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
-use _core::slice;
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
-use spin::Mutex;
 
 const QUEUE_SIZE : usize = 16;
 
@@ -17,10 +15,8 @@ const QUEUE_SIZE : usize = 16;
 pub struct VirtIOBlk<'a> {
     /// a
     pub header: &'static mut VirtIOHeader,
-    dma : DMA,
     queue: VirtQueue<'a>,
     capacity: usize,
-    notification : &'a mut [Mutex<bool>]
 }
 
 impl VirtIOBlk<'_> {
@@ -44,22 +40,11 @@ impl VirtIOBlk<'_> {
 
         let queue = VirtQueue::new(header, 0, QUEUE_SIZE as u16)?;
         header.finish_init();
-        let dma = DMA::new(size_of::<Mutex<bool>>() / PAGE_SIZE + 3)?;
-
-        let notification =
-            unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Mutex<bool>,
-                QUEUE_SIZE) };
-        
-        for i in 0..QUEUE_SIZE {
-            notification[i] = Mutex::new(false);
-        }
 
         Ok(VirtIOBlk {
             header,
-            dma,
             queue,
             capacity: config.capacity.read() as usize,
-            notification,
         })
     }
 
@@ -68,8 +53,32 @@ impl VirtIOBlk<'_> {
         self.header.ack_interrupt()
     }
 
-    /// sync read block with interrupt
-    pub fn sync_read(&mut self, block_id: usize,buf: &mut [u8])->Result {
+    /// handle interrupt
+    pub fn pending(&'static mut self)->Result<PendingResult> {
+        if !self.queue.can_pop() {
+            return Err(Error::IoError);
+        }
+        let rt = self.queue.pop_used();
+        match rt {
+            _core::result::Result::Ok((idx, _len)) => {
+                let desc = self.queue.get_desc(idx as usize);
+                let rq = unsafe{&*(desc.addr.read() as *const BlkReq)};
+                let rw = match rq.type_{
+                    ReqType::In => {ReadWrite::Read}
+                    ReqType::Out => {ReadWrite::Write}
+                    _ => {ReadWrite::None}
+                };
+                Ok(PendingResult {
+                    block_id: rq.sector as usize,
+                    read_write: rw,
+                })
+            }
+            _core::result::Result::Err(err) => {Err(err)}
+        }
+    }
+
+    /// read block without blocking
+    pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8])->Result {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
@@ -77,26 +86,13 @@ impl VirtIOBlk<'_> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        let idx = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
-        let idx = idx as usize;
-        {
-            let mut t = self.notification[idx].lock();
-            if *t {
-                return Err(Error::IoError);
-            }
-            *t = true;
-        }
+        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
-
-        loop {
-            if !*self.notification[idx].lock() {break}
-            unsafe {llvm_asm!("wfi"::::"volatile")}
-        }
         Ok(())
     }
 
-    /// sync write block with interrupt
-    pub fn sync_write(&mut self, block_id: usize, buf: &[u8]) -> Result {
+    /// write block without blocking
+    pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8])->Result {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
@@ -104,46 +100,9 @@ impl VirtIOBlk<'_> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        let idx = self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
-        let idx = idx as usize;
+        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
-        let idx = idx as usize;
-        {
-            let mut t = self.notification[idx].lock();
-            if *t {
-                return Err(Error::IoError);
-            }
-            *t = true;
-        }
-        self.header.notify(0);
-
-        loop {
-            if !*self.notification[idx].lock() {break}
-            unsafe {llvm_asm!("wfi"::::"volatile")}
-        }
         Ok(())
-    }
-
-    /// handle interrupt
-    pub fn pending(&mut self)->Result {
-        if !self.queue.can_pop() {
-            return Err(Error::IoError);
-        }
-        let rt = self.queue.pop_used();
-        match rt {
-            _core::result::Result::Ok((idx, _len)) => {
-                let idx = idx as usize;
-                {
-                    let mut t = self.notification[idx].lock();
-                    if !*t {
-                        return Err(Error::IoError);
-                    }
-                    *t = false;
-                }
-                Ok(())
-            }
-            _core::result::Result::Err(err) => {Err(err)}
-        }
     }
 
     /// Read a block.
@@ -189,6 +148,17 @@ impl VirtIOBlk<'_> {
     }
 }
 
+pub struct PendingResult {
+    block_id : usize,
+    read_write : ReadWrite,
+}
+
+pub enum ReadWrite {
+    None,
+    Read,
+    Write,
+}
+
 #[repr(C)]
 #[derive(Debug)]
 struct BlkConfig {
@@ -210,9 +180,11 @@ struct BlkConfig {
 #[repr(C)]
 #[derive(Debug)]
 struct BlkReq {
-    type_: ReqType,
+    /// type
+    pub type_: ReqType,
     reserved: u32,
-    sector: u64,
+    /// sector
+    pub sector: u64,
 }
 
 #[repr(C)]
