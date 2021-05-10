@@ -9,6 +9,7 @@
 extern crate log;
 
 mod blk;
+mod console;
 mod gpu;
 mod hal;
 mod header;
@@ -17,6 +18,7 @@ mod net;
 mod queue;
 
 pub use self::blk::VirtIOBlk;
+pub use self::console::VirtIOConsole;
 pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
 pub use self::input::VirtIOInput;
