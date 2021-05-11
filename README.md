@@ -6,14 +6,15 @@ VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 
 ## Components
 
-| Device | Status            |
-| ------ | ----------------- |
-| Queue  | ✅                 |
-| Block  | ✅                 |
-| Net    | ✅                 |
-| GPU    | ✅                 |
-| Input  | ✅                 |
-| ...    | ❌ Not implemented |
+| Device   | Status              |
+| -------- | ------------------- |
+| Queue    | ✅                 |
+| Block    | ✅                 |
+| Net      | ✅                 |
+| GPU      | ✅                 |
+| Input    | ✅                 |
+| Console  | ✅                 |
+| ...      | ❌ Not implemented |
 
 ## Examples & Tests
 
