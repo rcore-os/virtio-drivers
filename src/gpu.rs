@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use bitflags::*;
-use core::hint::spin_loop;
+use core::{fmt, hint::spin_loop};
 use log::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
@@ -163,7 +163,6 @@ impl VirtIOGpu<'_> {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 struct Config {
     /// Signals pending events to the driver。
     events_read: ReadOnly<u32>,
@@ -175,6 +174,15 @@ struct Config {
     ///
     /// Minimum value is 1, maximum value is 16.
     num_scanouts: Volatile<u32>,
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("events_read", &self.events_read)
+            .field("num_scanouts", &self.num_scanouts)
+            .finish()
+    }
 }
 
 /// Display configuration has changed.

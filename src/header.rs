@@ -6,7 +6,6 @@ use volatile::{ReadOnly, Volatile, WriteOnly};
 ///
 /// Ref: 4.2.4 Legacy interface
 #[repr(C)]
-#[derive(Debug)]
 pub struct VirtIOHeader {
     /// Magic value
     magic: ReadOnly<u32>,

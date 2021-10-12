@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use bitflags::*;
-use core::hint::spin_loop;
+use core::{fmt, hint::spin_loop};
 use log::*;
 use volatile::{ReadOnly, WriteOnly};
 
@@ -97,12 +97,21 @@ impl<'a> VirtIOConsole<'a> {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 struct Config {
     cols: ReadOnly<u16>,
     rows: ReadOnly<u16>,
     max_nr_ports: ReadOnly<u32>,
     emerg_wr: WriteOnly<u32>,
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("cols", &self.cols)
+            .field("rows", &self.rows)
+            .field("max_nr_ports", &self.max_nr_ports)
+            .finish()
+    }
 }
 
 bitflags! {
