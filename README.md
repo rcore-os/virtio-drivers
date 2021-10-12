@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rcore-os/virtio-drivers/workflows/CI/badge.svg?branch=master)](https://github.com/rcore-os/virtio-drivers/actions)
 
-VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
+VirtIO guest drivers in Rust. For **no_std** environment.
 
 ## Components
 
@@ -21,4 +21,3 @@ VirtIO guest drivers in Rust. For **no_std + no_alloc** environment.
 * x86_64 (TODO)
 
 * [RISCV](./examples/riscv)
-

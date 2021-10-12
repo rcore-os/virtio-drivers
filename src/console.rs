@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use bitflags::*;
-use core::sync::atomic::spin_loop_hint;
+use core::hint::spin_loop;
 use log::*;
 use volatile::{ReadOnly, WriteOnly};
 
@@ -89,7 +89,7 @@ impl<'a> VirtIOConsole<'a> {
         self.transmitq.add(&[&buf], &[])?;
         self.header.notify(QUEUE_TRANSMITQ_PORT_0 as u32);
         while !self.transmitq.can_pop() {
-            spin_loop_hint();
+            spin_loop();
         }
         self.transmitq.pop_used()?;
         Ok(())
