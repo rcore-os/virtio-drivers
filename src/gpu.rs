@@ -17,6 +17,8 @@ pub struct VirtIOGpu<'a> {
     rect: Rect,
     /// DMA area of frame buffer.
     frame_buffer_dma: Option<DMA>,
+    /// DMA area of cursor image buffer.
+    cursor_buffer_dma: Option<DMA>,
     /// Queue for sending control commands.
     control_queue: VirtQueue<'a>,
     /// Queue for sending cursor commands.
@@ -55,6 +57,7 @@ impl VirtIOGpu<'_> {
         Ok(VirtIOGpu {
             header,
             frame_buffer_dma: None,
+            cursor_buffer_dma: None,
             rect: Rect::default(),
             control_queue,
             cursor_queue,
@@ -77,45 +80,26 @@ impl VirtIOGpu<'_> {
     /// Setup framebuffer
     pub fn setup_framebuffer(&mut self) -> Result<&mut [u8]> {
         // get display info
-        let display_info: RespDisplayInfo =
-            self.request(CtrlHeader::with_type(Command::GetDisplayInfo))?;
-        display_info.header.check_type(Command::OkDisplayInfo)?;
+        let display_info = self.get_display_info()?;
         info!("=> {:?}", display_info);
         self.rect = display_info.rect;
 
         // create resource 2d
-        let rsp: CtrlHeader = self.request(ResourceCreate2D {
-            header: CtrlHeader::with_type(Command::ResourceCreate2d),
-            resource_id: RESOURCE_ID,
-            format: Format::B8G8R8A8UNORM,
-            width: display_info.rect.width,
-            height: display_info.rect.height,
-        })?;
-        rsp.check_type(Command::OkNodata)?;
+        self.resource_create_2d(
+            RESOURCE_ID_FB,
+            display_info.rect.width,
+            display_info.rect.height,
+        )?;
 
         // alloc continuous pages for the frame buffer
         let size = display_info.rect.width * display_info.rect.height * 4;
         let frame_buffer_dma = DMA::new(pages(size as usize))?;
 
         // resource_attach_backing
-        let rsp: CtrlHeader = self.request(ResourceAttachBacking {
-            header: CtrlHeader::with_type(Command::ResourceAttachBacking),
-            resource_id: RESOURCE_ID,
-            nr_entries: 1,
-            addr: frame_buffer_dma.paddr() as u64,
-            length: size,
-            padding: 0,
-        })?;
-        rsp.check_type(Command::OkNodata)?;
+        self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
 
         // map frame buffer to screen
-        let rsp: CtrlHeader = self.request(SetScanout {
-            header: CtrlHeader::with_type(Command::SetScanout),
-            rect: display_info.rect,
-            scanout_id: 0,
-            resource_id: RESOURCE_ID,
-        })?;
-        rsp.check_type(Command::OkNodata)?;
+        self.set_scanout(display_info.rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
         let buf = unsafe { frame_buffer_dma.as_buf() };
         self.frame_buffer_dma = Some(frame_buffer_dma);
@@ -125,27 +109,53 @@ impl VirtIOGpu<'_> {
     /// Flush framebuffer to screen.
     pub fn flush(&mut self) -> Result {
         // copy data from guest to host
-        let rsp: CtrlHeader = self.request(TransferToHost2D {
-            header: CtrlHeader::with_type(Command::TransferToHost2d),
-            rect: self.rect,
-            offset: 0,
-            resource_id: RESOURCE_ID,
-            padding: 0,
-        })?;
-        rsp.check_type(Command::OkNodata)?;
-
+        self.transfer_to_host_2d(self.rect, 0, RESOURCE_ID_FB)?;
         // flush data to screen
-        let rsp: CtrlHeader = self.request(ResourceFlush {
-            header: CtrlHeader::with_type(Command::ResourceFlush),
-            rect: self.rect,
-            resource_id: RESOURCE_ID,
-            padding: 0,
-        })?;
-        rsp.check_type(Command::OkNodata)?;
-
+        self.resource_flush(self.rect, RESOURCE_ID_FB)?;
         Ok(())
     }
 
+    /// Set the pointer shape and position.
+    pub fn setup_cursor(
+        &mut self,
+        cursor_image: &[u8],
+        pos_x: u32,
+        pos_y: u32,
+        hot_x: u32,
+        hot_y: u32,
+    ) -> Result {
+        let size = CURSOR_RECT.width * CURSOR_RECT.height * 4;
+        if cursor_image.len() != size as usize {
+            return Err(Error::InvalidParam);
+        }
+        let cursor_buffer_dma = DMA::new(pages(size as usize))?;
+        let buf = unsafe { cursor_buffer_dma.as_buf() };
+        buf.copy_from_slice(cursor_image);
+
+        self.resource_create_2d(RESOURCE_ID_CURSOR, CURSOR_RECT.width, CURSOR_RECT.height)?;
+        self.resource_attach_backing(RESOURCE_ID_CURSOR, cursor_buffer_dma.paddr() as u64, size)?;
+        self.transfer_to_host_2d(CURSOR_RECT, 0, RESOURCE_ID_CURSOR)?;
+        self.update_cursor(
+            RESOURCE_ID_CURSOR,
+            SCANOUT_ID,
+            pos_x,
+            pos_y,
+            hot_x,
+            hot_y,
+            false,
+        )?;
+        self.cursor_buffer_dma = Some(cursor_buffer_dma);
+        Ok(())
+    }
+
+    /// Move the pointer without updating the shape.
+    pub fn move_cursor(&mut self, pos_x: u32, pos_y: u32) -> Result {
+        self.update_cursor(RESOURCE_ID_CURSOR, SCANOUT_ID, pos_x, pos_y, 0, 0, true)?;
+        Ok(())
+    }
+}
+
+impl VirtIOGpu<'_> {
     /// Send a request to the device and block for a response.
     fn request<Req, Rsp>(&mut self, req: Req) -> Result<Rsp> {
         unsafe {
@@ -159,6 +169,109 @@ impl VirtIOGpu<'_> {
         }
         self.control_queue.pop_used()?;
         Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })
+    }
+
+    /// Send a mouse cursor operation request to the device and block for a response.
+    fn cursor_request<Req>(&mut self, req: Req) -> Result {
+        unsafe {
+            (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
+        }
+        self.cursor_queue.add(&[self.queue_buf_send], &[])?;
+        self.header.notify(QUEUE_CURSOR as u32);
+        while !self.cursor_queue.can_pop() {
+            spin_loop();
+        }
+        self.cursor_queue.pop_used()?;
+        Ok(())
+    }
+
+    fn get_display_info(&mut self) -> Result<RespDisplayInfo> {
+        let info: RespDisplayInfo = self.request(CtrlHeader::with_type(Command::GetDisplayInfo))?;
+        info.header.check_type(Command::OkDisplayInfo)?;
+        Ok(info)
+    }
+
+    fn resource_create_2d(&mut self, resource_id: u32, width: u32, height: u32) -> Result {
+        let rsp: CtrlHeader = self.request(ResourceCreate2D {
+            header: CtrlHeader::with_type(Command::ResourceCreate2d),
+            resource_id,
+            format: Format::B8G8R8A8UNORM,
+            width,
+            height,
+        })?;
+        rsp.check_type(Command::OkNodata)
+    }
+
+    fn set_scanout(&mut self, rect: Rect, scanout_id: u32, resource_id: u32) -> Result {
+        let rsp: CtrlHeader = self.request(SetScanout {
+            header: CtrlHeader::with_type(Command::SetScanout),
+            rect,
+            scanout_id,
+            resource_id,
+        })?;
+        rsp.check_type(Command::OkNodata)
+    }
+
+    fn resource_flush(&mut self, rect: Rect, resource_id: u32) -> Result {
+        let rsp: CtrlHeader = self.request(ResourceFlush {
+            header: CtrlHeader::with_type(Command::ResourceFlush),
+            rect,
+            resource_id,
+            _padding: 0,
+        })?;
+        rsp.check_type(Command::OkNodata)
+    }
+
+    fn transfer_to_host_2d(&mut self, rect: Rect, offset: u64, resource_id: u32) -> Result {
+        let rsp: CtrlHeader = self.request(TransferToHost2D {
+            header: CtrlHeader::with_type(Command::TransferToHost2d),
+            rect,
+            offset,
+            resource_id,
+            _padding: 0,
+        })?;
+        rsp.check_type(Command::OkNodata)
+    }
+
+    fn resource_attach_backing(&mut self, resource_id: u32, paddr: u64, length: u32) -> Result {
+        let rsp: CtrlHeader = self.request(ResourceAttachBacking {
+            header: CtrlHeader::with_type(Command::ResourceAttachBacking),
+            resource_id,
+            nr_entries: 1,
+            addr: paddr,
+            length,
+            _padding: 0,
+        })?;
+        rsp.check_type(Command::OkNodata)
+    }
+
+    fn update_cursor(
+        &mut self,
+        resource_id: u32,
+        scanout_id: u32,
+        pos_x: u32,
+        pos_y: u32,
+        hot_x: u32,
+        hot_y: u32,
+        is_move: bool,
+    ) -> Result {
+        self.cursor_request(UpdateCursor {
+            header: if is_move {
+                CtrlHeader::with_type(Command::MoveCursor)
+            } else {
+                CtrlHeader::with_type(Command::UpdateCursor)
+            },
+            pos: CursorPos {
+                scanout_id,
+                x: pos_x,
+                y: pos_y,
+                _padding: 0,
+            },
+            resource_id,
+            hot_x,
+            hot_y,
+            _padding: 0,
+        })
     }
 }
 
@@ -214,7 +327,7 @@ bitflags! {
 }
 
 #[repr(u32)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Command {
     GetDisplayInfo = 0x100,
     ResourceCreate2d = 0x101,
@@ -245,13 +358,13 @@ enum Command {
 const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
     fence_id: u64,
     ctx_id: u32,
-    padding: u32,
+    _padding: u32,
 }
 
 impl CtrlHeader {
@@ -261,7 +374,7 @@ impl CtrlHeader {
             flags: 0,
             fence_id: 0,
             ctx_id: 0,
-            padding: 0,
+            _padding: 0,
         }
     }
 
@@ -317,7 +430,7 @@ struct ResourceAttachBacking {
     nr_entries: u32, // always 1
     addr: u64,
     length: u32,
-    padding: u32,
+    _padding: u32,
 }
 
 #[repr(C)]
@@ -336,7 +449,7 @@ struct TransferToHost2D {
     rect: Rect,
     offset: u64,
     resource_id: u32,
-    padding: u32,
+    _padding: u32,
 }
 
 #[repr(C)]
@@ -345,10 +458,39 @@ struct ResourceFlush {
     header: CtrlHeader,
     rect: Rect,
     resource_id: u32,
-    padding: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct CursorPos {
+    scanout_id: u32,
+    x: u32,
+    y: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct UpdateCursor {
+    header: CtrlHeader,
+    pos: CursorPos,
+    resource_id: u32,
+    hot_x: u32,
+    hot_y: u32,
+    _padding: u32,
 }
 
 const QUEUE_TRANSMIT: usize = 0;
 const QUEUE_CURSOR: usize = 1;
 
-const RESOURCE_ID: u32 = 0xbabe;
+const SCANOUT_ID: u32 = 0;
+const RESOURCE_ID_FB: u32 = 0xbabe;
+const RESOURCE_ID_CURSOR: u32 = 0xdade;
+
+const CURSOR_RECT: Rect = Rect {
+    x: 0,
+    y: 0,
+    width: 64,
+    height: 64,
+};
