@@ -173,7 +173,7 @@ impl VirtQueue<'_> {
 
     /// Return size of the queue.
     pub fn size(&self) -> u16 {
-        self.queue_size 
+        self.queue_size
     }
 }
 

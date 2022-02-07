@@ -77,7 +77,7 @@ impl VirtIOBlk<'_> {
     ///
     /// * `block_id` - The identifier of the block to read.
     /// * `buf` - The buffer in the memory which the block is read into.
-    /// * `resp` - A mutable reference to a variable provided by the caller 
+    /// * `resp` - A mutable reference to a variable provided by the caller
     ///   which contains the status of the requests. The caller can safely
     ///   read the variable only after the request is ready.
     ///
@@ -89,17 +89,19 @@ impl VirtIOBlk<'_> {
     ///
     /// After the request is ready, `resp` will be updated and the caller can get the
     /// status of the request(e.g. succeed or failed) through it. However, the caller
-    /// **must not** spin on `resp` to wait for it to change. A safe way is to read it 
+    /// **must not** spin on `resp` to wait for it to change. A safe way is to read it
     /// after the same token as this method returns is fetched through [VirtIOBlk::pop_used()],
     /// which means that the request has been ready.
     pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8], resp: &mut u8) -> Result<u16> {
-        assert_eq!(buf.len(), BLK_SIZE); 
+        assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self.queue.add(&[req.as_buf()], &[buf, core::slice::from_mut(resp)])?;
+        let token = self
+            .queue
+            .add(&[req.as_buf()], &[buf, core::slice::from_mut(resp)])?;
         self.header.notify(0);
         Ok(token)
     }
@@ -131,7 +133,7 @@ impl VirtIOBlk<'_> {
     ///
     /// * `block_id` - The identifier of the block to write.
     /// * `buf` - The buffer in the memory containing the data to write to the block.
-    /// * `resp` - A mutable reference to a variable provided by the caller 
+    /// * `resp` - A mutable reference to a variable provided by the caller
     ///   which contains the status of the requests. The caller can safely
     ///   read the variable only after the request is ready.
     ///
@@ -139,28 +141,30 @@ impl VirtIOBlk<'_> {
     ///
     /// See also [VirtIOBlk::read_block_nb()].
     pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8], resp: &mut u8) -> Result<u16> {
-        assert_eq!(buf.len(), BLK_SIZE); 
+        assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self.queue.add(&[req.as_buf(), buf], &[core::slice::from_mut(resp)])?;
+        let token = self
+            .queue
+            .add(&[req.as_buf(), buf], &[core::slice::from_mut(resp)])?;
         self.header.notify(0);
         Ok(token)
     }
 
     /// During an interrupt, it fetches a token of a completed request from the used
-    /// ring and return it. If all completed requests have already been fetched, return 
+    /// ring and return it. If all completed requests have already been fetched, return
     /// Err(Error::NotReady).
     pub fn pop_used(&mut self) -> Result<u16> {
-        self.queue.pop_used().map(|p| p.0)  
+        self.queue.pop_used().map(|p| p.0)
     }
 
-    /// Return size of its VirtQueue. 
+    /// Return size of its VirtQueue.
     /// It can be used to tell the caller how many channels he should monitor on.
     pub fn virt_queue_size(&self) -> u16 {
-        self.queue.size() 
+        self.queue.size()
     }
 }
 
