@@ -170,6 +170,11 @@ impl VirtQueue<'_> {
 
         Ok((index, len))
     }
+
+    /// Return size of the queue.
+    pub fn size(&self) -> u16 {
+        self.queue_size
+    }
 }
 
 /// The inner layout of a VirtQueue.

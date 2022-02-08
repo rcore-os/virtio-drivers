@@ -19,7 +19,7 @@ mod input;
 mod net;
 mod queue;
 
-pub use self::blk::VirtIOBlk;
+pub use self::blk::{BlkResp, RespStatus, VirtIOBlk};
 pub use self::console::VirtIOConsole;
 pub use self::gpu::VirtIOGpu;
 pub use self::header::*;
