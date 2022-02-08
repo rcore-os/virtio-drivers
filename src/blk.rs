@@ -92,7 +92,19 @@ impl VirtIOBlk<'_> {
     /// **must not** spin on `resp` to wait for it to change. A safe way is to read it
     /// after the same token as this method returns is fetched through [VirtIOBlk::pop_used()],
     /// which means that the request has been ready.
-    pub fn read_block_nb(&mut self, block_id: usize, buf: &mut [u8], resp: &mut u8) -> Result<u16> {
+    ///
+    /// # Safety
+    ///
+    /// `buf` is still borrowed by the underlying virtio block device even if this
+    /// method returns. Thus, it is the caller's responsibility to guarantee that
+    /// `buf` is not accessed before the request is completed in order to avoid
+    /// data races.
+    pub unsafe fn read_block_nb(
+        &mut self,
+        block_id: usize,
+        buf: &mut [u8],
+        resp: &mut u8,
+    ) -> Result<u16> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
@@ -140,7 +152,16 @@ impl VirtIOBlk<'_> {
     /// # Usage
     ///
     /// See also [VirtIOBlk::read_block_nb()].
-    pub fn write_block_nb(&mut self, block_id: usize, buf: &[u8], resp: &mut u8) -> Result<u16> {
+    ///
+    /// # Safety
+    ///
+    /// See also [VirtIOBlk::read_block_nb()].
+    pub unsafe fn write_block_nb(
+        &mut self,
+        block_id: usize,
+        buf: &[u8],
+        resp: &mut u8,
+    ) -> Result<u16> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
