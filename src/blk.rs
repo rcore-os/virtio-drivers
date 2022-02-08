@@ -103,7 +103,7 @@ impl VirtIOBlk<'_> {
         &mut self,
         block_id: usize,
         buf: &mut [u8],
-        resp: &mut u8,
+        resp: &mut BlkResp,
     ) -> Result<u16> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
@@ -111,9 +111,7 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self
-            .queue
-            .add(&[req.as_buf()], &[buf, core::slice::from_mut(resp)])?;
+        let token = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
         self.header.notify(0);
         Ok(token)
     }
@@ -160,7 +158,7 @@ impl VirtIOBlk<'_> {
         &mut self,
         block_id: usize,
         buf: &[u8],
-        resp: &mut u8,
+        resp: &mut BlkResp,
     ) -> Result<u16> {
         assert_eq!(buf.len(), BLK_SIZE);
         let req = BlkReq {
@@ -168,9 +166,7 @@ impl VirtIOBlk<'_> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self
-            .queue
-            .add(&[req.as_buf(), buf], &[core::slice::from_mut(resp)])?;
+        let token = self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
         self.header.notify(0);
         Ok(token)
     }
@@ -215,10 +211,18 @@ struct BlkReq {
     sector: u64,
 }
 
+/// Response of a VirtIOBlk request.
 #[repr(C)]
 #[derive(Debug)]
-struct BlkResp {
+pub struct BlkResp {
     status: RespStatus,
+}
+
+impl BlkResp {
+    /// Return the status of a VirtIOBlk request.
+    pub fn status(&self) -> RespStatus {
+        self.status
+    }
 }
 
 #[repr(u32)]
@@ -231,12 +235,17 @@ enum ReqType {
     WriteZeroes = 13,
 }
 
+/// Status of a VirtIOBlk request.
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq)]
-enum RespStatus {
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum RespStatus {
+    /// Ok.
     Ok = 0,
+    /// IoErr.
     IoErr = 1,
+    /// Unsupported yet.
     Unsupported = 2,
+    /// Not ready.
     _NotReady = 3,
 }
 
