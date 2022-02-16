@@ -4,7 +4,6 @@
 #![deny(unused_must_use, missing_docs)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
-#![feature(renamed_spin_loop)] // cause core::hint::spin_loop need this feature eenabled.
 
 // #[macro_use]
 extern crate log;
