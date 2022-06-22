@@ -104,9 +104,9 @@ fn virtio_gpu(header: &'static mut VirtIOHeader) {
 }
 
 fn virtio_input(header: &'static mut VirtIOHeader) {
-    let mut event_buf = [0u64; 32];
+    //let mut event_buf = [0u64; 32];
     let mut _input =
-        VirtIOInput::new(header, &mut event_buf).expect("failed to create input driver");
+        VirtIOInput::new(header).expect("failed to create input driver");
     // loop {
     //     input.ack_interrupt().expect("failed to ack");
     //     info!("mouse: {:?}", input.mouse_xy());
