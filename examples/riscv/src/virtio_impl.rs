@@ -1,5 +1,6 @@
 use core::sync::atomic::*;
 use lazy_static::lazy_static;
+use log::trace;
 
 extern "C" {
     fn end();

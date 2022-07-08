@@ -2,16 +2,13 @@
 #![no_main]
 #![deny(warnings)]
 
-#[macro_use]
 extern crate alloc;
-#[macro_use]
-extern crate log;
-// #[macro_use]
 extern crate opensbi_rt;
 
 use device_tree::util::SliceRead;
 use device_tree::{DeviceTree, Node};
-use log::LevelFilter;
+use log::{info, LevelFilter, warn};
+use alloc::vec;
 use virtio_drivers::*;
 
 mod virtio_impl;

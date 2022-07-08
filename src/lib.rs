@@ -5,9 +5,6 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
-// #[macro_use]
-extern crate log;
-
 extern crate alloc;
 
 mod blk;
