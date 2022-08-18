@@ -33,7 +33,7 @@ const PAGE_SIZE: usize = 0x1000;
 pub type Result<T = ()> = core::result::Result<T, Error>;
 
 /// The error type of VirtIO drivers.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     /// The buffer is too small.
     BufferTooSmall,
