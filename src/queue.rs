@@ -12,9 +12,9 @@ use volatile::Volatile;
 ///
 /// Each device can have zero or more virtqueues.
 #[repr(C)]
-pub struct VirtQueue<'a> {
+pub struct VirtQueue<'a, H: Hal> {
     /// DMA guard
-    dma: DMA,
+    dma: DMA<H>,
     /// Descriptor table
     desc: &'a mut [Descriptor],
     /// Available ring
@@ -34,7 +34,7 @@ pub struct VirtQueue<'a> {
     last_used_idx: u16,
 }
 
-impl VirtQueue<'_> {
+impl<H: Hal> VirtQueue<'_, H> {
     /// Create a new VirtQueue.
     pub fn new(header: &mut VirtIOHeader, idx: usize, size: u16) -> Result<Self> {
         if header.queue_used(idx as u32) {
@@ -89,14 +89,14 @@ impl VirtQueue<'_> {
         let mut last = self.free_head;
         for input in inputs.iter() {
             let desc = &mut self.desc[self.free_head as usize];
-            desc.set_buf(input);
+            desc.set_buf::<H>(input);
             desc.flags.write(DescFlags::NEXT);
             last = self.free_head;
             self.free_head = desc.next.read();
         }
         for output in outputs.iter() {
             let desc = &mut self.desc[self.free_head as usize];
-            desc.set_buf(output);
+            desc.set_buf::<H>(output);
             desc.flags.write(DescFlags::NEXT | DescFlags::WRITE);
             last = self.free_head;
             self.free_head = desc.next.read();
@@ -214,8 +214,9 @@ struct Descriptor {
 }
 
 impl Descriptor {
-    fn set_buf(&mut self, buf: &[u8]) {
-        self.addr.write(virt_to_phys(buf.as_ptr() as usize) as u64);
+    fn set_buf<H: Hal>(&mut self, buf: &[u8]) {
+        self.addr
+            .write(H::virt_to_phys(buf.as_ptr() as usize) as u64);
         self.len.write(buf.len() as u32);
     }
 }

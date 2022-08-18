@@ -12,26 +12,26 @@ use volatile::{ReadOnly, Volatile, WriteOnly};
 /// a gpu with 3D support on the host machine.
 /// In 2D mode the virtio-gpu device provides support for ARGB Hardware cursors
 /// and multiple scanouts (aka heads).
-pub struct VirtIOGpu<'a> {
+pub struct VirtIOGpu<'a, H: Hal> {
     header: &'static mut VirtIOHeader,
     rect: Rect,
     /// DMA area of frame buffer.
-    frame_buffer_dma: Option<DMA>,
+    frame_buffer_dma: Option<DMA<H>>,
     /// DMA area of cursor image buffer.
-    cursor_buffer_dma: Option<DMA>,
+    cursor_buffer_dma: Option<DMA<H>>,
     /// Queue for sending control commands.
-    control_queue: VirtQueue<'a>,
+    control_queue: VirtQueue<'a, H>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<'a>,
+    cursor_queue: VirtQueue<'a, H>,
     /// Queue buffer DMA
-    queue_buf_dma: DMA,
+    queue_buf_dma: DMA<H>,
     /// Send buffer for queue.
     queue_buf_send: &'a mut [u8],
     /// Recv buffer for queue.
     queue_buf_recv: &'a mut [u8],
 }
 
-impl VirtIOGpu<'_> {
+impl<H: Hal> VirtIOGpu<'_, H> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
         header.begin_init(|features| {
@@ -153,9 +153,7 @@ impl VirtIOGpu<'_> {
         self.update_cursor(RESOURCE_ID_CURSOR, SCANOUT_ID, pos_x, pos_y, 0, 0, true)?;
         Ok(())
     }
-}
 
-impl VirtIOGpu<'_> {
     /// Send a request to the device and block for a response.
     fn request<Req, Rsp>(&mut self, req: Req) -> Result<Rsp> {
         unsafe {
