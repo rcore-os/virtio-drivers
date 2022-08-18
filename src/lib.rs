@@ -26,6 +26,7 @@ use self::queue::VirtQueue;
 use core::mem::size_of;
 use hal::*;
 
+/// The page size in bytes supported by the library (4 KiB).
 const PAGE_SIZE: usize = 0x1000;
 
 /// The type returned by driver methods.
@@ -58,12 +59,12 @@ fn align_up(size: usize) -> usize {
     (size + PAGE_SIZE) & !(PAGE_SIZE - 1)
 }
 
-/// Pages of `size`.
+/// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
 fn pages(size: usize) -> usize {
     (size + PAGE_SIZE - 1) / PAGE_SIZE
 }
 
-/// Convert a struct into buffer.
+/// Convert a struct into a byte buffer.
 unsafe trait AsBuf: Sized {
     fn as_buf(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self as *const _ as _, size_of::<Self>()) }
