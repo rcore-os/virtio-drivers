@@ -56,8 +56,9 @@ fn virtio_probe(node: &Node) {
         info!("walk dt addr={:#x}, size={:#x}", paddr, size);
         let header = unsafe { &mut *(vaddr as *mut VirtIOHeader) };
         info!(
-            "Detected virtio device with vendor id {:#X}",
-            header.vendor_id()
+            "Detected virtio device with vendor id {:#X}, device type {:?}",
+            header.vendor_id(),
+            header.device_type(),
         );
         info!("Device tree node {:?}", node);
         match header.device_type() {
