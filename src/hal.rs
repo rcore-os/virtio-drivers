@@ -1,7 +1,10 @@
 use super::*;
 
-type VirtAddr = usize;
-type PhysAddr = usize;
+/// A virtual memory address in the address space of the program.
+pub type VirtAddr = usize;
+
+/// A physical address as used for virtio.
+pub type PhysAddr = usize;
 
 /// A region of contiguous physical memory used for DMA.
 pub struct DMA {

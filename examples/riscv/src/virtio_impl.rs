@@ -1,6 +1,7 @@
 use core::sync::atomic::*;
 use lazy_static::lazy_static;
 use log::trace;
+use virtio_drivers::{PhysAddr, VirtAddr};
 
 extern "C" {
     fn end();
@@ -32,6 +33,3 @@ extern "C" fn virtio_phys_to_virt(paddr: PhysAddr) -> VirtAddr {
 extern "C" fn virtio_virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
     vaddr
 }
-
-type VirtAddr = usize;
-type PhysAddr = usize;
