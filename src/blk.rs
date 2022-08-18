@@ -10,13 +10,13 @@ use volatile::Volatile;
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
-pub struct VirtIOBlk<'a> {
+pub struct VirtIOBlk<'a, H: Hal> {
     header: &'static mut VirtIOHeader,
-    queue: VirtQueue<'a>,
+    queue: VirtQueue<'a, H>,
     capacity: usize,
 }
 
-impl VirtIOBlk<'_> {
+impl<H: Hal> VirtIOBlk<'_, H> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
         header.begin_init(|features| {

@@ -10,17 +10,17 @@ const QUEUE_TRANSMITQ_PORT_0: usize = 1;
 
 /// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
 /// Emergency and cols/rows unimplemented.
-pub struct VirtIOConsole<'a> {
+pub struct VirtIOConsole<'a, H: Hal> {
     header: &'static mut VirtIOHeader,
-    receiveq: VirtQueue<'a>,
-    transmitq: VirtQueue<'a>,
-    queue_buf_dma: DMA,
+    receiveq: VirtQueue<'a, H>,
+    transmitq: VirtQueue<'a, H>,
+    queue_buf_dma: DMA<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
     pending_len: usize,
 }
 
-impl<'a> VirtIOConsole<'a> {
+impl<H: Hal> VirtIOConsole<'_, H> {
     /// Create a new VirtIO-Console driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
         header.begin_init(|features| {
