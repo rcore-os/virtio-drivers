@@ -3,6 +3,7 @@ use super::*;
 type VirtAddr = usize;
 type PhysAddr = usize;
 
+/// A region of contiguous physical memory used for DMA.
 pub struct DMA {
     paddr: u32,
     pages: u32,
@@ -28,7 +29,7 @@ impl DMA {
         phys_to_virt(self.paddr as usize)
     }
 
-    /// Page frame number
+    /// Returns the physical page frame number.
     pub fn pfn(&self) -> u32 {
         self.paddr >> 12
     }
