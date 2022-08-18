@@ -9,8 +9,8 @@ pub type PhysAddr = usize;
 
 /// A region of contiguous physical memory used for DMA.
 pub struct DMA<H: Hal> {
-    paddr: u32,
-    pages: u32,
+    paddr: usize,
+    pages: usize,
     _phantom: PhantomData<H>,
 }
 
@@ -21,23 +21,23 @@ impl<H: Hal> DMA<H> {
             return Err(Error::DmaError);
         }
         Ok(DMA {
-            paddr: paddr as u32,
-            pages: pages as u32,
+            paddr,
+            pages,
             _phantom: PhantomData::default(),
         })
     }
 
     pub fn paddr(&self) -> usize {
-        self.paddr as usize
+        self.paddr
     }
 
     pub fn vaddr(&self) -> usize {
-        H::phys_to_virt(self.paddr as usize)
+        H::phys_to_virt(self.paddr)
     }
 
     /// Returns the physical page frame number.
     pub fn pfn(&self) -> u32 {
-        self.paddr >> 12
+        (self.paddr >> 12) as u32
     }
 
     /// Convert to a buffer
