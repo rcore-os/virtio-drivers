@@ -32,11 +32,6 @@ const PAGE_SIZE: usize = 0x1000;
 /// The type returned by driver methods.
 pub type Result<T = ()> = core::result::Result<T, Error>;
 
-// pub struct Error {
-//     kind: ErrorKind,
-//     reason: &'static str,
-// }
-
 /// The error type of VirtIO drivers.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error {
