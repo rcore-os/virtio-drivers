@@ -12,6 +12,7 @@ use volatile::Volatile;
 ///
 /// Each device can have zero or more virtqueues.
 #[repr(C)]
+#[derive(Debug)]
 pub struct VirtQueue<'a, H: Hal> {
     /// DMA guard
     dma: DMA<H>,
@@ -44,7 +45,7 @@ impl<H: Hal> VirtQueue<'_, H> {
             return Err(Error::InvalidParam);
         }
         let layout = VirtQueueLayout::new(size);
-        // alloc continuous pages
+        // Allocate contiguous pages.
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
         header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
@@ -54,7 +55,7 @@ impl<H: Hal> VirtQueue<'_, H> {
         let avail = unsafe { &mut *((dma.vaddr() + layout.avail_offset) as *mut AvailRing) };
         let used = unsafe { &mut *((dma.vaddr() + layout.used_offset) as *mut UsedRing) };
 
-        // link descriptors together
+        // Link descriptors together.
         for i in 0..(size - 1) {
             desc[i as usize].next.write(i + 1);
         }
@@ -259,4 +260,40 @@ struct UsedRing {
 struct UsedElem {
     id: Volatile<u32>,
     len: Volatile<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hal::fake::FakeHal;
+    use core::mem::zeroed;
+
+    #[test]
+    fn invalid_queue_size() {
+        let mut header = unsafe { zeroed() };
+        // Size not a power of 2.
+        assert_eq!(
+            VirtQueue::<FakeHal>::new(&mut header, 0, 3).unwrap_err(),
+            Error::InvalidParam
+        );
+    }
+
+    #[test]
+    fn queue_too_big() {
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        assert_eq!(
+            VirtQueue::<FakeHal>::new(&mut header, 0, 5).unwrap_err(),
+            Error::InvalidParam
+        );
+    }
+
+    #[test]
+    fn queue_already_used() {
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        assert_eq!(
+            VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap_err(),
+            Error::AlreadyUsed
+        );
+    }
 }

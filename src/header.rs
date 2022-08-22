@@ -2,6 +2,8 @@ use crate::PAGE_SIZE;
 use bitflags::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
+const MAGIC_VALUE: u32 = 0x7472_6976;
+
 /// MMIO Device Legacy Register Interface.
 ///
 /// Ref: 4.2.4 Legacy interface
@@ -148,7 +150,7 @@ pub struct VirtIOHeader {
 impl VirtIOHeader {
     /// Verify a valid header.
     pub fn verify(&self) -> bool {
-        self.magic.read() == 0x7472_6976 && self.version.read() == 1 && self.device_id.read() != 0
+        self.magic.read() == MAGIC_VALUE && self.version.read() == 1 && self.device_id.read() != 0
     }
 
     /// Get the device type.
@@ -243,6 +245,53 @@ impl VirtIOHeader {
     /// Get the pointer to config space (at offset 0x100)
     pub fn config_space(&self) -> *mut u64 {
         (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
+    }
+
+    /// Constructs a fake virtio header for use in unit tests.
+    #[cfg(test)]
+    pub fn make_fake_header(
+        device_id: u32,
+        vendor_id: u32,
+        device_features: u32,
+        queue_num_max: u32,
+    ) -> Self {
+        Self {
+            magic: ReadOnly::new(MAGIC_VALUE),
+            version: ReadOnly::new(1),
+            device_id: ReadOnly::new(device_id),
+            vendor_id: ReadOnly::new(vendor_id),
+            device_features: ReadOnly::new(device_features),
+            device_features_sel: WriteOnly::default(),
+            __r1: Default::default(),
+            driver_features: Default::default(),
+            driver_features_sel: Default::default(),
+            guest_page_size: Default::default(),
+            __r2: Default::default(),
+            queue_sel: Default::default(),
+            queue_num_max: ReadOnly::new(queue_num_max),
+            queue_num: Default::default(),
+            queue_align: Default::default(),
+            queue_pfn: Default::default(),
+            queue_ready: Default::default(),
+            __r3: Default::default(),
+            queue_notify: Default::default(),
+            __r4: Default::default(),
+            interrupt_status: Default::default(),
+            interrupt_ack: Default::default(),
+            __r5: Default::default(),
+            status: Volatile::new(DeviceStatus::empty()),
+            __r6: Default::default(),
+            queue_desc_low: Default::default(),
+            queue_desc_high: Default::default(),
+            __r7: Default::default(),
+            queue_avail_low: Default::default(),
+            queue_avail_high: Default::default(),
+            __r8: Default::default(),
+            queue_used_low: Default::default(),
+            queue_used_high: Default::default(),
+            __r9: Default::default(),
+            config_generation: Default::default(),
+        }
     }
 }
 

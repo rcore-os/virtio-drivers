@@ -1,3 +1,6 @@
+#[cfg(test)]
+pub mod fake;
+
 use super::*;
 use core::marker::PhantomData;
 
@@ -8,6 +11,7 @@ pub type VirtAddr = usize;
 pub type PhysAddr = usize;
 
 /// A region of contiguous physical memory used for DMA.
+#[derive(Debug)]
 pub struct DMA<H: Hal> {
     paddr: usize,
     pages: usize,
