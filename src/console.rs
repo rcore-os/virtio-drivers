@@ -49,10 +49,12 @@ impl<H: Hal> VirtIOConsole<'_, H> {
         console.poll_retrieve()?;
         Ok(console)
     }
+
     fn poll_retrieve(&mut self) -> Result<()> {
         self.receiveq.add(&[], &[self.queue_buf_rx])?;
         Ok(())
     }
+
     /// Acknowledge interrupt.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
         let ack = self.header.ack_interrupt();
@@ -84,6 +86,7 @@ impl<H: Hal> VirtIOConsole<'_, H> {
         }
         Ok(Some(ch))
     }
+
     /// Put a char onto the device.
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
