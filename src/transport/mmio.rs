@@ -1,5 +1,4 @@
-use crate::PAGE_SIZE;
-use bitflags::*;
+use super::{DeviceStatus, DeviceType, Transport};
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
@@ -166,82 +165,6 @@ impl VirtIOHeader {
         self.vendor_id.read()
     }
 
-    /// Begin initializing the device.
-    ///
-    /// Ref: virtio 3.1.1 Device Initialization
-    pub fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) {
-        self.status.write(DeviceStatus::ACKNOWLEDGE);
-        self.status.write(DeviceStatus::DRIVER);
-
-        let features = self.read_device_features();
-        self.write_driver_features(negotiate_features(features));
-        self.status.write(DeviceStatus::FEATURES_OK);
-
-        self.guest_page_size.write(PAGE_SIZE as u32);
-    }
-
-    /// Finish initializing the device.
-    pub fn finish_init(&mut self) {
-        self.status.write(DeviceStatus::DRIVER_OK);
-    }
-
-    /// Read device features.
-    fn read_device_features(&mut self) -> u64 {
-        self.device_features_sel.write(0); // device features [0, 32)
-        let mut device_features_bits = self.device_features.read().into();
-        self.device_features_sel.write(1); // device features [32, 64)
-        device_features_bits += (self.device_features.read() as u64) << 32;
-        device_features_bits
-    }
-
-    /// Write device features.
-    fn write_driver_features(&mut self, driver_features: u64) {
-        self.driver_features_sel.write(0); // driver features [0, 32)
-        self.driver_features.write(driver_features as u32);
-        self.driver_features_sel.write(1); // driver features [32, 64)
-        self.driver_features.write((driver_features >> 32) as u32);
-    }
-
-    /// Set queue.
-    pub fn queue_set(&mut self, queue: u32, size: u32, align: u32, pfn: u32) {
-        self.queue_sel.write(queue);
-        self.queue_num.write(size);
-        self.queue_align.write(align);
-        self.queue_pfn.write(pfn);
-    }
-
-    /// Get guest physical page number of the virtual queue.
-    pub fn queue_physical_page_number(&mut self, queue: u32) -> u32 {
-        self.queue_sel.write(queue);
-        self.queue_pfn.read()
-    }
-
-    /// Whether the queue is in used.
-    pub fn queue_used(&mut self, queue: u32) -> bool {
-        self.queue_physical_page_number(queue) != 0
-    }
-
-    /// Get the max size of queue.
-    pub fn max_queue_size(&self) -> u32 {
-        self.queue_num_max.read()
-    }
-
-    /// Notify device.
-    pub fn notify(&mut self, queue: u32) {
-        self.queue_notify.write(queue);
-    }
-
-    /// Acknowledge interrupt and return true if success.
-    pub fn ack_interrupt(&mut self) -> bool {
-        let interrupt = self.interrupt_status.read();
-        if interrupt != 0 {
-            self.interrupt_ack.write(interrupt);
-            true
-        } else {
-            false
-        }
-    }
-
     /// Get the pointer to config space (at offset 0x100)
     pub fn config_space(&self) -> *mut u64 {
         (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
@@ -295,63 +218,59 @@ impl VirtIOHeader {
     }
 }
 
-bitflags! {
-    /// The device status field.
-    struct DeviceStatus: u32 {
-        /// Indicates that the guest OS has found the device and recognized it
-        /// as a valid virtio device.
-        const ACKNOWLEDGE = 1;
+impl Transport for VirtIOHeader {
+    fn read_device_features(&mut self) -> u64 {
+        self.device_features_sel.write(0); // device features [0, 32)
+        let mut device_features_bits = self.device_features.read().into();
+        self.device_features_sel.write(1); // device features [32, 64)
+        device_features_bits += (self.device_features.read() as u64) << 32;
+        device_features_bits
+    }
 
-        /// Indicates that the guest OS knows how to drive the device.
-        const DRIVER = 2;
+    fn write_driver_features(&mut self, driver_features: u64) {
+        self.driver_features_sel.write(0); // driver features [0, 32)
+        self.driver_features.write(driver_features as u32);
+        self.driver_features_sel.write(1); // driver features [32, 64)
+        self.driver_features.write((driver_features >> 32) as u32);
+    }
 
-        /// Indicates that something went wrong in the guest, and it has given
-        /// up on the device. This could be an internal error, or the driver
-        /// didn’t like the device for some reason, or even a fatal error
-        /// during device operation.
-        const FAILED = 128;
+    fn max_queue_size(&self) -> u32 {
+        self.queue_num_max.read()
+    }
 
-        /// Indicates that the driver has acknowledged all the features it
-        /// understands, and feature negotiation is complete.
-        const FEATURES_OK = 8;
+    fn notify(&mut self, queue: u32) {
+        self.queue_notify.write(queue);
+    }
 
-        /// Indicates that the driver is set up and ready to drive the device.
-        const DRIVER_OK = 4;
+    fn set_status(&mut self, status: DeviceStatus) {
+        self.status.write(status);
+    }
 
-        /// Indicates that the device has experienced an error from which it
-        /// can’t recover.
-        const DEVICE_NEEDS_RESET = 64;
+    fn set_guest_page_size(&mut self, guest_page_size: u32) {
+        self.guest_page_size.write(guest_page_size);
+    }
+
+    fn queue_set(&mut self, queue: u32, size: u32, align: u32, pfn: u32) {
+        self.queue_sel.write(queue);
+        self.queue_num.write(size);
+        self.queue_align.write(align);
+        self.queue_pfn.write(pfn);
+    }
+
+    fn queue_physical_page_number(&mut self, queue: u32) -> u32 {
+        self.queue_sel.write(queue);
+        self.queue_pfn.read()
+    }
+
+    fn ack_interrupt(&mut self) -> bool {
+        let interrupt = self.interrupt_status.read();
+        if interrupt != 0 {
+            self.interrupt_ack.write(interrupt);
+            true
+        } else {
+            false
+        }
     }
 }
 
 const CONFIG_SPACE_OFFSET: usize = 0x100;
-
-/// Types of virtio devices.
-#[repr(u8)]
-#[derive(Debug, Eq, PartialEq)]
-#[allow(missing_docs)]
-pub enum DeviceType {
-    Invalid = 0,
-    Network = 1,
-    Block = 2,
-    Console = 3,
-    EntropySource = 4,
-    MemoryBallooning = 5,
-    IoMemory = 6,
-    Rpmsg = 7,
-    ScsiHost = 8,
-    _9P = 9,
-    Mac80211 = 10,
-    RprocSerial = 11,
-    VirtioCAIF = 12,
-    MemoryBalloon = 13,
-    GPU = 16,
-    Timer = 17,
-    Input = 18,
-    Socket = 19,
-    Crypto = 20,
-    SignalDistributionModule = 21,
-    Pstore = 22,
-    IOMMU = 23,
-    Memory = 24,
-}

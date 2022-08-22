@@ -1,6 +1,6 @@
 use super::*;
-use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
+use crate::transport::{mmio::VirtIOHeader, Transport};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;

@@ -3,7 +3,7 @@ use core::slice;
 use core::sync::atomic::{fence, Ordering};
 
 use super::*;
-use crate::header::VirtIOHeader;
+use crate::transport::{mmio::VirtIOHeader, Transport};
 use bitflags::*;
 
 use volatile::Volatile;

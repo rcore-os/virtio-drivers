@@ -1,4 +1,5 @@
 use super::*;
+use crate::transport::{mmio::VirtIOHeader, Transport};
 use alloc::boxed::Box;
 use bitflags::*;
 use log::*;

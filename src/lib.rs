@@ -11,19 +11,20 @@ mod blk;
 mod console;
 mod gpu;
 mod hal;
-mod header;
 mod input;
 mod net;
 mod queue;
+mod transport;
 
 pub use self::blk::{BlkResp, RespStatus, VirtIOBlk};
 pub use self::console::VirtIOConsole;
 pub use self::gpu::VirtIOGpu;
 pub use self::hal::{Hal, PhysAddr, VirtAddr};
-pub use self::header::*;
 pub use self::input::{InputConfigSelect, InputEvent, VirtIOInput};
 pub use self::net::VirtIONet;
 use self::queue::VirtQueue;
+pub use self::transport::mmio::VirtIOHeader;
+pub use self::transport::{DeviceStatus, DeviceType, Transport};
 use core::mem::size_of;
 use hal::*;
 

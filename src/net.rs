@@ -1,6 +1,7 @@
 use core::mem::{size_of, MaybeUninit};
 
 use super::*;
+use crate::transport::{mmio::VirtIOHeader, Transport};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
