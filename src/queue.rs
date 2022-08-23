@@ -25,7 +25,10 @@ pub struct VirtQueue<'a, H: Hal> {
 
     /// The index of queue
     queue_idx: u32,
-    /// The size of queue
+    /// The size of the queue.
+    ///
+    /// This is both the number of descriptors, and the number of slots in the available and used
+    /// rings.
     queue_size: u16,
     /// The number of used queues.
     num_used: u16,
@@ -308,11 +311,55 @@ mod tests {
     fn add_too_big() {
         let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
         let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        assert_eq!(queue.available_desc(), 4);
         assert_eq!(
             queue
                 .add(&[&[], &[], &[]], &[&mut [], &mut []])
                 .unwrap_err(),
             Error::BufferTooSmall
+        );
+    }
+
+    #[test]
+    fn add_buffers() {
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        assert_eq!(queue.size(), 4);
+        assert_eq!(queue.available_desc(), 4);
+
+        // Add a buffer chain consisting of two device-readable parts followed by two
+        // device-writable parts.
+        let token = queue
+            .add(&[&[1, 2], &[3]], &[&mut [0, 0], &mut [0]])
+            .unwrap();
+
+        assert_eq!(queue.available_desc(), 0);
+        assert!(!queue.can_pop());
+
+        let first_descriptor_index = queue.avail.ring[0].read();
+        assert_eq!(first_descriptor_index, token);
+        assert_eq!(queue.desc[first_descriptor_index as usize].len.read(), 2);
+        assert_eq!(
+            queue.desc[first_descriptor_index as usize].flags.read(),
+            DescFlags::NEXT
+        );
+        let second_descriptor_index = queue.desc[first_descriptor_index as usize].next.read();
+        assert_eq!(queue.desc[second_descriptor_index as usize].len.read(), 1);
+        assert_eq!(
+            queue.desc[second_descriptor_index as usize].flags.read(),
+            DescFlags::NEXT
+        );
+        let third_descriptor_index = queue.desc[second_descriptor_index as usize].next.read();
+        assert_eq!(queue.desc[third_descriptor_index as usize].len.read(), 2);
+        assert_eq!(
+            queue.desc[third_descriptor_index as usize].flags.read(),
+            DescFlags::NEXT | DescFlags::WRITE
+        );
+        let fourth_descriptor_index = queue.desc[third_descriptor_index as usize].next.read();
+        assert_eq!(queue.desc[fourth_descriptor_index as usize].len.read(), 1);
+        assert_eq!(
+            queue.desc[fourth_descriptor_index as usize].flags.read(),
+            DescFlags::WRITE
         );
     }
 }
