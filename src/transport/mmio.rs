@@ -2,6 +2,7 @@ use super::{DeviceStatus, DeviceType, Transport};
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
+const CONFIG_SPACE_OFFSET: usize = 0x100;
 
 /// MMIO Device Legacy Register Interface.
 ///
@@ -272,5 +273,3 @@ impl Transport for VirtIOHeader {
         }
     }
 }
-
-const CONFIG_SPACE_OFFSET: usize = 0x100;
