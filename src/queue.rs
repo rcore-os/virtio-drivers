@@ -11,7 +11,6 @@ use volatile::Volatile;
 /// The mechanism for bulk data transport on virtio devices.
 ///
 /// Each device can have zero or more virtqueues.
-#[repr(C)]
 #[derive(Debug)]
 pub struct VirtQueue<'a, H: Hal> {
     /// DMA guard
