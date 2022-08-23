@@ -216,10 +216,10 @@ impl VirtQueueLayout {
 #[repr(C, align(16))]
 #[derive(Debug)]
 pub(crate) struct Descriptor {
-    addr: Volatile<u64>,
-    len: Volatile<u32>,
-    flags: Volatile<DescFlags>,
-    next: Volatile<u16>,
+    pub(crate) addr: Volatile<u64>,
+    pub(crate) len: Volatile<u32>,
+    pub(crate) flags: Volatile<DescFlags>,
+    pub(crate) next: Volatile<u16>,
 }
 
 impl Descriptor {
@@ -232,7 +232,7 @@ impl Descriptor {
 
 bitflags! {
     /// Descriptor flags
-    struct DescFlags: u16 {
+    pub(crate) struct DescFlags: u16 {
         const NEXT = 1;
         const WRITE = 2;
         const INDIRECT = 4;
@@ -244,30 +244,30 @@ bitflags! {
 /// It is only written by the driver and read by the device.
 #[repr(C)]
 #[derive(Debug)]
-struct AvailRing {
-    flags: Volatile<u16>,
+pub(crate) struct AvailRing {
+    pub(crate) flags: Volatile<u16>,
     /// A driver MUST NOT decrement the idx.
-    idx: Volatile<u16>,
-    ring: [Volatile<u16>; 32], // actual size: queue_size
-    used_event: Volatile<u16>, // unused
+    pub(crate) idx: Volatile<u16>,
+    pub(crate) ring: [Volatile<u16>; 32], // actual size: queue_size
+    pub(crate) used_event: Volatile<u16>, // unused
 }
 
 /// The used ring is where the device returns buffers once it is done with them:
 /// it is only written to by the device, and read by the driver.
 #[repr(C)]
 #[derive(Debug)]
-struct UsedRing {
-    flags: Volatile<u16>,
-    idx: Volatile<u16>,
-    ring: [UsedElem; 32],       // actual size: queue_size
-    avail_event: Volatile<u16>, // unused
+pub(crate) struct UsedRing {
+    pub(crate) flags: Volatile<u16>,
+    pub(crate) idx: Volatile<u16>,
+    pub(crate) ring: [UsedElem; 32],       // actual size: queue_size
+    pub(crate) avail_event: Volatile<u16>, // unused
 }
 
 #[repr(C)]
 #[derive(Debug)]
-struct UsedElem {
-    id: Volatile<u32>,
-    len: Volatile<u32>,
+pub(crate) struct UsedElem {
+    pub(crate) id: Volatile<u32>,
+    pub(crate) len: Volatile<u32>,
 }
 
 #[cfg(test)]
