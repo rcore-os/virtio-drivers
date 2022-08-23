@@ -296,4 +296,23 @@ mod tests {
             Error::AlreadyUsed
         );
     }
+
+    #[test]
+    fn add_empty() {
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        assert_eq!(queue.add(&[], &[]).unwrap_err(), Error::InvalidParam);
+    }
+
+    #[test]
+    fn add_too_big() {
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        assert_eq!(
+            queue
+                .add(&[&[], &[], &[]], &[&mut [], &mut []])
+                .unwrap_err(),
+            Error::BufferTooSmall
+        );
+    }
 }
