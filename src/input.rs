@@ -56,7 +56,11 @@ impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
         if let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             // requeue
-            if self.event_queue.add(&[], &[event.as_buf_mut()]).is_ok() {
+            if let Ok(new_token) = self.event_queue.add(&[], &[event.as_buf_mut()]) {
+                // This only works because nothing happen between `pop_used` and `add` that affects
+                // the list of free descriptors in the queue, so `add` reuses the descriptor which
+                // was just freed by `pop_used`.
+                assert_eq!(new_token, token);
                 return Some(*event);
             }
         }
