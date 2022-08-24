@@ -166,11 +166,6 @@ impl VirtIOHeader {
         self.vendor_id.read()
     }
 
-    /// Get the pointer to config space (at offset 0x100)
-    pub fn config_space(&self) -> *mut u64 {
-        (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
-    }
-
     /// Constructs a fake virtio header for use in unit tests.
     #[cfg(test)]
     pub fn make_fake_header(
@@ -271,5 +266,9 @@ impl Transport for VirtIOHeader {
         } else {
             false
         }
+    }
+
+    fn config_space(&self) -> *mut u64 {
+        (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
     }
 }

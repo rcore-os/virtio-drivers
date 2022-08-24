@@ -57,6 +57,9 @@ pub trait Transport {
     fn queue_used(&mut self, queue: u32) -> bool {
         self.queue_physical_page_number(queue) != 0
     }
+
+    /// Gets the pointer to the config space.
+    fn config_space(&self) -> *mut u64;
 }
 
 bitflags! {
