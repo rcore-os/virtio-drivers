@@ -23,7 +23,7 @@ pub use self::hal::{Hal, PhysAddr, VirtAddr};
 pub use self::input::{InputConfigSelect, InputEvent, VirtIOInput};
 pub use self::net::VirtIONet;
 use self::queue::VirtQueue;
-pub use self::transport::mmio::VirtIOHeader;
+pub use self::transport::mmio::LegacyMmioTransport;
 pub use self::transport::{DeviceStatus, DeviceType, Transport};
 use core::mem::size_of;
 use hal::*;
