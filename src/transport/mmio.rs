@@ -331,6 +331,7 @@ impl Transport for LegacyMmioTransport {
         );
         let align = PAGE_SIZE as u32;
         let pfn = (descriptors / PAGE_SIZE) as u32;
+        assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
         self.0.queue_sel.write(queue);
         self.0.queue_num.write(size);
         self.0.legacy_queue_align.write(align);
