@@ -46,7 +46,7 @@ pub struct VirtIOHeader {
     /// initialization, before any queues are used. This value should be a
     /// power of 2 and is used by the device to calculate the Guest address
     /// of the first queue page (see QueuePFN).
-    guest_page_size: WriteOnly<u32>,
+    legacy_guest_page_size: WriteOnly<u32>,
 
     /// Reserved
     __r2: ReadOnly<u32>,
@@ -79,7 +79,7 @@ pub struct VirtIOHeader {
     /// Writing to this register notifies the device about alignment boundary
     /// of the Used Ring in bytes. This value should be a power of 2 and
     /// applies to the queue selected by writing to QueueSel.
-    queue_align: WriteOnly<u32>,
+    legacy_queue_align: WriteOnly<u32>,
 
     /// Guest physical page number of the virtual queue
     ///
@@ -92,7 +92,7 @@ pub struct VirtIOHeader {
     /// number of the queue, therefore a value other than zero (0x0) means that
     /// the queue is in use. Both read and write accesses apply to the queue
     /// selected by writing to QueueSel.
-    queue_pfn: Volatile<u32>,
+    legacy_queue_pfn: Volatile<u32>,
 
     /// new interface only
     queue_ready: Volatile<u32>,
@@ -186,13 +186,13 @@ impl VirtIOHeader {
             __r1: Default::default(),
             driver_features: Default::default(),
             driver_features_sel: Default::default(),
-            guest_page_size: Default::default(),
+            legacy_guest_page_size: Default::default(),
             __r2: Default::default(),
             queue_sel: Default::default(),
             queue_num_max: ReadOnly::new(queue_num_max),
             queue_num: Default::default(),
-            queue_align: Default::default(),
-            queue_pfn: Default::default(),
+            legacy_queue_align: Default::default(),
+            legacy_queue_pfn: Default::default(),
             queue_ready: Default::default(),
             __r3: Default::default(),
             queue_notify: Default::default(),
@@ -245,7 +245,7 @@ impl Transport for VirtIOHeader {
     }
 
     fn set_guest_page_size(&mut self, guest_page_size: u32) {
-        self.guest_page_size.write(guest_page_size);
+        self.legacy_guest_page_size.write(guest_page_size);
     }
 
     fn queue_set(
@@ -270,13 +270,13 @@ impl Transport for VirtIOHeader {
         let pfn = (descriptors / PAGE_SIZE) as u32;
         self.queue_sel.write(queue);
         self.queue_num.write(size);
-        self.queue_align.write(align);
-        self.queue_pfn.write(pfn);
+        self.legacy_queue_align.write(align);
+        self.legacy_queue_pfn.write(pfn);
     }
 
     fn queue_used(&mut self, queue: u32) -> bool {
         self.queue_sel.write(queue);
-        self.queue_pfn.read() != 0
+        self.legacy_queue_pfn.read() != 0
     }
 
     fn ack_interrupt(&mut self) -> bool {
