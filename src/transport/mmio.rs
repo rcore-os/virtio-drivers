@@ -12,7 +12,7 @@ const CONFIG_SPACE_OFFSET: usize = 0x100;
 ///
 /// Ref: 4.2.2 MMIO Device Register Layout and 4.2.4 Legacy interface
 #[repr(C)]
-struct VirtIOHeader {
+pub struct VirtIOHeader {
     /// Magic value
     magic: ReadOnly<u32>,
 
@@ -152,6 +152,24 @@ struct VirtIOHeader {
 }
 
 impl VirtIOHeader {
+    /// Checks the magic value and the version.
+    ///
+    /// Returns `None` if the magic value is incorrect, otherwise returns the version.
+    pub fn version(&self) -> Option<u32> {
+        if self.magic.read() == MAGIC_VALUE {
+            Some(self.version.read())
+        } else {
+            None
+        }
+    }
+
+    fn device_type(&self) -> DeviceType {
+        match self.device_id.read() {
+            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
+            _ => DeviceType::Invalid,
+        }
+    }
+
     fn read_device_features(&mut self) -> u64 {
         self.device_features_sel.write(0); // device features [0, 32)
         let mut device_features_bits = self.device_features.read().into();
@@ -256,14 +274,6 @@ impl LegacyMmioTransport {
             && self.0.device_id.read() != 0
     }
 
-    /// Get the device type.
-    pub fn device_type(&self) -> DeviceType {
-        match self.0.device_id.read() {
-            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
-            _ => DeviceType::Invalid,
-        }
-    }
-
     /// Get the vendor ID.
     pub fn vendor_id(&self) -> u32 {
         self.0.vendor_id.read()
@@ -287,6 +297,10 @@ impl LegacyMmioTransport {
 }
 
 impl Transport for LegacyMmioTransport {
+    fn device_type(&self) -> DeviceType {
+        self.0.device_type()
+    }
+
     fn read_device_features(&mut self) -> u64 {
         self.0.read_device_features()
     }
@@ -397,6 +411,10 @@ impl MmioTransport {
 }
 
 impl Transport for MmioTransport {
+    fn device_type(&self) -> DeviceType {
+        self.0.device_type()
+    }
+
     fn read_device_features(&mut self) -> u64 {
         self.0.read_device_features()
     }

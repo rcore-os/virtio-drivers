@@ -5,6 +5,9 @@ use bitflags::bitflags;
 
 /// A VirtIO transport layer.
 pub trait Transport {
+    /// Gets the device type.
+    fn device_type(&self) -> DeviceType;
+
     /// Reads device features.
     fn read_device_features(&mut self) -> u64;
 

@@ -8,7 +8,7 @@ extern crate opensbi_rt;
 use alloc::vec;
 use device_tree::util::SliceRead;
 use device_tree::{DeviceTree, Node};
-use log::{info, warn, LevelFilter};
+use log::{error, info, warn, LevelFilter};
 use virtio_drivers::*;
 use virtio_impl::HalImpl;
 
@@ -55,26 +55,45 @@ fn virtio_probe(node: &Node) {
         let size = reg.as_slice().read_be_u64(8).unwrap();
         let vaddr = paddr;
         info!("walk dt addr={:#x}, size={:#x}", paddr, size);
-        let header = unsafe { &mut *(vaddr as *mut LegacyMmioTransport) };
-        info!(
-            "Detected virtio device with vendor id {:#X}, device type {:?}",
-            header.vendor_id(),
-            header.device_type(),
-        );
         info!("Device tree node {:?}", node);
-        match header.device_type() {
-            DeviceType::Block => virtio_blk(header),
-            DeviceType::GPU => virtio_gpu(header),
-            DeviceType::Input => virtio_input(header),
-            DeviceType::Network => virtio_net(header),
-            t => warn!("Unrecognized virtio device: {:?}", t),
+        let header = vaddr as *mut VirtIOHeader;
+        match unsafe { (*header).version() } {
+            Some(1) => {
+                let transport = unsafe { &mut *(header as *mut LegacyMmioTransport) };
+                info!(
+                    "Detected virtio legacy MMIO device with vendor id {:#X}, device type {:?}",
+                    transport.vendor_id(),
+                    transport.device_type(),
+                );
+                virtio_device(transport);
+            }
+            Some(2) => {
+                let transport = unsafe { &mut *(header as *mut MmioTransport) };
+                info!(
+                    "Detected virtio MMIO device with vendor id {:#X}, device type {:?}",
+                    transport.vendor_id(),
+                    transport.device_type(),
+                );
+                virtio_device(transport);
+            }
+            Some(version) => warn!("Unsupported virtio MMIO version {}", version),
+            None => error!("Invalid magic value for virtio device"),
         }
     }
 }
 
-fn virtio_blk(header: &'static mut LegacyMmioTransport) {
-    let mut blk = VirtIOBlk::<HalImpl, LegacyMmioTransport>::new(header)
-        .expect("failed to create blk driver");
+fn virtio_device(transport: &'static mut impl Transport) {
+    match transport.device_type() {
+        DeviceType::Block => virtio_blk(transport),
+        DeviceType::GPU => virtio_gpu(transport),
+        DeviceType::Input => virtio_input(transport),
+        DeviceType::Network => virtio_net(transport),
+        t => warn!("Unrecognized virtio device: {:?}", t),
+    }
+}
+
+fn virtio_blk<T: Transport>(transport: &'static mut T) {
+    let mut blk = VirtIOBlk::<HalImpl, T>::new(transport).expect("failed to create blk driver");
     let mut input = vec![0xffu8; 512];
     let mut output = vec![0; 512];
     for i in 0..32 {
@@ -88,9 +107,8 @@ fn virtio_blk(header: &'static mut LegacyMmioTransport) {
     info!("virtio-blk test finished");
 }
 
-fn virtio_gpu(header: &'static mut LegacyMmioTransport) {
-    let mut gpu = VirtIOGpu::<HalImpl, LegacyMmioTransport>::new(header)
-        .expect("failed to create gpu driver");
+fn virtio_gpu<T: Transport>(transport: &'static mut T) {
+    let mut gpu = VirtIOGpu::<HalImpl, T>::new(transport).expect("failed to create gpu driver");
     let fb = gpu.setup_framebuffer().expect("failed to get fb");
     for y in 0..768 {
         for x in 0..1024 {
@@ -104,10 +122,10 @@ fn virtio_gpu(header: &'static mut LegacyMmioTransport) {
     info!("virtio-gpu test finished");
 }
 
-fn virtio_input(header: &'static mut LegacyMmioTransport) {
+fn virtio_input<T: Transport>(transport: &'static mut T) {
     //let mut event_buf = [0u64; 32];
-    let mut _input = VirtIOInput::<HalImpl, LegacyMmioTransport>::new(header)
-        .expect("failed to create input driver");
+    let mut _input =
+        VirtIOInput::<HalImpl, T>::new(transport).expect("failed to create input driver");
     // loop {
     //     input.ack_interrupt().expect("failed to ack");
     //     info!("mouse: {:?}", input.mouse_xy());
@@ -115,9 +133,8 @@ fn virtio_input(header: &'static mut LegacyMmioTransport) {
     // TODO: handle external interrupt
 }
 
-fn virtio_net(header: &'static mut LegacyMmioTransport) {
-    let mut net = VirtIONet::<HalImpl, LegacyMmioTransport>::new(header)
-        .expect("failed to create net driver");
+fn virtio_net<T: Transport>(transport: &'static mut T) {
+    let mut net = VirtIONet::<HalImpl, T>::new(transport).expect("failed to create net driver");
     let mut buf = [0u8; 0x100];
     let len = net.recv(&mut buf).expect("failed to recv");
     info!("recv: {:?}", &buf[..len]);
