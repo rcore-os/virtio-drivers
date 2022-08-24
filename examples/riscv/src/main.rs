@@ -73,7 +73,8 @@ fn virtio_probe(node: &Node) {
 }
 
 fn virtio_blk(header: &'static mut VirtIOHeader) {
-    let mut blk = VirtIOBlk::<HalImpl>::new(header).expect("failed to create blk driver");
+    let mut blk =
+        VirtIOBlk::<HalImpl, VirtIOHeader>::new(header).expect("failed to create blk driver");
     let mut input = vec![0xffu8; 512];
     let mut output = vec![0; 512];
     for i in 0..32 {
@@ -88,7 +89,8 @@ fn virtio_blk(header: &'static mut VirtIOHeader) {
 }
 
 fn virtio_gpu(header: &'static mut VirtIOHeader) {
-    let mut gpu = VirtIOGpu::<HalImpl>::new(header).expect("failed to create gpu driver");
+    let mut gpu =
+        VirtIOGpu::<HalImpl, VirtIOHeader>::new(header).expect("failed to create gpu driver");
     let fb = gpu.setup_framebuffer().expect("failed to get fb");
     for y in 0..768 {
         for x in 0..1024 {
@@ -104,7 +106,8 @@ fn virtio_gpu(header: &'static mut VirtIOHeader) {
 
 fn virtio_input(header: &'static mut VirtIOHeader) {
     //let mut event_buf = [0u64; 32];
-    let mut _input = VirtIOInput::<HalImpl>::new(header).expect("failed to create input driver");
+    let mut _input =
+        VirtIOInput::<HalImpl, VirtIOHeader>::new(header).expect("failed to create input driver");
     // loop {
     //     input.ack_interrupt().expect("failed to ack");
     //     info!("mouse: {:?}", input.mouse_xy());
@@ -113,7 +116,8 @@ fn virtio_input(header: &'static mut VirtIOHeader) {
 }
 
 fn virtio_net(header: &'static mut VirtIOHeader) {
-    let mut net = VirtIONet::<HalImpl>::new(header).expect("failed to create net driver");
+    let mut net =
+        VirtIONet::<HalImpl, VirtIOHeader>::new(header).expect("failed to create net driver");
     let mut buf = [0u8; 0x100];
     let len = net.recv(&mut buf).expect("failed to recv");
     info!("recv: {:?}", &buf[..len]);

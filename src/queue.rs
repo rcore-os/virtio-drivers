@@ -3,7 +3,7 @@ use core::slice;
 use core::sync::atomic::{fence, Ordering};
 
 use super::*;
-use crate::transport::{mmio::VirtIOHeader, Transport};
+use crate::transport::Transport;
 use bitflags::*;
 
 use volatile::Volatile;
@@ -39,18 +39,18 @@ pub struct VirtQueue<'a, H: Hal> {
 
 impl<H: Hal> VirtQueue<'_, H> {
     /// Create a new VirtQueue.
-    pub fn new(header: &mut VirtIOHeader, idx: usize, size: u16) -> Result<Self> {
-        if header.queue_used(idx as u32) {
+    pub fn new<T: Transport>(transport: &mut T, idx: usize, size: u16) -> Result<Self> {
+        if transport.queue_used(idx as u32) {
             return Err(Error::AlreadyUsed);
         }
-        if !size.is_power_of_two() || header.max_queue_size() < size as u32 {
+        if !size.is_power_of_two() || transport.max_queue_size() < size as u32 {
             return Err(Error::InvalidParam);
         }
         let layout = VirtQueueLayout::new(size);
         // Allocate contiguous pages.
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
-        header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
+        transport.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
 
         let desc =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
@@ -268,11 +268,10 @@ struct UsedElem {
 mod tests {
     use super::*;
     use crate::hal::fake::FakeHal;
-    use core::mem::zeroed;
 
     #[test]
     fn invalid_queue_size() {
-        let mut header = unsafe { zeroed() };
+        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
         // Size not a power of 2.
         assert_eq!(
             VirtQueue::<FakeHal>::new(&mut header, 0, 3).unwrap_err(),

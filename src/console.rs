@@ -1,6 +1,6 @@
 use super::*;
 use crate::queue::VirtQueue;
-use crate::transport::{mmio::VirtIOHeader, Transport};
+use crate::transport::Transport;
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
@@ -8,11 +8,12 @@ use volatile::{ReadOnly, WriteOnly};
 
 const QUEUE_RECEIVEQ_PORT_0: usize = 0;
 const QUEUE_TRANSMITQ_PORT_0: usize = 1;
+const QUEUE_SIZE: u16 = 2;
 
 /// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
 /// Emergency and cols/rows unimplemented.
-pub struct VirtIOConsole<'a, H: Hal> {
-    header: &'static mut VirtIOHeader,
+pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
+    transport: &'a mut T,
     receiveq: VirtQueue<'a, H>,
     transmitq: VirtQueue<'a, H>,
     queue_buf_dma: DMA<H>,
@@ -21,24 +22,24 @@ pub struct VirtIOConsole<'a, H: Hal> {
     pending_len: usize,
 }
 
-impl<H: Hal> VirtIOConsole<'_, H> {
+impl<'a, H: Hal, T: Transport> VirtIOConsole<'a, H, T> {
     /// Create a new VirtIO-Console driver.
-    pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.begin_init(|features| {
+    pub fn new(transport: &'a mut T) -> Result<Self> {
+        transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
             let supported_features = Features::empty();
             (features & supported_features).bits()
         });
-        let config = unsafe { &mut *(header.config_space() as *mut Config) };
+        let config = unsafe { &mut *(transport.config_space() as *mut Config) };
         info!("Config: {:?}", config);
-        let receiveq = VirtQueue::new(header, QUEUE_RECEIVEQ_PORT_0, 2)?;
-        let transmitq = VirtQueue::new(header, QUEUE_TRANSMITQ_PORT_0, 2)?;
+        let receiveq = VirtQueue::new(transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
+        let transmitq = VirtQueue::new(transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = DMA::new(1)?;
         let queue_buf_rx = unsafe { &mut queue_buf_dma.as_buf()[0..] };
-        header.finish_init();
+        transport.finish_init();
         let mut console = VirtIOConsole {
-            header,
+            transport,
             receiveq,
             transmitq,
             queue_buf_dma,
@@ -57,7 +58,7 @@ impl<H: Hal> VirtIOConsole<'_, H> {
 
     /// Acknowledge interrupt.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
-        let ack = self.header.ack_interrupt();
+        let ack = self.transport.ack_interrupt();
         if !ack {
             return Ok(false);
         }
@@ -91,7 +92,7 @@ impl<H: Hal> VirtIOConsole<'_, H> {
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         self.transmitq.add(&[&buf], &[])?;
-        self.header.notify(QUEUE_TRANSMITQ_PORT_0 as u32);
+        self.transport.notify(QUEUE_TRANSMITQ_PORT_0 as u32);
         while !self.transmitq.can_pop() {
             spin_loop();
         }
