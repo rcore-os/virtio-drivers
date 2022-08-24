@@ -50,7 +50,13 @@ impl<H: Hal> VirtQueue<'_, H> {
         // Allocate contiguous pages.
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
-        transport.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
+        transport.queue_set(
+            idx as u32,
+            size as u32,
+            dma.paddr(),
+            dma.paddr() + layout.avail_offset,
+            dma.paddr() + layout.used_offset,
+        );
 
         let desc =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
@@ -209,7 +215,7 @@ impl VirtQueueLayout {
 
 #[repr(C, align(16))]
 #[derive(Debug)]
-struct Descriptor {
+pub(crate) struct Descriptor {
     addr: Volatile<u64>,
     len: Volatile<u32>,
     flags: Volatile<DescFlags>,

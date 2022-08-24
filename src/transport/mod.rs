@@ -1,6 +1,6 @@
 pub mod mmio;
 
-use crate::PAGE_SIZE;
+use crate::{PhysAddr, PAGE_SIZE};
 use bitflags::bitflags;
 
 /// A VirtIO transport layer.
@@ -24,10 +24,17 @@ pub trait Transport {
     fn set_guest_page_size(&mut self, guest_page_size: u32);
 
     /// Sets up the given queue.
-    fn queue_set(&mut self, queue: u32, size: u32, align: u32, pfn: u32);
+    fn queue_set(
+        &mut self,
+        queue: u32,
+        size: u32,
+        descriptors: PhysAddr,
+        driver_area: PhysAddr,
+        device_area: PhysAddr,
+    );
 
-    /// Gets the guest physical page number of the given virtual queue.
-    fn queue_physical_page_number(&mut self, queue: u32) -> u32;
+    /// Returns whether the queue is in use, i.e. has a nonzero PFN or is marked as ready.
+    fn queue_used(&mut self, queue: u32) -> bool;
 
     /// Acknowledges an interrupt.
     ///
@@ -51,11 +58,6 @@ pub trait Transport {
     /// Finishes initializing the device.
     fn finish_init(&mut self) {
         self.set_status(DeviceStatus::DRIVER_OK);
-    }
-
-    /// Returns whether the queue is in use, i.e. has a nonzero PFN.
-    fn queue_used(&mut self, queue: u32) -> bool {
-        self.queue_physical_page_number(queue) != 0
     }
 
     /// Gets the pointer to the config space.

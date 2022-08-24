@@ -1,4 +1,6 @@
 use super::{DeviceStatus, DeviceType, Transport};
+use crate::{align_up, queue::Descriptor, PhysAddr, PAGE_SIZE};
+use core::mem::size_of;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
@@ -246,16 +248,35 @@ impl Transport for VirtIOHeader {
         self.guest_page_size.write(guest_page_size);
     }
 
-    fn queue_set(&mut self, queue: u32, size: u32, align: u32, pfn: u32) {
+    fn queue_set(
+        &mut self,
+        queue: u32,
+        size: u32,
+        descriptors: PhysAddr,
+        driver_area: PhysAddr,
+        device_area: PhysAddr,
+    ) {
+        assert_eq!(
+            driver_area - descriptors,
+            size_of::<Descriptor>() * size as usize
+        );
+        assert_eq!(
+            device_area - descriptors,
+            align_up(
+                size_of::<Descriptor>() * size as usize + size_of::<u16>() * (size as usize + 3)
+            )
+        );
+        let align = PAGE_SIZE as u32;
+        let pfn = (descriptors / PAGE_SIZE) as u32;
         self.queue_sel.write(queue);
         self.queue_num.write(size);
         self.queue_align.write(align);
         self.queue_pfn.write(pfn);
     }
 
-    fn queue_physical_page_number(&mut self, queue: u32) -> u32 {
+    fn queue_used(&mut self, queue: u32) -> bool {
         self.queue_sel.write(queue);
-        self.queue_pfn.read()
+        self.queue_pfn.read() != 0
     }
 
     fn ack_interrupt(&mut self) -> bool {

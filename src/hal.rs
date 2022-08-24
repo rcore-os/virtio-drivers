@@ -39,11 +39,6 @@ impl<H: Hal> DMA<H> {
         H::phys_to_virt(self.paddr)
     }
 
-    /// Returns the physical page frame number.
-    pub fn pfn(&self) -> u32 {
-        (self.paddr >> 12) as u32
-    }
-
     /// Convert to a buffer
     pub unsafe fn as_buf(&self) -> &'static mut [u8] {
         core::slice::from_raw_parts_mut(self.vaddr() as _, PAGE_SIZE * self.pages as usize)
