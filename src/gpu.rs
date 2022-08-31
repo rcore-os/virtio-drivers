@@ -43,7 +43,7 @@ impl<'a, H: Hal, T: Transport> VirtIOGpu<'a, H, T> {
         });
 
         // read configuration space
-        let config = unsafe { &mut *(transport.config_space() as *mut Config) };
+        let config = unsafe { transport.config_space().cast::<Config>().as_ref() };
         info!("Config: {:?}", config);
 
         let control_queue = VirtQueue::new(transport, QUEUE_TRANSMIT, 2)?;

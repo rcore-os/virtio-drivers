@@ -2,6 +2,7 @@ pub mod mmio;
 
 use crate::{PhysAddr, PAGE_SIZE};
 use bitflags::bitflags;
+use core::ptr::NonNull;
 
 /// A VirtIO transport layer.
 pub trait Transport {
@@ -64,7 +65,7 @@ pub trait Transport {
     }
 
     /// Gets the pointer to the config space.
-    fn config_space(&self) -> *mut u64;
+    fn config_space(&self) -> NonNull<u64>;
 }
 
 bitflags! {

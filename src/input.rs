@@ -71,7 +71,7 @@ impl<'a, H: Hal, T: Transport> VirtIOInput<'a, H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let config = unsafe { &mut *(self.transport.config_space() as *mut Config) };
+        let config = unsafe { self.transport.config_space().cast::<Config>().as_mut() };
         config.select.write(select as u8);
         config.subsel.write(subsel);
         let size = config.size.read();

@@ -31,7 +31,7 @@ impl<'a, H: Hal, T: Transport> VirtIOConsole<'a, H, T> {
             let supported_features = Features::empty();
             (features & supported_features).bits()
         });
-        let config = unsafe { &mut *(transport.config_space() as *mut Config) };
+        let config = unsafe { transport.config_space().cast::<Config>().as_ref() };
         info!("Config: {:?}", config);
         let receiveq = VirtQueue::new(transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;

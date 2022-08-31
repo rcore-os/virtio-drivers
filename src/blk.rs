@@ -28,7 +28,7 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<'a, H, T> {
         });
 
         // read configuration space
-        let config = unsafe { &mut *(transport.config_space() as *mut BlkConfig) };
+        let config = unsafe { transport.config_space().cast::<BlkConfig>().as_ref() };
         info!("config: {:?}", config);
         info!(
             "found a block device of size {}KB",

@@ -429,7 +429,7 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn config_space(&self) -> *mut u64 {
-        (self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _
+    fn config_space(&self) -> NonNull<u64> {
+        NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap()
     }
 }
