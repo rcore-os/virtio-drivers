@@ -22,7 +22,7 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     pending_len: usize,
 }
 
-impl<'a, H: Hal, T: Transport> VirtIOConsole<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     /// Create a new VirtIO-Console driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {

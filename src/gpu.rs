@@ -32,7 +32,7 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     queue_buf_recv: &'a mut [u8],
 }
 
-impl<'a, H: Hal, T: Transport> VirtIOGpu<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {

@@ -21,7 +21,7 @@ pub struct VirtIONet<'a, H: Hal, T: Transport> {
     send_queue: VirtQueue<'a, H>,
 }
 
-impl<'a, H: Hal, T: Transport> VirtIONet<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIONet<'_, H, T> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {

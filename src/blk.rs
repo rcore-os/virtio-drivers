@@ -16,7 +16,7 @@ pub struct VirtIOBlk<'a, H: Hal, T: Transport> {
     capacity: usize,
 }
 
-impl<'a, H: Hal, T: Transport> VirtIOBlk<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {

@@ -17,7 +17,7 @@ pub struct VirtIOInput<'a, H: Hal, T: Transport> {
     event_buf: Box<[InputEvent; 32]>,
 }
 
-impl<'a, H: Hal, T: Transport> VirtIOInput<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
