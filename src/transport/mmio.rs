@@ -1,12 +1,75 @@
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{align_up, queue::Descriptor, PhysAddr, PAGE_SIZE};
-use core::{mem::size_of, ptr::NonNull};
+use core::{
+    convert::{TryFrom, TryInto},
+    fmt::{self, Display, Formatter},
+    mem::size_of,
+    ptr::NonNull,
+};
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
 pub(crate) const LEGACY_VERSION: u32 = 1;
 pub(crate) const MODERN_VERSION: u32 = 2;
 const CONFIG_SPACE_OFFSET: usize = 0x100;
+
+/// The version of the VirtIO MMIO transport supported by a device.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum MmioVersion {
+    /// Legacy MMIO transport with page-based addressing.
+    Legacy = LEGACY_VERSION,
+    /// Modern MMIO transport.
+    Modern = MODERN_VERSION,
+}
+
+impl TryFrom<u32> for MmioVersion {
+    type Error = MmioError;
+
+    fn try_from(version: u32) -> Result<Self, Self::Error> {
+        match version {
+            LEGACY_VERSION => Ok(Self::Legacy),
+            MODERN_VERSION => Ok(Self::Modern),
+            _ => Err(MmioError::UnsupportedVersion(version)),
+        }
+    }
+}
+
+impl From<MmioVersion> for u32 {
+    fn from(version: MmioVersion) -> Self {
+        match version {
+            MmioVersion::Legacy => LEGACY_VERSION,
+            MmioVersion::Modern => MODERN_VERSION,
+        }
+    }
+}
+
+/// An error encountered initialising a VirtIO MMIO transport.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MmioError {
+    /// The header doesn't start with the expected magic value 0x74726976.
+    BadMagic(u32),
+    /// The header reports a version number that is neither 1 (legacy) nor 2 (modern).
+    UnsupportedVersion(u32),
+    /// The header reports a device ID of 0.
+    ZeroDeviceId,
+}
+
+impl Display for MmioError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::BadMagic(magic) => write!(
+                f,
+                "Invalid magic value {:#010x} (expected 0x74726976).",
+                magic
+            ),
+            Self::UnsupportedVersion(version) => {
+                write!(f, "Unsupported Virtio MMIO version {}.", version)
+            }
+            Self::ZeroDeviceId => write!(f, "Device ID was zero."),
+        }
+    }
+}
 
 /// MMIO Device Register Interface, both legacy and modern.
 ///
@@ -152,66 +215,7 @@ pub struct VirtIOHeader {
 }
 
 impl VirtIOHeader {
-    /// Checks the magic value and the version.
-    ///
-    /// Returns `None` if the magic value is incorrect, otherwise returns the version.
-    pub fn version(&self) -> Option<u32> {
-        if self.magic.read() == MAGIC_VALUE {
-            Some(self.version.read())
-        } else {
-            None
-        }
-    }
-
-    fn device_type(&self) -> DeviceType {
-        match self.device_id.read() {
-            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
-            _ => DeviceType::Invalid,
-        }
-    }
-
-    fn read_device_features(&mut self) -> u64 {
-        self.device_features_sel.write(0); // device features [0, 32)
-        let mut device_features_bits = self.device_features.read().into();
-        self.device_features_sel.write(1); // device features [32, 64)
-        device_features_bits += (self.device_features.read() as u64) << 32;
-        device_features_bits
-    }
-
-    fn write_driver_features(&mut self, driver_features: u64) {
-        self.driver_features_sel.write(0); // driver features [0, 32)
-        self.driver_features.write(driver_features as u32);
-        self.driver_features_sel.write(1); // driver features [32, 64)
-        self.driver_features.write((driver_features >> 32) as u32);
-    }
-
-    fn max_queue_size(&self) -> u32 {
-        self.queue_num_max.read()
-    }
-
-    fn notify(&mut self, queue: u32) {
-        self.queue_notify.write(queue);
-    }
-
-    fn set_status(&mut self, status: DeviceStatus) {
-        self.status.write(status);
-    }
-
-    fn ack_interrupt(&mut self) -> bool {
-        let interrupt = self.interrupt_status.read();
-        if interrupt != 0 {
-            self.interrupt_ack.write(interrupt);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn config_space(&self) -> *mut u64 {
-        (self as *const _ as usize + CONFIG_SPACE_OFFSET) as _
-    }
-
-    /// Constructs a fake virtio header for use in unit tests.
+    /// Constructs a fake VirtIO header for use in unit tests.
     #[cfg(test)]
     pub fn make_fake_header(
         version: u32,
@@ -260,146 +264,40 @@ impl VirtIOHeader {
     }
 }
 
-/// MMIO Device Legacy Register Interface.
-///
-/// Ref: 4.2.4 Legacy interface
-#[repr(transparent)]
-pub struct LegacyMmioTransport(VirtIOHeader);
-
-impl LegacyMmioTransport {
-    /// Verify a valid header.
-    pub fn verify(&self) -> bool {
-        self.0.magic.read() == MAGIC_VALUE
-            && self.0.version.read() == LEGACY_VERSION
-            && self.0.device_id.read() != 0
-    }
-
-    /// Get the vendor ID.
-    pub fn vendor_id(&self) -> u32 {
-        self.0.vendor_id.read()
-    }
-
-    #[cfg(test)]
-    pub fn make_fake_header(
-        device_id: u32,
-        vendor_id: u32,
-        device_features: u32,
-        queue_num_max: u32,
-    ) -> Self {
-        Self(VirtIOHeader::make_fake_header(
-            LEGACY_VERSION,
-            device_id,
-            vendor_id,
-            device_features,
-            queue_num_max,
-        ))
-    }
-}
-
-impl Transport for LegacyMmioTransport {
-    fn device_type(&self) -> DeviceType {
-        self.0.device_type()
-    }
-
-    fn read_device_features(&mut self) -> u64 {
-        self.0.read_device_features()
-    }
-
-    fn write_driver_features(&mut self, driver_features: u64) {
-        self.0.write_driver_features(driver_features)
-    }
-
-    fn max_queue_size(&self) -> u32 {
-        self.0.max_queue_size()
-    }
-
-    fn notify(&mut self, queue: u32) {
-        self.0.notify(queue)
-    }
-
-    fn set_status(&mut self, status: DeviceStatus) {
-        self.0.set_status(status)
-    }
-
-    fn set_guest_page_size(&mut self, guest_page_size: u32) {
-        self.0.legacy_guest_page_size.write(guest_page_size);
-    }
-
-    fn queue_set(
-        &mut self,
-        queue: u32,
-        size: u32,
-        descriptors: PhysAddr,
-        driver_area: PhysAddr,
-        device_area: PhysAddr,
-    ) {
-        assert_eq!(
-            driver_area - descriptors,
-            size_of::<Descriptor>() * size as usize
-        );
-        assert_eq!(
-            device_area - descriptors,
-            align_up(
-                size_of::<Descriptor>() * size as usize + size_of::<u16>() * (size as usize + 3)
-            )
-        );
-        let align = PAGE_SIZE as u32;
-        let pfn = (descriptors / PAGE_SIZE) as u32;
-        assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
-        self.0.queue_sel.write(queue);
-        self.0.queue_num.write(size);
-        self.0.legacy_queue_align.write(align);
-        self.0.legacy_queue_pfn.write(pfn);
-    }
-
-    fn queue_used(&mut self, queue: u32) -> bool {
-        self.0.queue_sel.write(queue);
-        self.0.legacy_queue_pfn.read() != 0
-    }
-
-    fn ack_interrupt(&mut self) -> bool {
-        self.0.ack_interrupt()
-    }
-
-    fn config_space(&self) -> *mut u64 {
-        self.0.config_space()
-    }
-}
-
 /// MMIO Device Register Interface.
 ///
-/// Ref: 4.2.2 MMIO Device Register Layout
+/// Ref: 4.2.2 MMIO Device Register Layout and 4.2.4 Legacy interface
 #[derive(Debug)]
 pub struct MmioTransport {
     header: NonNull<VirtIOHeader>,
+    version: MmioVersion,
 }
 
 impl MmioTransport {
-    /// Constructs a new modern VirtIO MMIO transport.
+    /// Constructs a new VirtIO MMIO transport, or returns an error if the header reports an
+    /// unsupported version.
     ///
     /// # Safety
-    /// `header` must point to a properly aligned valid modern VirtIO MMIO region, which must remain
-    /// valid for the lifetime of the transport that is returned.
-    pub unsafe fn new(header: NonNull<VirtIOHeader>) -> Self {
-        Self { header }
-    }
-
-    /// Verify a valid header.
-    pub fn verify(&self) -> bool {
-        self.header().magic.read() == MAGIC_VALUE
-            && self.header().version.read() == MODERN_VERSION
-            && self.header().device_id.read() != 0
-    }
-
-    /// Get the device type.
-    pub fn device_type(&self) -> DeviceType {
-        match self.header().device_id.read() {
-            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
-            _ => DeviceType::Invalid,
+    /// `header` must point to a properly aligned valid VirtIO MMIO region, which must remain valid
+    /// for the lifetime of the transport that is returned.
+    pub unsafe fn new(header: NonNull<VirtIOHeader>) -> Result<Self, MmioError> {
+        let magic = header.as_ref().magic.read();
+        if magic != MAGIC_VALUE {
+            return Err(MmioError::BadMagic(magic));
         }
+        if header.as_ref().device_id.read() == 0 {
+            return Err(MmioError::ZeroDeviceId);
+        }
+        let version = header.as_ref().version.read().try_into()?;
+        Ok(Self { header, version })
     }
 
-    /// Get the vendor ID.
+    /// Gets the version of the VirtIO MMIO transport.
+    pub fn version(&self) -> MmioVersion {
+        self.version
+    }
+
+    /// Gets the vendor ID.
     pub fn vendor_id(&self) -> u32 {
         self.header().vendor_id.read()
     }
@@ -415,31 +313,52 @@ impl MmioTransport {
 
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
-        self.header().device_type()
+        match self.header().device_id.read() {
+            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
+            _ => DeviceType::Invalid,
+        }
     }
 
     fn read_device_features(&mut self) -> u64 {
-        self.header_mut().read_device_features()
+        let header = self.header_mut();
+        header.device_features_sel.write(0); // device features [0, 32)
+        let mut device_features_bits = header.device_features.read().into();
+        header.device_features_sel.write(1); // device features [32, 64)
+        device_features_bits += (header.device_features.read() as u64) << 32;
+        device_features_bits
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        self.header_mut().write_driver_features(driver_features)
+        let header = self.header_mut();
+        header.driver_features_sel.write(0); // driver features [0, 32)
+        header.driver_features.write(driver_features as u32);
+        header.driver_features_sel.write(1); // driver features [32, 64)
+        header.driver_features.write((driver_features >> 32) as u32);
     }
 
     fn max_queue_size(&self) -> u32 {
-        self.header().max_queue_size()
+        self.header().queue_num_max.read()
     }
 
     fn notify(&mut self, queue: u32) {
-        self.header_mut().notify(queue)
+        self.header_mut().queue_notify.write(queue);
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        self.header_mut().set_status(status)
+        self.header_mut().status.write(status);
     }
 
-    fn set_guest_page_size(&mut self, _guest_page_size: u32) {
-        // No-op, modern devices don't care.
+    fn set_guest_page_size(&mut self, guest_page_size: u32) {
+        match self.version {
+            MmioVersion::Legacy => {
+                self.header_mut()
+                    .legacy_guest_page_size
+                    .write(guest_page_size);
+            }
+            MmioVersion::Modern => {
+                // No-op, modern devices don't care.
+            }
+        }
     }
 
     fn queue_set(
@@ -450,33 +369,67 @@ impl Transport for MmioTransport {
         driver_area: PhysAddr,
         device_area: PhysAddr,
     ) {
-        self.header_mut().queue_sel.write(queue);
-        self.header_mut().queue_num.write(size);
-        self.header_mut().queue_desc_low.write(descriptors as u32);
-        self.header_mut()
-            .queue_desc_high
-            .write((descriptors >> 32) as u32);
-        self.header_mut().queue_driver_low.write(driver_area as u32);
-        self.header_mut()
-            .queue_driver_high
-            .write((driver_area >> 32) as u32);
-        self.header_mut().queue_device_low.write(device_area as u32);
-        self.header_mut()
-            .queue_device_high
-            .write((device_area >> 32) as u32);
-        self.header_mut().queue_ready.write(1);
+        match self.version {
+            MmioVersion::Legacy => {
+                assert_eq!(
+                    driver_area - descriptors,
+                    size_of::<Descriptor>() * size as usize
+                );
+                assert_eq!(
+                    device_area - descriptors,
+                    align_up(
+                        size_of::<Descriptor>() * size as usize
+                            + size_of::<u16>() * (size as usize + 3)
+                    )
+                );
+                let align = PAGE_SIZE as u32;
+                let pfn = (descriptors / PAGE_SIZE) as u32;
+                assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
+                self.header_mut().queue_sel.write(queue);
+                self.header_mut().queue_num.write(size);
+                self.header_mut().legacy_queue_align.write(align);
+                self.header_mut().legacy_queue_pfn.write(pfn);
+            }
+            MmioVersion::Modern => {
+                self.header_mut().queue_sel.write(queue);
+                self.header_mut().queue_num.write(size);
+                self.header_mut().queue_desc_low.write(descriptors as u32);
+                self.header_mut()
+                    .queue_desc_high
+                    .write((descriptors >> 32) as u32);
+                self.header_mut().queue_driver_low.write(driver_area as u32);
+                self.header_mut()
+                    .queue_driver_high
+                    .write((driver_area >> 32) as u32);
+                self.header_mut().queue_device_low.write(device_area as u32);
+                self.header_mut()
+                    .queue_device_high
+                    .write((device_area >> 32) as u32);
+                self.header_mut().queue_ready.write(1);
+            }
+        }
     }
 
     fn queue_used(&mut self, queue: u32) -> bool {
         self.header_mut().queue_sel.write(queue);
-        self.header().queue_ready.read() != 0
+        match self.version {
+            MmioVersion::Legacy => self.header().legacy_queue_pfn.read() != 0,
+            MmioVersion::Modern => self.header().queue_ready.read() != 0,
+        }
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        self.header_mut().ack_interrupt()
+        let header = self.header_mut();
+        let interrupt = header.interrupt_status.read();
+        if interrupt != 0 {
+            header.interrupt_ack.write(interrupt);
+            true
+        } else {
+            false
+        }
     }
 
     fn config_space(&self) -> *mut u64 {
-        self.header().config_space()
+        (self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _
     }
 }
