@@ -31,7 +31,8 @@ impl<'a, H: Hal, T: Transport> VirtIONet<'a, H, T> {
             (features & supported_features).bits()
         });
         // read configuration space
-        let config = unsafe { transport.config_space().cast::<Config>().as_ref() };
+        let config_space = transport.config_space().cast::<Config>();
+        let config = unsafe { config_space.as_ref() };
         let mac = config.mac.read();
         debug!("Got MAC={:?}, status={:?}", mac, config.status.read());
 
