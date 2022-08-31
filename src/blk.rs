@@ -11,14 +11,14 @@ use volatile::Volatile;
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
 pub struct VirtIOBlk<'a, H: Hal, T: Transport> {
-    transport: &'a mut T,
+    transport: T,
     queue: VirtQueue<'a, H>,
     capacity: usize,
 }
 
 impl<'a, H: Hal, T: Transport> VirtIOBlk<'a, H, T> {
     /// Create a new VirtIO-Blk driver.
-    pub fn new(transport: &'a mut T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
             info!("device features: {:?}", features);
@@ -36,7 +36,7 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<'a, H, T> {
             config.capacity.read() / 2
         );
 
-        let queue = VirtQueue::new(transport, 0, 16)?;
+        let queue = VirtQueue::new(&mut transport, 0, 16)?;
         transport.finish_init();
 
         Ok(VirtIOBlk {

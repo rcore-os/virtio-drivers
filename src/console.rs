@@ -13,7 +13,7 @@ const QUEUE_SIZE: u16 = 2;
 /// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
 /// Emergency and cols/rows unimplemented.
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
-    transport: &'a mut T,
+    transport: T,
     receiveq: VirtQueue<'a, H>,
     transmitq: VirtQueue<'a, H>,
     queue_buf_dma: DMA<H>,
@@ -24,7 +24,7 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
 
 impl<'a, H: Hal, T: Transport> VirtIOConsole<'a, H, T> {
     /// Create a new VirtIO-Console driver.
-    pub fn new(transport: &'a mut T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -34,8 +34,8 @@ impl<'a, H: Hal, T: Transport> VirtIOConsole<'a, H, T> {
         let config_space = transport.config_space().cast::<Config>();
         let config = unsafe { config_space.as_ref() };
         info!("Config: {:?}", config);
-        let receiveq = VirtQueue::new(transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
-        let transmitq = VirtQueue::new(transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
+        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
+        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = DMA::new(1)?;
         let queue_buf_rx = unsafe { &mut queue_buf_dma.as_buf()[0..] };
         transport.finish_init();

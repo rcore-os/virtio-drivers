@@ -83,9 +83,8 @@ fn virtio_device(transport: impl Transport) {
     }
 }
 
-fn virtio_blk<T: Transport>(mut transport: T) {
-    let mut blk =
-        VirtIOBlk::<HalImpl, T>::new(&mut transport).expect("failed to create blk driver");
+fn virtio_blk<T: Transport>(transport: T) {
+    let mut blk = VirtIOBlk::<HalImpl, T>::new(transport).expect("failed to create blk driver");
     let mut input = vec![0xffu8; 512];
     let mut output = vec![0; 512];
     for i in 0..32 {
@@ -99,9 +98,8 @@ fn virtio_blk<T: Transport>(mut transport: T) {
     info!("virtio-blk test finished");
 }
 
-fn virtio_gpu<T: Transport>(mut transport: T) {
-    let mut gpu =
-        VirtIOGpu::<HalImpl, T>::new(&mut transport).expect("failed to create gpu driver");
+fn virtio_gpu<T: Transport>(transport: T) {
+    let mut gpu = VirtIOGpu::<HalImpl, T>::new(transport).expect("failed to create gpu driver");
     let fb = gpu.setup_framebuffer().expect("failed to get fb");
     for y in 0..768 {
         for x in 0..1024 {
@@ -115,10 +113,10 @@ fn virtio_gpu<T: Transport>(mut transport: T) {
     info!("virtio-gpu test finished");
 }
 
-fn virtio_input<T: Transport>(mut transport: T) {
+fn virtio_input<T: Transport>(transport: T) {
     //let mut event_buf = [0u64; 32];
     let mut _input =
-        VirtIOInput::<HalImpl, T>::new(&mut transport).expect("failed to create input driver");
+        VirtIOInput::<HalImpl, T>::new(transport).expect("failed to create input driver");
     // loop {
     //     input.ack_interrupt().expect("failed to ack");
     //     info!("mouse: {:?}", input.mouse_xy());
@@ -126,9 +124,8 @@ fn virtio_input<T: Transport>(mut transport: T) {
     // TODO: handle external interrupt
 }
 
-fn virtio_net<T: Transport>(mut transport: T) {
-    let mut net =
-        VirtIONet::<HalImpl, T>::new(&mut transport).expect("failed to create net driver");
+fn virtio_net<T: Transport>(transport: T) {
+    let mut net = VirtIONet::<HalImpl, T>::new(transport).expect("failed to create net driver");
     let mut buf = [0u8; 0x100];
     let len = net.recv(&mut buf).expect("failed to recv");
     info!("recv: {:?}", &buf[..len]);

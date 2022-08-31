@@ -14,7 +14,7 @@ use volatile::{ReadOnly, Volatile, WriteOnly};
 /// In 2D mode the virtio-gpu device provides support for ARGB Hardware cursors
 /// and multiple scanouts (aka heads).
 pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
-    transport: &'a mut T,
+    transport: T,
     rect: Rect,
     /// DMA area of frame buffer.
     frame_buffer_dma: Option<DMA<H>>,
@@ -34,7 +34,7 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
 
 impl<'a, H: Hal, T: Transport> VirtIOGpu<'a, H, T> {
     /// Create a new VirtIO-Gpu driver.
-    pub fn new(transport: &'a mut T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -47,8 +47,8 @@ impl<'a, H: Hal, T: Transport> VirtIOGpu<'a, H, T> {
         let config = unsafe { config_space.as_ref() };
         info!("Config: {:?}", config);
 
-        let control_queue = VirtQueue::new(transport, QUEUE_TRANSMIT, 2)?;
-        let cursor_queue = VirtQueue::new(transport, QUEUE_CURSOR, 2)?;
+        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, 2)?;
+        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, 2)?;
 
         let queue_buf_dma = DMA::new(2)?;
         let queue_buf_send = unsafe { &mut queue_buf_dma.as_buf()[..PAGE_SIZE] };

@@ -11,7 +11,7 @@ use volatile::{ReadOnly, WriteOnly};
 /// Device behavior mirrors that of the evdev layer in Linux,
 /// making pass-through implementations on top of evdev easy.
 pub struct VirtIOInput<'a, H: Hal, T: Transport> {
-    transport: &'a mut T,
+    transport: T,
     event_queue: VirtQueue<'a, H>,
     status_queue: VirtQueue<'a, H>,
     event_buf: Box<[InputEvent; 32]>,
@@ -19,7 +19,7 @@ pub struct VirtIOInput<'a, H: Hal, T: Transport> {
 
 impl<'a, H: Hal, T: Transport> VirtIOInput<'a, H, T> {
     /// Create a new VirtIO-Input driver.
-    pub fn new(transport: &'a mut T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
@@ -29,8 +29,8 @@ impl<'a, H: Hal, T: Transport> VirtIOInput<'a, H, T> {
             (features & supported_features).bits()
         });
 
-        let mut event_queue = VirtQueue::new(transport, QUEUE_EVENT, QUEUE_SIZE as u16)?;
-        let status_queue = VirtQueue::new(transport, QUEUE_STATUS, QUEUE_SIZE as u16)?;
+        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT, QUEUE_SIZE as u16)?;
+        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, QUEUE_SIZE as u16)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             let token = event_queue.add(&[], &[event.as_buf_mut()])?;
             assert_eq!(token, i as u16);

@@ -15,7 +15,7 @@ use volatile::{ReadOnly, Volatile};
 /// outgoing packets are enqueued into another for transmission in that order.
 /// A third command queue is used to control advanced filtering features.
 pub struct VirtIONet<'a, H: Hal, T: Transport> {
-    transport: &'a mut T,
+    transport: T,
     mac: EthernetAddress,
     recv_queue: VirtQueue<'a, H>,
     send_queue: VirtQueue<'a, H>,
@@ -23,7 +23,7 @@ pub struct VirtIONet<'a, H: Hal, T: Transport> {
 
 impl<'a, H: Hal, T: Transport> VirtIONet<'a, H, T> {
     /// Create a new VirtIO-Net driver.
-    pub fn new(transport: &'a mut T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -37,8 +37,8 @@ impl<'a, H: Hal, T: Transport> VirtIONet<'a, H, T> {
         debug!("Got MAC={:?}, status={:?}", mac, config.status.read());
 
         let queue_num = 2; // for simplicity
-        let recv_queue = VirtQueue::new(transport, QUEUE_RECEIVE, queue_num)?;
-        let send_queue = VirtQueue::new(transport, QUEUE_TRANSMIT, queue_num)?;
+        let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, queue_num)?;
+        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, queue_num)?;
 
         transport.finish_init();
 
