@@ -15,6 +15,7 @@ mod input;
 mod net;
 mod queue;
 mod transport;
+mod volatile;
 
 pub use self::blk::{BlkResp, RespStatus, VirtIOBlk};
 pub use self::console::VirtIOConsole;

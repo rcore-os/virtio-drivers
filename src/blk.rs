@@ -1,10 +1,10 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use ::volatile::Volatile;
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
-use volatile::Volatile;
 
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///

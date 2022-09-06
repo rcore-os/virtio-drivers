@@ -1,9 +1,9 @@
 use super::*;
 use crate::transport::Transport;
+use ::volatile::{ReadOnly, WriteOnly};
 use alloc::boxed::Box;
 use bitflags::*;
 use log::*;
-use volatile::{ReadOnly, WriteOnly};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///

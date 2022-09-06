@@ -1,12 +1,16 @@
 use super::{DeviceStatus, DeviceType, Transport};
-use crate::{align_up, queue::Descriptor, PhysAddr, PAGE_SIZE};
+use crate::{
+    align_up,
+    queue::Descriptor,
+    volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
+    PhysAddr, PAGE_SIZE,
+};
 use core::{
     convert::{TryFrom, TryInto},
     fmt::{self, Display, Formatter},
     mem::size_of,
     ptr::NonNull,
 };
-use volatile::{ReadOnly, Volatile, WriteOnly};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
 pub(crate) const LEGACY_VERSION: u32 = 1;
@@ -281,14 +285,14 @@ impl MmioTransport {
     /// `header` must point to a properly aligned valid VirtIO MMIO region, which must remain valid
     /// for the lifetime of the transport that is returned.
     pub unsafe fn new(header: NonNull<VirtIOHeader>) -> Result<Self, MmioError> {
-        let magic = header.as_ref().magic.read();
+        let magic = volread!(header, magic);
         if magic != MAGIC_VALUE {
             return Err(MmioError::BadMagic(magic));
         }
-        if header.as_ref().device_id.read() == 0 {
+        if volread!(header, device_id) == 0 {
             return Err(MmioError::ZeroDeviceId);
         }
-        let version = header.as_ref().version.read().try_into()?;
+        let version = volread!(header, version).try_into()?;
         Ok(Self { header, version })
     }
 
@@ -299,61 +303,67 @@ impl MmioTransport {
 
     /// Gets the vendor ID.
     pub fn vendor_id(&self) -> u32 {
-        self.header().vendor_id.read()
-    }
-
-    fn header(&self) -> &VirtIOHeader {
-        unsafe { self.header.as_ref() }
-    }
-
-    fn header_mut(&mut self) -> &mut VirtIOHeader {
-        unsafe { self.header.as_mut() }
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.header, vendor_id) }
     }
 }
 
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
-        match self.header().device_id.read() {
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        match unsafe { volread!(self.header, device_id) } {
             x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
             _ => DeviceType::Invalid,
         }
     }
 
     fn read_device_features(&mut self) -> u64 {
-        let header = self.header_mut();
-        header.device_features_sel.write(0); // device features [0, 32)
-        let mut device_features_bits = header.device_features.read().into();
-        header.device_features_sel.write(1); // device features [32, 64)
-        device_features_bits += (header.device_features.read() as u64) << 32;
-        device_features_bits
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            volwrite!(self.header, device_features_sel, 0); // device features [0, 32)
+            let mut device_features_bits = volread!(self.header, device_features).into();
+            volwrite!(self.header, device_features_sel, 1); // device features [32, 64)
+            device_features_bits += (volread!(self.header, device_features) as u64) << 32;
+            device_features_bits
+        }
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        let header = self.header_mut();
-        header.driver_features_sel.write(0); // driver features [0, 32)
-        header.driver_features.write(driver_features as u32);
-        header.driver_features_sel.write(1); // driver features [32, 64)
-        header.driver_features.write((driver_features >> 32) as u32);
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            volwrite!(self.header, driver_features_sel, 0); // driver features [0, 32)
+            volwrite!(self.header, driver_features, driver_features as u32);
+            volwrite!(self.header, driver_features_sel, 1); // driver features [32, 64)
+            volwrite!(self.header, driver_features, (driver_features >> 32) as u32);
+        }
     }
 
     fn max_queue_size(&self) -> u32 {
-        self.header().queue_num_max.read()
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.header, queue_num_max) }
     }
 
     fn notify(&mut self, queue: u32) {
-        self.header_mut().queue_notify.write(queue);
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            volwrite!(self.header, queue_notify, queue);
+        }
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        self.header_mut().status.write(status);
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            volwrite!(self.header, status, status);
+        }
     }
 
     fn set_guest_page_size(&mut self, guest_page_size: u32) {
         match self.version {
             MmioVersion::Legacy => {
-                self.header_mut()
-                    .legacy_guest_page_size
-                    .write(guest_page_size);
+                // Safe because self.header points to a valid VirtIO MMIO region.
+                unsafe {
+                    volwrite!(self.header, legacy_guest_page_size, guest_page_size);
+                }
             }
             MmioVersion::Modern => {
                 // No-op, modern devices don't care.
@@ -385,47 +395,52 @@ impl Transport for MmioTransport {
                 let align = PAGE_SIZE as u32;
                 let pfn = (descriptors / PAGE_SIZE) as u32;
                 assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
-                self.header_mut().queue_sel.write(queue);
-                self.header_mut().queue_num.write(size);
-                self.header_mut().legacy_queue_align.write(align);
-                self.header_mut().legacy_queue_pfn.write(pfn);
+                // Safe because self.header points to a valid VirtIO MMIO region.
+                unsafe {
+                    volwrite!(self.header, queue_sel, queue);
+                    volwrite!(self.header, queue_num, size);
+                    volwrite!(self.header, legacy_queue_align, align);
+                    volwrite!(self.header, legacy_queue_pfn, pfn);
+                }
             }
             MmioVersion::Modern => {
-                self.header_mut().queue_sel.write(queue);
-                self.header_mut().queue_num.write(size);
-                self.header_mut().queue_desc_low.write(descriptors as u32);
-                self.header_mut()
-                    .queue_desc_high
-                    .write((descriptors >> 32) as u32);
-                self.header_mut().queue_driver_low.write(driver_area as u32);
-                self.header_mut()
-                    .queue_driver_high
-                    .write((driver_area >> 32) as u32);
-                self.header_mut().queue_device_low.write(device_area as u32);
-                self.header_mut()
-                    .queue_device_high
-                    .write((device_area >> 32) as u32);
-                self.header_mut().queue_ready.write(1);
+                // Safe because self.header points to a valid VirtIO MMIO region.
+                unsafe {
+                    volwrite!(self.header, queue_sel, queue);
+                    volwrite!(self.header, queue_num, size);
+                    volwrite!(self.header, queue_desc_low, descriptors as u32);
+                    volwrite!(self.header, queue_desc_high, (descriptors >> 32) as u32);
+                    volwrite!(self.header, queue_driver_low, driver_area as u32);
+                    volwrite!(self.header, queue_driver_high, (driver_area >> 32) as u32);
+                    volwrite!(self.header, queue_device_low, device_area as u32);
+                    volwrite!(self.header, queue_device_high, (device_area >> 32) as u32);
+                    volwrite!(self.header, queue_ready, 1);
+                }
             }
         }
     }
 
     fn queue_used(&mut self, queue: u32) -> bool {
-        self.header_mut().queue_sel.write(queue);
-        match self.version {
-            MmioVersion::Legacy => self.header().legacy_queue_pfn.read() != 0,
-            MmioVersion::Modern => self.header().queue_ready.read() != 0,
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            volwrite!(self.header, queue_sel, queue);
+            match self.version {
+                MmioVersion::Legacy => volread!(self.header, legacy_queue_pfn) != 0,
+                MmioVersion::Modern => volread!(self.header, queue_ready) != 0,
+            }
         }
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        let header = self.header_mut();
-        let interrupt = header.interrupt_status.read();
-        if interrupt != 0 {
-            header.interrupt_ack.write(interrupt);
-            true
-        } else {
-            false
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe {
+            let interrupt = volread!(self.header, interrupt_status);
+            if interrupt != 0 {
+                volwrite!(self.header, interrupt_ack, interrupt);
+                true
+            } else {
+                false
+            }
         }
     }
 

@@ -2,10 +2,10 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use crate::transport::Transport;
+use ::volatile::{ReadOnly, Volatile};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
-use volatile::{ReadOnly, Volatile};
 
 /// The virtio network device is a virtual ethernet card.
 ///

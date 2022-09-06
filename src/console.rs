@@ -1,10 +1,10 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use ::volatile::{ReadOnly, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
-use volatile::{ReadOnly, WriteOnly};
 
 const QUEUE_RECEIVEQ_PORT_0: usize = 0;
 const QUEUE_TRANSMITQ_PORT_0: usize = 1;

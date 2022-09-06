@@ -1,10 +1,10 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use ::volatile::{ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
-use volatile::{ReadOnly, Volatile, WriteOnly};
 
 /// A virtio based graphics adapter.
 ///
