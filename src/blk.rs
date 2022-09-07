@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use ::volatile::Volatile;
+use crate::volatile::{volread, Volatile};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
@@ -28,13 +28,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
         });
 
         // read configuration space
-        let config_space = transport.config_space().cast::<BlkConfig>();
-        let config = unsafe { config_space.as_ref() };
+        let config = transport.config_space().cast::<BlkConfig>();
         info!("config: {:?}", config);
-        info!(
-            "found a block device of size {}KB",
-            config.capacity.read() / 2
-        );
+        // Safe because config is a valid pointer to the device configuration space.
+        let capacity = unsafe { volread!(config, capacity) };
+        info!("found a block device of size {}KB", capacity / 2);
 
         let queue = VirtQueue::new(&mut transport, 0, 16)?;
         transport.finish_init();
@@ -42,7 +40,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
         Ok(VirtIOBlk {
             transport,
             queue,
-            capacity: config.capacity.read() as usize,
+            capacity: capacity as usize,
         })
     }
 
