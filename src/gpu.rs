@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use ::volatile::{ReadOnly, Volatile, WriteOnly};
+use crate::volatile::{ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;

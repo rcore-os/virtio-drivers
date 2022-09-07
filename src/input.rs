@@ -1,6 +1,6 @@
 use super::*;
 use crate::transport::Transport;
-use ::volatile::{ReadOnly, WriteOnly};
+use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use alloc::boxed::Box;
 use bitflags::*;
 use log::*;
@@ -75,12 +75,16 @@ impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let mut config_space = self.transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_mut() };
-        config.select.write(select as u8);
-        config.subsel.write(subsel);
-        let size = config.size.read();
-        let data = config.data.read();
+        let config = self.transport.config_space().cast::<Config>();
+        let size;
+        let data;
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            volwrite!(config, select, select as u8);
+            volwrite!(config, subsel, subsel);
+            size = volread!(config, size);
+            data = volread!(config, data);
+        }
         out[..size as usize].copy_from_slice(&data[..size as usize]);
         size
     }

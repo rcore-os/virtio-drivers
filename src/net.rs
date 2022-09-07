@@ -2,7 +2,7 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use crate::transport::Transport;
-use ::volatile::{ReadOnly, Volatile};
+use crate::volatile::{volread, ReadOnly, Volatile};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
@@ -31,10 +31,13 @@ impl<H: Hal, T: Transport> VirtIONet<'_, H, T> {
             (features & supported_features).bits()
         });
         // read configuration space
-        let config_space = transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_ref() };
-        let mac = config.mac.read();
-        debug!("Got MAC={:?}, status={:?}", mac, config.status.read());
+        let config = transport.config_space().cast::<Config>();
+        let mac;
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            mac = volread!(config, mac);
+            debug!("Got MAC={:?}, status={:?}", mac, volread!(config, status));
+        }
 
         let queue_num = 2; // for simplicity
         let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, queue_num)?;

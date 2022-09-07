@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use ::volatile::{ReadOnly, WriteOnly};
+use crate::volatile::{ReadOnly, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
@@ -161,7 +161,7 @@ mod tests {
             cols: ReadOnly::new(0),
             rows: ReadOnly::new(0),
             max_nr_ports: ReadOnly::new(0),
-            emerg_wr: WriteOnly::new(0),
+            emerg_wr: WriteOnly::default(),
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),
