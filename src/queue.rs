@@ -22,7 +22,7 @@ pub struct VirtQueue<'a, H: Hal> {
     /// Available ring
     avail: &'a mut AvailRing,
     /// Used ring
-    used: &'a mut UsedRing,
+    used: &'a UsedRing,
 
     /// The index of queue
     queue_idx: u32,
