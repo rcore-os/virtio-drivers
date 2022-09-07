@@ -10,14 +10,14 @@ use log::*;
 /// An instance of the virtio device represents one such input device.
 /// Device behavior mirrors that of the evdev layer in Linux,
 /// making pass-through implementations on top of evdev easy.
-pub struct VirtIOInput<'a, H: Hal, T: Transport> {
+pub struct VirtIOInput<H: Hal, T: Transport> {
     transport: T,
-    event_queue: VirtQueue<'a, H>,
-    status_queue: VirtQueue<'a, H>,
+    event_queue: VirtQueue<H>,
+    status_queue: VirtQueue<H>,
     event_buf: Box<[InputEvent; 32]>,
 }
 
-impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);

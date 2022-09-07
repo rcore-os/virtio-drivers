@@ -10,13 +10,13 @@ use log::*;
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
-pub struct VirtIOBlk<'a, H: Hal, T: Transport> {
+pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
-    queue: VirtQueue<'a, H>,
+    queue: VirtQueue<H>,
     capacity: usize,
 }
 
-impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {

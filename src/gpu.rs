@@ -21,9 +21,9 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     /// DMA area of cursor image buffer.
     cursor_buffer_dma: Option<DMA<H>>,
     /// Queue for sending control commands.
-    control_queue: VirtQueue<'a, H>,
+    control_queue: VirtQueue<H>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<'a, H>,
+    cursor_queue: VirtQueue<H>,
     /// Queue buffer DMA
     queue_buf_dma: DMA<H>,
     /// Send buffer for queue.

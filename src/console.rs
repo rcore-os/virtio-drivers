@@ -14,8 +14,8 @@ const QUEUE_SIZE: u16 = 2;
 /// Emergency and cols/rows unimplemented.
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
-    receiveq: VirtQueue<'a, H>,
-    transmitq: VirtQueue<'a, H>,
+    receiveq: VirtQueue<H>,
+    transmitq: VirtQueue<H>,
     queue_buf_dma: DMA<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,

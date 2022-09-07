@@ -1,28 +1,26 @@
-use core::mem::size_of;
-use core::slice;
-use core::sync::atomic::{fence, Ordering};
 #[cfg(test)]
-use core::{cmp::min, ptr};
+use core::cmp::min;
+use core::mem::size_of;
+use core::ptr::{self, addr_of_mut, NonNull};
+use core::sync::atomic::{fence, Ordering};
 
 use super::*;
 use crate::transport::Transport;
 use bitflags::*;
 
-use ::volatile::Volatile;
-
 /// The mechanism for bulk data transport on virtio devices.
 ///
 /// Each device can have zero or more virtqueues.
 #[derive(Debug)]
-pub struct VirtQueue<'a, H: Hal> {
+pub struct VirtQueue<H: Hal> {
     /// DMA guard
     dma: DMA<H>,
     /// Descriptor table
-    desc: &'a mut [Descriptor],
+    desc: NonNull<[Descriptor]>,
     /// Available ring
-    avail: &'a mut AvailRing,
+    avail: NonNull<AvailRing>,
     /// Used ring
-    used: &'a UsedRing,
+    used: NonNull<UsedRing>,
 
     /// The index of queue
     queue_idx: u32,
@@ -39,7 +37,7 @@ pub struct VirtQueue<'a, H: Hal> {
     last_used_idx: u16,
 }
 
-impl<H: Hal> VirtQueue<'_, H> {
+impl<H: Hal> VirtQueue<H> {
     /// Create a new VirtQueue.
     pub fn new<T: Transport>(transport: &mut T, idx: usize, size: u16) -> Result<Self> {
         if transport.queue_used(idx as u32) {
@@ -60,14 +58,21 @@ impl<H: Hal> VirtQueue<'_, H> {
             dma.paddr() + layout.used_offset,
         );
 
-        let desc =
-            unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
-        let avail = unsafe { &mut *((dma.vaddr() + layout.avail_offset) as *mut AvailRing) };
-        let used = unsafe { &mut *((dma.vaddr() + layout.used_offset) as *mut UsedRing) };
+        let desc = NonNull::new(ptr::slice_from_raw_parts_mut(
+            dma.vaddr() as *mut Descriptor,
+            size as usize,
+        ))
+        .unwrap();
+        let avail = NonNull::new((dma.vaddr() + layout.avail_offset) as *mut AvailRing).unwrap();
+        let used = NonNull::new((dma.vaddr() + layout.used_offset) as *mut UsedRing).unwrap();
 
         // Link descriptors together.
         for i in 0..(size - 1) {
-            desc[i as usize].next.write(i + 1);
+            // Safe because `desc` is properly aligned, dereferenceable, initialised, and the device
+            // won't access the descriptors for the duration of this unsafe block.
+            unsafe {
+                (*desc.as_ptr())[i as usize].next = i + 1;
+            }
         }
 
         Ok(VirtQueue {
@@ -98,47 +103,63 @@ impl<H: Hal> VirtQueue<'_, H> {
         // allocate descriptors from free list
         let head = self.free_head;
         let mut last = self.free_head;
-        for input in inputs.iter() {
-            let desc = &mut self.desc[self.free_head as usize];
-            desc.set_buf::<H>(input);
-            desc.flags.write(DescFlags::NEXT);
-            last = self.free_head;
-            self.free_head = desc.next.read();
-        }
-        for output in outputs.iter() {
-            let desc = &mut self.desc[self.free_head as usize];
-            desc.set_buf::<H>(output);
-            desc.flags.write(DescFlags::NEXT | DescFlags::WRITE);
-            last = self.free_head;
-            self.free_head = desc.next.read();
-        }
-        // set last_elem.next = NULL
-        {
-            let desc = &mut self.desc[last as usize];
-            let mut flags = desc.flags.read();
-            flags.remove(DescFlags::NEXT);
-            desc.flags.write(flags);
+
+        // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
+        // else reads or writes the free descriptors during this block.
+        unsafe {
+            for input in inputs.iter() {
+                let mut desc = self.desc_ptr(self.free_head);
+                (*desc).set_buf::<H>(input);
+                (*desc).flags = DescFlags::NEXT;
+                last = self.free_head;
+                self.free_head = (*desc).next;
+            }
+            for output in outputs.iter() {
+                let desc = self.desc_ptr(self.free_head);
+                (*desc).set_buf::<H>(output);
+                (*desc).flags = DescFlags::NEXT | DescFlags::WRITE;
+                last = self.free_head;
+                self.free_head = (*desc).next;
+            }
+
+            // set last_elem.next = NULL
+            (*self.desc_ptr(last)).flags.remove(DescFlags::NEXT);
         }
         self.num_used += (inputs.len() + outputs.len()) as u16;
 
         let avail_slot = self.avail_idx & (self.queue_size - 1);
-        self.avail.ring[avail_slot as usize].write(head);
+        // Safe because self.avail is properly aligned, dereferenceable and initialised.
+        unsafe {
+            (*self.avail.as_ptr()).ring[avail_slot as usize] = head;
+        }
 
         // write barrier
         fence(Ordering::SeqCst);
 
         // increase head of avail ring
         self.avail_idx = self.avail_idx.wrapping_add(1);
-        self.avail.idx.write(self.avail_idx);
+        // Safe because self.avail is properly aligned, dereferenceable and initialised.
+        unsafe {
+            (*self.avail.as_ptr()).idx = self.avail_idx;
+        }
+
         Ok(head)
     }
 
-    /// Whether there is a used element that can pop.
-    pub fn can_pop(&self) -> bool {
-        self.last_used_idx != self.used.idx.read()
+    /// Returns a non-null pointer to the descriptor at the given index.
+    fn desc_ptr(&mut self, index: u16) -> *mut Descriptor {
+        // Safe because self.desc is properly aligned and dereferenceable.
+        unsafe { addr_of_mut!((*self.desc.as_ptr())[index as usize]) }
     }
 
-    /// The number of free descriptors.
+    /// Returns whether there is a used element that can be popped.
+    pub fn can_pop(&self) -> bool {
+        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of UsedRing.
+        self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
+    }
+
+    /// Returns the number of free descriptors.
     pub fn available_desc(&self) -> usize {
         (self.queue_size - self.num_used) as usize
     }
@@ -147,17 +168,21 @@ impl<H: Hal> VirtQueue<'_, H> {
     ///
     /// This will push all linked descriptors at the front of the free list.
     fn recycle_descriptors(&mut self, mut head: u16) {
-        let origin_free_head = self.free_head;
+        let original_free_head = self.free_head;
         self.free_head = head;
         loop {
-            let desc = &mut self.desc[head as usize];
-            let flags = desc.flags.read();
-            self.num_used -= 1;
-            if flags.contains(DescFlags::NEXT) {
-                head = desc.next.read();
-            } else {
-                desc.next.write(origin_free_head);
-                return;
+            let desc = self.desc_ptr(head);
+            // Safe because self.desc is properly aligned, dereferenceable and initialised, and
+            // nothing else reads or writes the descriptor during this block.
+            unsafe {
+                let flags = (*desc).flags;
+                self.num_used -= 1;
+                if flags.contains(DescFlags::NEXT) {
+                    head = (*desc).next;
+                } else {
+                    (*desc).next = original_free_head;
+                    return;
+                }
             }
         }
     }
@@ -173,8 +198,14 @@ impl<H: Hal> VirtQueue<'_, H> {
         fence(Ordering::SeqCst);
 
         let last_used_slot = self.last_used_idx & (self.queue_size - 1);
-        let index = self.used.ring[last_used_slot as usize].id.read() as u16;
-        let len = self.used.ring[last_used_slot as usize].len.read();
+        let index;
+        let len;
+        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of UsedRing.
+        unsafe {
+            index = (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16;
+            len = (*self.used.as_ptr()).ring[last_used_slot as usize].len;
+        }
 
         self.recycle_descriptors(index);
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
@@ -218,17 +249,16 @@ impl VirtQueueLayout {
 #[repr(C, align(16))]
 #[derive(Debug)]
 pub(crate) struct Descriptor {
-    addr: Volatile<u64>,
-    len: Volatile<u32>,
-    flags: Volatile<DescFlags>,
-    next: Volatile<u16>,
+    addr: u64,
+    len: u32,
+    flags: DescFlags,
+    next: u16,
 }
 
 impl Descriptor {
     fn set_buf<H: Hal>(&mut self, buf: &[u8]) {
-        self.addr
-            .write(H::virt_to_phys(buf.as_ptr() as usize) as u64);
-        self.len.write(buf.len() as u32);
+        self.addr = H::virt_to_phys(buf.as_ptr() as usize) as u64;
+        self.len = buf.len() as u32;
     }
 }
 
@@ -247,11 +277,11 @@ bitflags! {
 #[repr(C)]
 #[derive(Debug)]
 struct AvailRing {
-    flags: Volatile<u16>,
+    flags: u16,
     /// A driver MUST NOT decrement the idx.
-    idx: Volatile<u16>,
-    ring: [Volatile<u16>; 32], // actual size: queue_size
-    used_event: Volatile<u16>, // unused
+    idx: u16,
+    ring: [u16; 32], // actual size: queue_size
+    used_event: u16, // unused
 }
 
 /// The used ring is where the device returns buffers once it is done with them:
@@ -259,17 +289,17 @@ struct AvailRing {
 #[repr(C)]
 #[derive(Debug)]
 struct UsedRing {
-    flags: Volatile<u16>,
-    idx: Volatile<u16>,
-    ring: [UsedElem; 32],       // actual size: queue_size
-    avail_event: Volatile<u16>, // unused
+    flags: u16,
+    idx: u16,
+    ring: [UsedElem; 32], // actual size: queue_size
+    avail_event: u16,     // unused
 }
 
 #[repr(C)]
 #[derive(Debug)]
 struct UsedElem {
-    id: Volatile<u32>,
-    len: Volatile<u32>,
+    id: u32,
+    len: u32,
 }
 
 /// Simulates the device writing to a VirtIO queue, for use in tests.
@@ -283,37 +313,38 @@ pub(crate) fn fake_write_to_queue(
     receive_queue_device_area: VirtAddr,
     data: &[u8],
 ) {
-    let descriptors =
-        unsafe { slice::from_raw_parts(receive_queue_descriptors, queue_size as usize) };
+    let descriptors = ptr::slice_from_raw_parts(receive_queue_descriptors, queue_size as usize);
     let available_ring = receive_queue_driver_area as *const AvailRing;
     let used_ring = receive_queue_device_area as *mut UsedRing;
+    // Safe because the various pointers are properly aligned, dereferenceable, initialised, and
+    // nothing else accesses them during this block.
     unsafe {
         // Make sure there is actually at least one descriptor available to write to.
-        assert_ne!((*available_ring).idx.read(), (*used_ring).idx.read());
+        assert_ne!((*available_ring).idx, (*used_ring).idx);
         // The fake device always uses descriptors in order, like VIRTIO_F_IN_ORDER, so
         // `used_ring.idx` marks the next descriptor we should take from the available ring.
-        let next_slot = (*used_ring).idx.read() & (queue_size - 1);
-        let head_descriptor_index = (*available_ring).ring[next_slot as usize].read();
-        let mut descriptor = &descriptors[head_descriptor_index as usize];
+        let next_slot = (*used_ring).idx & (queue_size - 1);
+        let head_descriptor_index = (*available_ring).ring[next_slot as usize];
+        let mut descriptor = &(*descriptors)[head_descriptor_index as usize];
 
         // Loop through all descriptors in the chain, writing data to them.
         let mut remaining_data = data;
         loop {
             // Check the buffer and write to it.
-            let flags = descriptor.flags.read();
+            let flags = descriptor.flags;
             assert!(flags.contains(DescFlags::WRITE));
-            let buffer_length = descriptor.len.read() as usize;
+            let buffer_length = descriptor.len as usize;
             let length_to_write = min(remaining_data.len(), buffer_length);
             ptr::copy(
                 remaining_data.as_ptr(),
-                descriptor.addr.read() as *mut u8,
+                descriptor.addr as *mut u8,
                 length_to_write,
             );
             remaining_data = &remaining_data[length_to_write..];
 
             if flags.contains(DescFlags::NEXT) {
-                let next = descriptor.next.read() as usize;
-                descriptor = &descriptors[next];
+                let next = descriptor.next as usize;
+                descriptor = &(*descriptors)[next];
             } else {
                 assert_eq!(remaining_data.len(), 0);
                 break;
@@ -321,13 +352,9 @@ pub(crate) fn fake_write_to_queue(
         }
 
         // Mark the buffer as used.
-        (*used_ring).ring[next_slot as usize]
-            .id
-            .write(head_descriptor_index as u32);
-        (*used_ring).ring[next_slot as usize]
-            .len
-            .write(data.len() as u32);
-        (*used_ring).idx.update(|idx| *idx += 1);
+        (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
+        (*used_ring).ring[next_slot as usize].len = data.len() as u32;
+        (*used_ring).idx += 1;
     }
 }
 
@@ -408,30 +435,49 @@ mod tests {
         assert_eq!(queue.available_desc(), 0);
         assert!(!queue.can_pop());
 
-        let first_descriptor_index = queue.avail.ring[0].read();
-        assert_eq!(first_descriptor_index, token);
-        assert_eq!(queue.desc[first_descriptor_index as usize].len.read(), 2);
-        assert_eq!(
-            queue.desc[first_descriptor_index as usize].flags.read(),
-            DescFlags::NEXT
-        );
-        let second_descriptor_index = queue.desc[first_descriptor_index as usize].next.read();
-        assert_eq!(queue.desc[second_descriptor_index as usize].len.read(), 1);
-        assert_eq!(
-            queue.desc[second_descriptor_index as usize].flags.read(),
-            DescFlags::NEXT
-        );
-        let third_descriptor_index = queue.desc[second_descriptor_index as usize].next.read();
-        assert_eq!(queue.desc[third_descriptor_index as usize].len.read(), 2);
-        assert_eq!(
-            queue.desc[third_descriptor_index as usize].flags.read(),
-            DescFlags::NEXT | DescFlags::WRITE
-        );
-        let fourth_descriptor_index = queue.desc[third_descriptor_index as usize].next.read();
-        assert_eq!(queue.desc[fourth_descriptor_index as usize].len.read(), 1);
-        assert_eq!(
-            queue.desc[fourth_descriptor_index as usize].flags.read(),
-            DescFlags::WRITE
-        );
+        // Safe because the various parts of the queue are properly aligned, dereferenceable and
+        // initialised, and nothing else is accessing them at the same time.
+        unsafe {
+            let first_descriptor_index = (*queue.avail.as_ptr()).ring[0];
+            assert_eq!(first_descriptor_index, token);
+            assert_eq!(
+                (*queue.desc.as_ptr())[first_descriptor_index as usize].len,
+                2
+            );
+            assert_eq!(
+                (*queue.desc.as_ptr())[first_descriptor_index as usize].flags,
+                DescFlags::NEXT
+            );
+            let second_descriptor_index =
+                (*queue.desc.as_ptr())[first_descriptor_index as usize].next;
+            assert_eq!(
+                (*queue.desc.as_ptr())[second_descriptor_index as usize].len,
+                1
+            );
+            assert_eq!(
+                (*queue.desc.as_ptr())[second_descriptor_index as usize].flags,
+                DescFlags::NEXT
+            );
+            let third_descriptor_index =
+                (*queue.desc.as_ptr())[second_descriptor_index as usize].next;
+            assert_eq!(
+                (*queue.desc.as_ptr())[third_descriptor_index as usize].len,
+                2
+            );
+            assert_eq!(
+                (*queue.desc.as_ptr())[third_descriptor_index as usize].flags,
+                DescFlags::NEXT | DescFlags::WRITE
+            );
+            let fourth_descriptor_index =
+                (*queue.desc.as_ptr())[third_descriptor_index as usize].next;
+            assert_eq!(
+                (*queue.desc.as_ptr())[fourth_descriptor_index as usize].len,
+                1
+            );
+            assert_eq!(
+                (*queue.desc.as_ptr())[fourth_descriptor_index as usize].flags,
+                DescFlags::WRITE
+            );
+        }
     }
 }
