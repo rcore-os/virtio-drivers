@@ -4,7 +4,7 @@
 pub struct ReadOnly<T: Copy>(T);
 
 impl<T: Copy> ReadOnly<T> {
-    pub const fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self(value)
     }
 }
@@ -20,7 +20,7 @@ pub struct WriteOnly<T: Copy>(T);
 pub struct Volatile<T: Copy>(T);
 
 impl<T: Copy> Volatile<T> {
-    pub const fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self(value)
     }
 }
