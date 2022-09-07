@@ -4,6 +4,7 @@
 pub struct ReadOnly<T: Copy>(T);
 
 impl<T: Copy> ReadOnly<T> {
+    /// Construct a new instance for testing.
     pub fn new(value: T) -> Self {
         Self(value)
     }
@@ -20,12 +21,15 @@ pub struct WriteOnly<T: Copy>(T);
 pub struct Volatile<T: Copy>(T);
 
 impl<T: Copy> Volatile<T> {
+    /// Construct a new instance for testing.
     pub fn new(value: T) -> Self {
         Self(value)
     }
 }
 
+/// A trait implemented by MMIO registers which may be read from.
 pub trait VolatileReadable<T> {
+    /// Performs a volatile read from the MMIO register.
     unsafe fn vread(self) -> T;
 }
 
@@ -41,7 +45,9 @@ impl<T: Copy> VolatileReadable<T> for *const Volatile<T> {
     }
 }
 
+/// A trait implemented by MMIO registers which may be written to.
 pub trait VolatileWritable<T> {
+    /// Performs a volatile write to the MMIO register.
     unsafe fn vwrite(self, value: T);
 }
 
@@ -57,12 +63,38 @@ impl<T: Copy> VolatileWritable<T> for *mut Volatile<T> {
     }
 }
 
+/// Performs a volatile read from the given field of pointer to a struct representing an MMIO region.
+///
+/// # Usage
+/// ```compile_fail
+/// # use core::ptr::NonNull;
+/// # use virtio_drivers::volatile::{ReadOnly, volread};
+/// struct MmioDevice {
+///   field: ReadOnly<u32>,
+/// }
+///
+/// let device: NonNull<MmioDevice> = NonNull::new(0x1234 as *mut MmioDevice).unwrap();
+/// let value = unsafe { volread!(device, field) };
+/// ```
 macro_rules! volread {
     ($nonnull:expr, $field:ident) => {
         $crate::volatile::VolatileReadable::vread(core::ptr::addr_of!((*$nonnull.as_ptr()).$field))
     };
 }
 
+/// Performs a volatile write to the given field of pointer to a struct representing an MMIO region.
+///
+/// # Usage
+/// ```compile_fail
+/// # use core::ptr::NonNull;
+/// # use virtio_drivers::volatile::{WriteOnly, volread};
+/// struct MmioDevice {
+///   field: WriteOnly<u32>,
+/// }
+///
+/// let device: NonNull<MmioDevice> = NonNull::new(0x1234 as *mut MmioDevice).unwrap();
+/// unsafe { volwrite!(device, field, 42); }
+/// ```
 macro_rules! volwrite {
     ($nonnull:expr, $field:ident, $value:expr) => {
         $crate::volatile::VolatileWritable::vwrite(
