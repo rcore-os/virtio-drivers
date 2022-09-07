@@ -15,7 +15,7 @@ use volatile::{ReadOnly, Volatile, WriteOnly};
 /// and multiple scanouts (aka heads).
 pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     transport: T,
-    rect: Rect,
+    rect: Option<Rect>,
     /// DMA area of frame buffer.
     frame_buffer_dma: Option<DMA<H>>,
     /// DMA area of cursor image buffer.
@@ -60,7 +60,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             transport,
             frame_buffer_dma: None,
             cursor_buffer_dma: None,
-            rect: Rect::default(),
+            rect: None,
             control_queue,
             cursor_queue,
             queue_buf_dma,
@@ -75,8 +75,9 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 
     /// Get the resolution (width, height).
-    pub fn resolution(&self) -> (u32, u32) {
-        (self.rect.width, self.rect.height)
+    pub fn resolution(&mut self) -> Result<(u32, u32)> {
+        let display_info = self.get_display_info()?;
+        Ok((display_info.rect.width, display_info.rect.height))
     }
 
     /// Setup framebuffer
@@ -84,7 +85,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         // get display info
         let display_info = self.get_display_info()?;
         info!("=> {:?}", display_info);
-        self.rect = display_info.rect;
+        self.rect = Some(display_info.rect);
 
         // create resource 2d
         self.resource_create_2d(
@@ -110,10 +111,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
 
     /// Flush framebuffer to screen.
     pub fn flush(&mut self) -> Result {
+        let rect = self.rect.ok_or(Error::NotReady)?;
         // copy data from guest to host
-        self.transfer_to_host_2d(self.rect, 0, RESOURCE_ID_FB)?;
+        self.transfer_to_host_2d(rect, 0, RESOURCE_ID_FB)?;
         // flush data to screen
-        self.resource_flush(self.rect, RESOURCE_ID_FB)?;
+        self.resource_flush(rect, RESOURCE_ID_FB)?;
         Ok(())
     }
 
