@@ -3,7 +3,7 @@ use core::slice;
 use core::sync::atomic::{fence, Ordering};
 
 use super::*;
-use crate::header::VirtIOHeader;
+use crate::transport::Transport;
 use bitflags::*;
 
 use volatile::Volatile;
@@ -39,18 +39,24 @@ pub struct VirtQueue<'a, H: Hal> {
 
 impl<H: Hal> VirtQueue<'_, H> {
     /// Create a new VirtQueue.
-    pub fn new(header: &mut VirtIOHeader, idx: usize, size: u16) -> Result<Self> {
-        if header.queue_used(idx as u32) {
+    pub fn new<T: Transport>(transport: &mut T, idx: usize, size: u16) -> Result<Self> {
+        if transport.queue_used(idx as u32) {
             return Err(Error::AlreadyUsed);
         }
-        if !size.is_power_of_two() || header.max_queue_size() < size as u32 {
+        if !size.is_power_of_two() || transport.max_queue_size() < size as u32 {
             return Err(Error::InvalidParam);
         }
         let layout = VirtQueueLayout::new(size);
         // Allocate contiguous pages.
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
-        header.queue_set(idx as u32, size as u32, PAGE_SIZE as u32, dma.pfn());
+        transport.queue_set(
+            idx as u32,
+            size as u32,
+            dma.paddr(),
+            dma.paddr() + layout.avail_offset,
+            dma.paddr() + layout.used_offset,
+        );
 
         let desc =
             unsafe { slice::from_raw_parts_mut(dma.vaddr() as *mut Descriptor, size as usize) };
@@ -209,7 +215,7 @@ impl VirtQueueLayout {
 
 #[repr(C, align(16))]
 #[derive(Debug)]
-struct Descriptor {
+pub(crate) struct Descriptor {
     addr: Volatile<u64>,
     len: Volatile<u32>,
     flags: Volatile<DescFlags>,
@@ -267,49 +273,54 @@ struct UsedElem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hal::fake::FakeHal;
-    use core::mem::zeroed;
+    use crate::{hal::fake::FakeHal, transport::mmio::MODERN_VERSION};
+    use core::ptr::NonNull;
 
     #[test]
     fn invalid_queue_size() {
-        let mut header = unsafe { zeroed() };
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         // Size not a power of 2.
         assert_eq!(
-            VirtQueue::<FakeHal>::new(&mut header, 0, 3).unwrap_err(),
+            VirtQueue::<FakeHal>::new(&mut transport, 0, 3).unwrap_err(),
             Error::InvalidParam
         );
     }
 
     #[test]
     fn queue_too_big() {
-        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal>::new(&mut header, 0, 5).unwrap_err(),
+            VirtQueue::<FakeHal>::new(&mut transport, 0, 5).unwrap_err(),
             Error::InvalidParam
         );
     }
 
     #[test]
     fn queue_already_used() {
-        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
-        VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap_err(),
+            VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap_err(),
             Error::AlreadyUsed
         );
     }
 
     #[test]
     fn add_empty() {
-        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
-        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(queue.add(&[], &[]).unwrap_err(), Error::InvalidParam);
     }
 
     #[test]
     fn add_too_big() {
-        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
-        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
             queue
@@ -321,8 +332,9 @@ mod tests {
 
     #[test]
     fn add_buffers() {
-        let mut header = VirtIOHeader::make_fake_header(0, 0, 0, 4);
-        let mut queue = VirtQueue::<FakeHal>::new(&mut header, 0, 4).unwrap();
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(queue.size(), 4);
         assert_eq!(queue.available_desc(), 4);
 

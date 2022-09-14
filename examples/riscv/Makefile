@@ -36,7 +36,7 @@ header:
 clean:
 	cargo clean
 
-qemu: kernel $(img)
+qemu-legacy: kernel $(img)
 	qemu-system-$(arch) \
 		-machine virt \
 		-serial mon:stdio \
@@ -49,7 +49,21 @@ qemu: kernel $(img)
 		# -netdev type=tap,id=net0,script=no,downscript=no \
 		# -device virtio-net-device,netdev=net0
 
+qemu: kernel $(img)
+	qemu-system-$(arch) \
+		-machine virt \
+		-serial mon:stdio \
+		-bios default \
+		-kernel $(kernel) \
+		-global virtio-mmio.force-legacy=false \
+		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device virtio-blk-device,drive=x0 \
+		-device virtio-gpu-device \
+		-device virtio-mouse-device \
+		# -netdev type=tap,id=net0,script=no,downscript=no \
+		# -device virtio-net-device,netdev=net0
+
 $(img):
 	dd if=/dev/zero of=$@ bs=512 count=32
 
-run: build qemu
+run: build qemu-legacy qemu
