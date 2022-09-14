@@ -133,7 +133,8 @@ impl<H: Hal> VirtQueue<H> {
             (*self.avail.as_ptr()).ring[avail_slot as usize] = head;
         }
 
-        // write barrier
+        // Write barrier so that device sees changes to descriptor table and available ring before
+        // change to available index.
         fence(Ordering::SeqCst);
 
         // increase head of avail ring
@@ -142,6 +143,9 @@ impl<H: Hal> VirtQueue<H> {
         unsafe {
             (*self.avail.as_ptr()).idx = self.avail_idx;
         }
+
+        // Write barrier so that device can see change to available index after this method returns.
+        fence(Ordering::SeqCst);
 
         Ok(head)
     }
@@ -154,6 +158,9 @@ impl<H: Hal> VirtQueue<H> {
 
     /// Returns whether there is a used element that can be popped.
     pub fn can_pop(&self) -> bool {
+        // Read barrier, so we read a fresh value from the device.
+        fence(Ordering::SeqCst);
+
         // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
         // instance of UsedRing.
         self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
