@@ -1,6 +1,8 @@
 use core::mem::size_of;
 use core::slice;
 use core::sync::atomic::{fence, Ordering};
+#[cfg(test)]
+use core::{cmp::min, ptr};
 
 use super::*;
 use crate::transport::Transport;
@@ -216,10 +218,10 @@ impl VirtQueueLayout {
 #[repr(C, align(16))]
 #[derive(Debug)]
 pub(crate) struct Descriptor {
-    pub(crate) addr: Volatile<u64>,
-    pub(crate) len: Volatile<u32>,
-    pub(crate) flags: Volatile<DescFlags>,
-    pub(crate) next: Volatile<u16>,
+    addr: Volatile<u64>,
+    len: Volatile<u32>,
+    flags: Volatile<DescFlags>,
+    next: Volatile<u16>,
 }
 
 impl Descriptor {
@@ -232,7 +234,7 @@ impl Descriptor {
 
 bitflags! {
     /// Descriptor flags
-    pub(crate) struct DescFlags: u16 {
+    struct DescFlags: u16 {
         const NEXT = 1;
         const WRITE = 2;
         const INDIRECT = 4;
@@ -244,30 +246,89 @@ bitflags! {
 /// It is only written by the driver and read by the device.
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct AvailRing {
-    pub(crate) flags: Volatile<u16>,
+struct AvailRing {
+    flags: Volatile<u16>,
     /// A driver MUST NOT decrement the idx.
-    pub(crate) idx: Volatile<u16>,
-    pub(crate) ring: [Volatile<u16>; 32], // actual size: queue_size
-    pub(crate) used_event: Volatile<u16>, // unused
+    idx: Volatile<u16>,
+    ring: [Volatile<u16>; 32], // actual size: queue_size
+    used_event: Volatile<u16>, // unused
 }
 
 /// The used ring is where the device returns buffers once it is done with them:
 /// it is only written to by the device, and read by the driver.
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct UsedRing {
-    pub(crate) flags: Volatile<u16>,
-    pub(crate) idx: Volatile<u16>,
-    pub(crate) ring: [UsedElem; 32],       // actual size: queue_size
-    pub(crate) avail_event: Volatile<u16>, // unused
+struct UsedRing {
+    flags: Volatile<u16>,
+    idx: Volatile<u16>,
+    ring: [UsedElem; 32],       // actual size: queue_size
+    avail_event: Volatile<u16>, // unused
 }
 
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct UsedElem {
-    pub(crate) id: Volatile<u32>,
-    pub(crate) len: Volatile<u32>,
+struct UsedElem {
+    id: Volatile<u32>,
+    len: Volatile<u32>,
+}
+
+/// Simulates the device writing to a VirtIO queue, for use in tests.
+///
+/// The fake device always uses descriptors in order.
+#[cfg(test)]
+pub(crate) fn fake_write_to_queue(
+    queue_size: u16,
+    receive_queue_descriptors: *const Descriptor,
+    receive_queue_driver_area: VirtAddr,
+    receive_queue_device_area: VirtAddr,
+    data: &[u8],
+) {
+    let descriptors =
+        unsafe { slice::from_raw_parts(receive_queue_descriptors, queue_size as usize) };
+    let available_ring = receive_queue_driver_area as *const AvailRing;
+    let used_ring = receive_queue_device_area as *mut UsedRing;
+    unsafe {
+        // Make sure there is actually at least one descriptor available to write to.
+        assert_ne!((*available_ring).idx.read(), (*used_ring).idx.read());
+        // The fake device always uses descriptors in order, like VIRTIO_F_IN_ORDER, so
+        // `used_ring.idx` marks the next descriptor we should take from the available ring.
+        let next_slot = (*used_ring).idx.read() & (queue_size - 1);
+        let head_descriptor_index = (*available_ring).ring[next_slot as usize].read();
+        let mut descriptor = &descriptors[head_descriptor_index as usize];
+
+        // Loop through all descriptors in the chain, writing data to them.
+        let mut remaining_data = data;
+        loop {
+            // Check the buffer and write to it.
+            let flags = descriptor.flags.read();
+            assert!(flags.contains(DescFlags::WRITE));
+            let buffer_length = descriptor.len.read() as usize;
+            let length_to_write = min(remaining_data.len(), buffer_length);
+            ptr::copy(
+                remaining_data.as_ptr(),
+                descriptor.addr.read() as *mut u8,
+                length_to_write,
+            );
+            remaining_data = &remaining_data[length_to_write..];
+
+            if flags.contains(DescFlags::NEXT) {
+                let next = descriptor.next.read() as usize;
+                descriptor = &descriptors[next];
+            } else {
+                assert_eq!(remaining_data.len(), 0);
+                break;
+            }
+        }
+
+        // Mark the buffer as used.
+        (*used_ring).ring[next_slot as usize]
+            .id
+            .write(head_descriptor_index as u32);
+        (*used_ring).ring[next_slot as usize]
+            .len
+            .write(data.len() as u32);
+        (*used_ring).idx.update(|idx| *idx += 1);
+    }
 }
 
 #[cfg(test)]
