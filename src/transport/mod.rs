@@ -1,3 +1,5 @@
+#[cfg(test)]
+pub mod fake;
 pub mod mmio;
 
 use crate::{PhysAddr, PAGE_SIZE};
@@ -70,6 +72,7 @@ pub trait Transport {
 
 bitflags! {
     /// The device status field.
+    #[derive(Default)]
     pub struct DeviceStatus: u32 {
         /// Indicates that the guest OS has found the device and recognized it
         /// as a valid virtio device.
@@ -99,7 +102,7 @@ bitflags! {
 
 /// Types of virtio devices.
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(missing_docs)]
 pub enum DeviceType {
     Invalid = 0,

@@ -143,3 +143,63 @@ bitflags! {
         const NOTIFICATION_DATA     = 1 << 38;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        hal::fake::FakeHal,
+        transport::fake::{FakeTransport, QueueStatus, State},
+    };
+    use alloc::{sync::Arc, vec};
+    use core::ptr::NonNull;
+    use std::sync::Mutex;
+
+    #[test]
+    fn receive() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(0),
+            rows: ReadOnly::new(0),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default(); 2],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space).cast(),
+            state: state.clone(),
+        };
+        let mut console = VirtIOConsole::<FakeHal, FakeTransport>::new(transport).unwrap();
+
+        // Nothing is available to receive.
+        assert_eq!(console.recv(false).unwrap(), None);
+        assert_eq!(console.recv(true).unwrap(), None);
+
+        // Still nothing after a spurious interrupt.
+        assert_eq!(console.ack_interrupt(), Ok(false));
+        assert_eq!(console.recv(false).unwrap(), None);
+
+        // Make a character available, and simulate an interrupt.
+        {
+            let mut state = state.lock().unwrap();
+            state.write_to_queue(QUEUE_SIZE, QUEUE_RECEIVEQ_PORT_0, &[42]);
+
+            state.interrupt_pending = true;
+        }
+        assert_eq!(console.ack_interrupt(), Ok(true));
+        assert_eq!(state.lock().unwrap().interrupt_pending, false);
+
+        // Receive the character. If we don't pop it it is still there to read again.
+        assert_eq!(console.recv(false).unwrap(), Some(42));
+        assert_eq!(console.recv(true).unwrap(), Some(42));
+        assert_eq!(console.recv(true).unwrap(), None);
+    }
+}
