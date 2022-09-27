@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub mod fake;
 pub mod mmio;
+pub mod pci;
 
 use crate::{PhysAddr, PAGE_SIZE};
 use bitflags::bitflags;
