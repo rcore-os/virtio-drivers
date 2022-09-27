@@ -135,3 +135,45 @@ pub enum DeviceType {
     IOMMU = 23,
     Memory = 24,
 }
+
+impl From<u32> for DeviceType {
+    fn from(virtio_device_id: u32) -> Self {
+        match virtio_device_id {
+            1 => DeviceType::Network,
+            2 => DeviceType::Block,
+            3 => DeviceType::Console,
+            4 => DeviceType::EntropySource,
+            5 => DeviceType::MemoryBalloon,
+            6 => DeviceType::IoMemory,
+            7 => DeviceType::Rpmsg,
+            8 => DeviceType::ScsiHost,
+            9 => DeviceType::_9P,
+            10 => DeviceType::Mac80211,
+            11 => DeviceType::RprocSerial,
+            12 => DeviceType::VirtioCAIF,
+            13 => DeviceType::MemoryBalloon,
+            16 => DeviceType::GPU,
+            17 => DeviceType::Timer,
+            18 => DeviceType::Input,
+            19 => DeviceType::Socket,
+            20 => DeviceType::Crypto,
+            21 => DeviceType::SignalDistributionModule,
+            22 => DeviceType::Pstore,
+            23 => DeviceType::IOMMU,
+            24 => DeviceType::Memory,
+            _ => DeviceType::Invalid,
+        }
+    }
+}
+
+impl From<u16> for DeviceType {
+    fn from(virtio_device_id: u16) -> Self {
+        u32::from(virtio_device_id).into()
+    }
+}
+
+impl From<u8> for DeviceType {
+    fn from(virtio_device_id: u8) -> Self {
+        u32::from(virtio_device_id).into()
+    }
+}

@@ -311,10 +311,8 @@ impl MmioTransport {
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
         // Safe because self.header points to a valid VirtIO MMIO region.
-        match unsafe { volread!(self.header, device_id) } {
-            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
-            _ => DeviceType::Invalid,
-        }
+        let device_id = unsafe { volread!(self.header, device_id) };
+        device_id.into()
     }
 
     fn read_device_features(&mut self) -> u64 {
