@@ -1,5 +1,7 @@
 //! PCI transport for VirtIO.
 
+pub mod bus;
+
 use super::DeviceType;
 
 /// The PCI vendor ID for VirtIO devices.

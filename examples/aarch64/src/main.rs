@@ -7,11 +7,12 @@ mod logger;
 mod pl011;
 
 use core::{mem::size_of, panic::PanicInfo, ptr::NonNull};
-use fdt::{standard_nodes::Compatible, Fdt};
+use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
+    pci::bus::{Cam, PciRoot},
     DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOGpu, VirtIOHeader, VirtIONet,
 };
 
@@ -71,6 +72,15 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
         }
     }
 
+    if let Some(pci_node) = fdt.find_compatible(&["pci-host-cam-generic"]) {
+        info!("Found PCI node: {}", pci_node.name);
+        enumerate_pci(pci_node, Cam::MmioCam);
+    }
+    if let Some(pcie_node) = fdt.find_compatible(&["pci-host-ecam-generic"]) {
+        info!("Found PCIe node: {}", pcie_node.name);
+        enumerate_pci(pcie_node, Cam::Ecam);
+    }
+
     system_off().unwrap();
 }
 
@@ -124,6 +134,22 @@ fn virtio_net<T: Transport>(transport: T) {
     info!("recv: {:?}", &buf[..len]);
     net.send(&buf[..len]).expect("failed to send");
     info!("virtio-net test finished");
+}
+
+fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
+    let reg = pci_node.reg().expect("PCI node missing reg property.");
+    for region in reg {
+        info!(
+            "Reg: {:?}-{:#x}",
+            region.starting_address,
+            region.starting_address as usize + region.size.unwrap()
+        );
+        // Safe because we know the pointer is to a valid MMIO region.
+        let mut pci_root = unsafe { PciRoot::new(region.starting_address as *mut u8, cam) };
+        for (device_function, info) in pci_root.enumerate_bus(0) {
+            info!("Found {} at {}", info, device_function);
+        }
+    }
 }
 
 #[panic_handler]
