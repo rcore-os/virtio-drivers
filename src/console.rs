@@ -1,10 +1,10 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use crate::volatile::{ReadOnly, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
-use volatile::{ReadOnly, WriteOnly};
 
 const QUEUE_RECEIVEQ_PORT_0: usize = 0;
 const QUEUE_TRANSMITQ_PORT_0: usize = 1;
@@ -14,8 +14,8 @@ const QUEUE_SIZE: u16 = 2;
 /// Emergency and cols/rows unimplemented.
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
-    receiveq: VirtQueue<'a, H>,
-    transmitq: VirtQueue<'a, H>,
+    receiveq: VirtQueue<H>,
+    transmitq: VirtQueue<H>,
     queue_buf_dma: DMA<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
@@ -161,7 +161,7 @@ mod tests {
             cols: ReadOnly::new(0),
             rows: ReadOnly::new(0),
             max_nr_ports: ReadOnly::new(0),
-            emerg_wr: WriteOnly::new(0),
+            emerg_wr: WriteOnly::default(),
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),

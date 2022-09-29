@@ -1,23 +1,23 @@
 use super::*;
 use crate::transport::Transport;
+use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use alloc::boxed::Box;
 use bitflags::*;
 use log::*;
-use volatile::{ReadOnly, WriteOnly};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
 /// An instance of the virtio device represents one such input device.
 /// Device behavior mirrors that of the evdev layer in Linux,
 /// making pass-through implementations on top of evdev easy.
-pub struct VirtIOInput<'a, H: Hal, T: Transport> {
+pub struct VirtIOInput<H: Hal, T: Transport> {
     transport: T,
-    event_queue: VirtQueue<'a, H>,
-    status_queue: VirtQueue<'a, H>,
+    event_queue: VirtQueue<H>,
+    status_queue: VirtQueue<H>,
     event_buf: Box<[InputEvent; 32]>,
 }
 
-impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
@@ -75,12 +75,16 @@ impl<H: Hal, T: Transport> VirtIOInput<'_, H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let mut config_space = self.transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_mut() };
-        config.select.write(select as u8);
-        config.subsel.write(subsel);
-        let size = config.size.read();
-        let data = config.data.read();
+        let config = self.transport.config_space().cast::<Config>();
+        let size;
+        let data;
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            volwrite!(config, select, select as u8);
+            volwrite!(config, subsel, subsel);
+            size = volread!(config, size);
+            data = volread!(config, data);
+        }
         out[..size as usize].copy_from_slice(&data[..size as usize]);
         size
     }

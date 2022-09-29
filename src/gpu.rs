@@ -1,10 +1,10 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use crate::volatile::{ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
-use volatile::{ReadOnly, Volatile, WriteOnly};
 
 /// A virtio based graphics adapter.
 ///
@@ -21,9 +21,9 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     /// DMA area of cursor image buffer.
     cursor_buffer_dma: Option<DMA<H>>,
     /// Queue for sending control commands.
-    control_queue: VirtQueue<'a, H>,
+    control_queue: VirtQueue<H>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<'a, H>,
+    cursor_queue: VirtQueue<H>,
     /// Queue buffer DMA
     queue_buf_dma: DMA<H>,
     /// Send buffer for queue.

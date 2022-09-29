@@ -1,22 +1,22 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
+use crate::volatile::{volread, Volatile};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
-use volatile::Volatile;
 
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
 /// and serviced (probably out of order) by the device except where noted.
-pub struct VirtIOBlk<'a, H: Hal, T: Transport> {
+pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
-    queue: VirtQueue<'a, H>,
+    queue: VirtQueue<H>,
     capacity: usize,
 }
 
-impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
@@ -28,13 +28,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
         });
 
         // read configuration space
-        let config_space = transport.config_space().cast::<BlkConfig>();
-        let config = unsafe { config_space.as_ref() };
+        let config = transport.config_space().cast::<BlkConfig>();
         info!("config: {:?}", config);
-        info!(
-            "found a block device of size {}KB",
-            config.capacity.read() / 2
-        );
+        // Safe because config is a valid pointer to the device configuration space.
+        let capacity = unsafe { volread!(config, capacity) };
+        info!("found a block device of size {}KB", capacity / 2);
 
         let queue = VirtQueue::new(&mut transport, 0, 16)?;
         transport.finish_init();
@@ -42,7 +40,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<'_, H, T> {
         Ok(VirtIOBlk {
             transport,
             queue,
-            capacity: config.capacity.read() as usize,
+            capacity: capacity as usize,
         })
     }
 

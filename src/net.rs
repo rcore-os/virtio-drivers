@@ -2,10 +2,10 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use crate::transport::Transport;
+use crate::volatile::{volread, ReadOnly, Volatile};
 use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
-use volatile::{ReadOnly, Volatile};
 
 /// The virtio network device is a virtual ethernet card.
 ///
@@ -14,14 +14,14 @@ use volatile::{ReadOnly, Volatile};
 /// Empty buffers are placed in one virtqueue for receiving packets, and
 /// outgoing packets are enqueued into another for transmission in that order.
 /// A third command queue is used to control advanced filtering features.
-pub struct VirtIONet<'a, H: Hal, T: Transport> {
+pub struct VirtIONet<H: Hal, T: Transport> {
     transport: T,
     mac: EthernetAddress,
-    recv_queue: VirtQueue<'a, H>,
-    send_queue: VirtQueue<'a, H>,
+    recv_queue: VirtQueue<H>,
+    send_queue: VirtQueue<H>,
 }
 
-impl<H: Hal, T: Transport> VirtIONet<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIONet<H, T> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
@@ -31,10 +31,13 @@ impl<H: Hal, T: Transport> VirtIONet<'_, H, T> {
             (features & supported_features).bits()
         });
         // read configuration space
-        let config_space = transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_ref() };
-        let mac = config.mac.read();
-        debug!("Got MAC={:?}, status={:?}", mac, config.status.read());
+        let config = transport.config_space().cast::<Config>();
+        let mac;
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            mac = volread!(config, mac);
+            debug!("Got MAC={:?}, status={:?}", mac, volread!(config, status));
+        }
 
         let queue_num = 2; // for simplicity
         let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, queue_num)?;
