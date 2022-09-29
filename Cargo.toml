@@ -1,11 +1,18 @@
 [package]
 name = "virtio-drivers"
 version = "0.1.0"
-authors = ["Jiajie Chen <noc@jiegec.ac.cn>", "Runji Wang <wangrunji0408@163.com>", "Yuekai Jia <equation618@gmail.com>"]
+license = "MIT"
+authors = [
+  "Jiajie Chen <noc@jiegec.ac.cn>",
+  "Runji Wang <wangrunji0408@163.com>",
+  "Yuekai Jia <equation618@gmail.com>",
+  "Andrew Walbran <qwandor@google.com>",
+]
 edition = "2018"
 description = "VirtIO guest drivers."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/rcore-os/virtio-drivers"
+keywords = ["virtio"]
+categories = ["hardware-support", "no-std"]
 
 [dependencies]
 log = "0.4"
