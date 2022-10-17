@@ -6,7 +6,7 @@ ENTRY(entry)
 
 MEMORY
 {
-	image : ORIGIN = 0x40000000, LENGTH = 2M
+	image : ORIGIN = 0x40080000, LENGTH = 2M
 }
 
 SECTIONS
