@@ -2,8 +2,17 @@
 
 pub mod bus;
 
-use self::bus::DeviceFunctionInfo;
-use super::DeviceType;
+use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR};
+use super::{DeviceStatus, DeviceType, Transport};
+use crate::{
+    hal::{Hal, PhysAddr},
+    volatile::{volread, volwrite, ReadOnly, Volatile},
+};
+use core::{
+    fmt::{self, Display, Formatter},
+    mem::size_of,
+    ptr::NonNull,
+};
 
 /// The PCI vendor ID for VirtIO devices.
 const VIRTIO_VENDOR_ID: u16 = 0x1af4;
@@ -18,6 +27,22 @@ const TRANSITIONAL_CONSOLE: u16 = 0x1003;
 const TRANSITIONAL_SCSI_HOST: u16 = 0x1004;
 const TRANSITIONAL_ENTROPY_SOURCE: u16 = 0x1005;
 const TRANSITIONAL_9P_TRANSPORT: u16 = 0x1009;
+
+/// The offset of the bar field within `virtio_pci_cap`.
+const CAP_BAR_OFFSET: u8 = 4;
+/// The offset of the offset field with `virtio_pci_cap`.
+const CAP_BAR_OFFSET_OFFSET: u8 = 8;
+/// The offset of the `length` field within `virtio_pci_cap`.
+const CAP_LENGTH_OFFSET: u8 = 12;
+
+/// Common configuration.
+const VIRTIO_PCI_CAP_COMMON_CFG: u8 = 1;
+/// Notifications.
+const VIRTIO_PCI_CAP_NOTIFY_CFG: u8 = 2;
+/// ISR Status.
+const VIRTIO_PCI_CAP_ISR_CFG: u8 = 3;
+/// Device specific configuration.
+const VIRTIO_PCI_CAP_DEVICE_CFG: u8 = 4;
 
 fn device_type(pci_device_id: u16) -> DeviceType {
     match pci_device_id {
@@ -43,6 +68,245 @@ pub fn virtio_device_type(device_function_info: &DeviceFunctionInfo) -> Option<D
         }
     }
     None
+}
+
+/// PCI transport for VirtIO.
+///
+/// Ref: 4.1 Virtio Over PCI Bus
+#[derive(Debug)]
+pub struct PciTransport {
+    root: PciRoot,
+    /// The bus, device and function identifier for the VirtIO device.
+    device_function: DeviceFunction,
+    /// The common configuration structure within some BAR.
+    common_cfg: NonNull<CommonCfg>,
+}
+
+impl PciTransport {
+    /// Construct a new PCI VirtIO device driver for the given device function on the given PCI
+    /// root controller.
+    ///
+    /// The PCI device must already have had its BARs allocated.
+    pub fn new<H: Hal>(
+        mut root: PciRoot,
+        device_function: DeviceFunction,
+    ) -> Result<Self, VirtioPciError> {
+        // Find the PCI capabilities we need.
+        let mut common_cfg = None;
+        for capability in root.capabilities(device_function) {
+            if capability.id != PCI_CAP_ID_VNDR {
+                continue;
+            }
+            let cap_len = capability.private_header as u8;
+            let cfg_type = (capability.private_header >> 8) as u8;
+            if cap_len < 16 {
+                continue;
+            }
+            let struct_info = VirtioCapabilityInfo {
+                bar: root.config_read_word(device_function, capability.offset + CAP_BAR_OFFSET)
+                    as u8,
+                offset: root
+                    .config_read_word(device_function, capability.offset + CAP_BAR_OFFSET_OFFSET),
+                length: root
+                    .config_read_word(device_function, capability.offset + CAP_LENGTH_OFFSET),
+            };
+
+            match cfg_type {
+                VIRTIO_PCI_CAP_COMMON_CFG if common_cfg.is_none() => {
+                    common_cfg = Some(struct_info);
+                }
+                _ => {}
+            }
+        }
+
+        let common_cfg = get_bar_region::<H, _>(
+            &mut root,
+            device_function,
+            &common_cfg.ok_or(VirtioPciError::MissingCommonConfig)?,
+        )?;
+
+        Ok(Self {
+            root,
+            device_function,
+            common_cfg,
+        })
+    }
+}
+
+impl Transport for PciTransport {
+    fn device_type(&self) -> DeviceType {
+        let header = self.root.config_read_word(self.device_function, 0);
+        let device_id = (header >> 16) as u16;
+        device_type(device_id)
+    }
+
+    fn read_device_features(&mut self) -> u64 {
+        // Safe because TODO
+        unsafe {
+            volwrite!(self.common_cfg, device_feature_select, 0);
+            let mut device_features_bits = volread!(self.common_cfg, device_feature) as u64;
+            volwrite!(self.common_cfg, device_feature_select, 1);
+            device_features_bits |= (volread!(self.common_cfg, device_feature) as u64) << 32;
+            device_features_bits
+        }
+    }
+
+    fn write_driver_features(&mut self, driver_features: u64) {
+        // Safe because TODO
+        unsafe {
+            volwrite!(self.common_cfg, driver_feature_select, 0);
+            volwrite!(self.common_cfg, driver_feature, driver_features as u32);
+            volwrite!(self.common_cfg, driver_feature_select, 1);
+            volwrite!(
+                self.common_cfg,
+                driver_feature,
+                (driver_features >> 32) as u32
+            );
+        }
+    }
+
+    fn max_queue_size(&self) -> u32 {
+        unsafe { volread!(self.common_cfg, queue_size) }.into()
+    }
+
+    fn notify(&mut self, queue: u16) {
+        todo!()
+    }
+
+    fn set_status(&mut self, status: DeviceStatus) {
+        // Safe because TODO
+        unsafe {
+            volwrite!(self.common_cfg, device_status, status.bits() as u8);
+        }
+    }
+
+    fn set_guest_page_size(&mut self, _guest_page_size: u32) {
+        // No-op, the PCI transport doesn't care.
+    }
+
+    fn queue_set(
+        &mut self,
+        queue: u16,
+        size: u32,
+        descriptors: PhysAddr,
+        driver_area: PhysAddr,
+        device_area: PhysAddr,
+    ) {
+        // Safe because TODO
+        unsafe {
+            volwrite!(self.common_cfg, queue_select, queue);
+            volwrite!(self.common_cfg, queue_size, size as u16);
+            volwrite!(self.common_cfg, queue_desc, descriptors as u64);
+            volwrite!(self.common_cfg, queue_driver, driver_area as u64);
+            volwrite!(self.common_cfg, queue_device, device_area as u64);
+            volwrite!(self.common_cfg, queue_enable, 1);
+        }
+    }
+
+    fn queue_used(&mut self, queue: u16) -> bool {
+        // Safe because TODO
+        unsafe {
+            volwrite!(self.common_cfg, queue_select, queue);
+            volread!(self.common_cfg, queue_enable) == 1
+        }
+    }
+
+    fn ack_interrupt(&mut self) -> bool {
+        todo!()
+    }
+
+    fn config_space(&self) -> NonNull<u64> {
+        todo!()
+    }
+}
+
+/// `virtio_pci_common_cfg`, see 4.1.4.3 "Common configuration structure layout".
+#[repr(C)]
+struct CommonCfg {
+    device_feature_select: Volatile<u32>,
+    device_feature: ReadOnly<u32>,
+    driver_feature_select: Volatile<u32>,
+    driver_feature: Volatile<u32>,
+    msix_config: Volatile<u16>,
+    num_queues: ReadOnly<u16>,
+    device_status: Volatile<u8>,
+    config_generation: ReadOnly<u8>,
+    queue_select: Volatile<u16>,
+    queue_size: Volatile<u16>,
+    queue_msix_vector: Volatile<u16>,
+    queue_enable: Volatile<u16>,
+    queue_notify_off: Volatile<u16>,
+    queue_desc: Volatile<u64>,
+    queue_driver: Volatile<u64>,
+    queue_device: Volatile<u64>,
+}
+
+/// Information about a VirtIO structure within some BAR, as provided by a `virtio_pci_cap`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct VirtioCapabilityInfo {
+    /// The bar in which the structure can be found.
+    bar: u8,
+    /// The offset within the bar.
+    offset: u32,
+    /// The length in bytes of the structure within the bar.
+    length: u32,
+}
+
+fn get_bar_region<H: Hal, T>(
+    root: &mut PciRoot,
+    device_function: DeviceFunction,
+    struct_info: &VirtioCapabilityInfo,
+) -> Result<NonNull<T>, VirtioPciError> {
+    let bar_info = root.bar_info(device_function, struct_info.bar)?;
+    let (bar_address, bar_size) = bar_info
+        .memory_address_size()
+        .ok_or(VirtioPciError::UnexpectedIoBar)?;
+    if bar_address == 0 {
+        return Err(VirtioPciError::BarNotAllocated(struct_info.bar));
+    }
+    if struct_info.offset + struct_info.length > bar_size
+        || size_of::<T>() > struct_info.length as usize
+    {
+        return Err(VirtioPciError::BarOffsetOutOfRange);
+    }
+    let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
+    Ok(NonNull::new(H::phys_to_virt(paddr) as _).unwrap())
+}
+
+/// An error encountered initialising a VirtIO PCI transport.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VirtioPciError {
+    /// No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found.
+    MissingCommonConfig,
+    /// An IO BAR was provided rather than a memory BAR.
+    UnexpectedIoBar,
+    /// A BAR which we need was not allocated an address.
+    BarNotAllocated(u8),
+    /// The offset for some capability was greater than the length of the BAR.
+    BarOffsetOutOfRange,
+    /// A generic PCI error,
+    Pci(PciError),
+}
+
+impl Display for VirtioPciError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::MissingCommonConfig => write!(
+                f,
+                "No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found."
+            ),
+            Self::UnexpectedIoBar => write!(f, "Unexpected IO BAR (expected memory BAR)."),
+            Self::BarNotAllocated(bar_index) => write!(f, "Bar {} not allocated.", bar_index),
+            Self::BarOffsetOutOfRange => write!(f, "Capability offset greater than BAR length."),
+            Self::Pci(pci_error) => pci_error.fmt(f),
+        }
+    }
+}
+
+impl From<PciError> for VirtioPciError {
+    fn from(error: PciError) -> Self {
+        Self::Pci(error)
+    }
 }
 
 #[cfg(test)]

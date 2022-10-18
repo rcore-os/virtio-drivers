@@ -161,7 +161,11 @@ impl PciRoot {
     }
 
     /// Reads 4 bytes from configuration space using the appropriate CAM.
-    fn config_read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
+    pub(crate) fn config_read_word(
+        &self,
+        device_function: DeviceFunction,
+        register_offset: u8,
+    ) -> u32 {
         let address = self.cam_offset(device_function, register_offset);
         // Safe because both the `mmio_base` and the address offset are properly aligned, and the
         // resulting pointer is within the MMIO range of the CAM.
@@ -172,7 +176,7 @@ impl PciRoot {
     }
 
     /// Writes 4 bytes to configuration space using the appropriate CAM.
-    fn config_write_word(
+    pub(crate) fn config_write_word(
         &mut self,
         device_function: DeviceFunction,
         register_offset: u8,
@@ -315,6 +319,18 @@ pub enum BarInfo {
         /// The size of the BAR in bytes.
         size: u32,
     },
+}
+
+impl BarInfo {
+    /// Returns the address and size of this BAR if it is a memory bar, or `None` if it is an IO
+    /// BAR.
+    pub fn memory_address_size(&self) -> Option<(u64, u32)> {
+        if let Self::Memory { address, size, .. } = self {
+            Some((*address, *size))
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for BarInfo {

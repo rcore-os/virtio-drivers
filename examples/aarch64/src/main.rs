@@ -14,7 +14,7 @@ use psci::system_off;
 use virtio_drivers::{
     pci::{
         bus::{Cam, PciRoot},
-        virtio_device_type,
+        virtio_device_type, PciTransport,
     },
     DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOGpu, VirtIOHeader, VirtIONet,
 };
@@ -157,6 +157,9 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
             );
             if let Some(virtio_type) = virtio_device_type(&info) {
                 info!("  VirtIO {:?}", virtio_type);
+                let mut transport =
+                    PciTransport::new::<HalImpl>(pci_root.clone(), device_function).unwrap();
+                info!("  Features: {:#018x}", transport.read_device_features());
             }
         }
     }
