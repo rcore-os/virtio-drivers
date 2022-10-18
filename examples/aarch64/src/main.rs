@@ -12,7 +12,10 @@ use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
-    pci::bus::{Cam, PciRoot},
+    pci::{
+        bus::{Cam, PciRoot},
+        virtio_device_type,
+    },
     DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOGpu, VirtIOHeader, VirtIONet,
 };
 
@@ -148,6 +151,9 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
         let mut pci_root = unsafe { PciRoot::new(region.starting_address as *mut u8, cam) };
         for (device_function, info) in pci_root.enumerate_bus(0) {
             info!("Found {} at {}", info, device_function);
+            if let Some(virtio_type) = virtio_device_type(&info) {
+                info!("  VirtIO {:?}", virtio_type);
+            }
         }
     }
 }

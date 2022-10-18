@@ -2,6 +2,7 @@
 
 pub mod bus;
 
+use self::bus::DeviceFunctionInfo;
 use super::DeviceType;
 
 /// The PCI vendor ID for VirtIO devices.
@@ -32,6 +33,18 @@ fn device_type(pci_device_id: u16) -> DeviceType {
     }
 }
 
+/// Returns the type of VirtIO device to which the given PCI vendor and device ID corresponds, or
+/// `None` if it is not a recognised VirtIO device.
+pub fn virtio_device_type(device_function_info: &DeviceFunctionInfo) -> Option<DeviceType> {
+    if device_function_info.vendor_id == VIRTIO_VENDOR_ID {
+        let device_type = device_type(device_function_info.device_id);
+        if device_type != DeviceType::Invalid {
+            return Some(device_type);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +63,52 @@ mod tests {
         assert_eq!(device_type(0x1058), DeviceType::Memory);
         assert_eq!(device_type(0x1040), DeviceType::Invalid);
         assert_eq!(device_type(0x1059), DeviceType::Invalid);
+    }
+
+    #[test]
+    fn virtio_device_type_valid() {
+        assert_eq!(
+            virtio_device_type(&DeviceFunctionInfo {
+                vendor_id: VIRTIO_VENDOR_ID,
+                device_id: TRANSITIONAL_BLOCK,
+                class: 0,
+                subclass: 0,
+                prog_if: 0,
+                revision: 0,
+                header_type: bus::HeaderType::Standard,
+            }),
+            Some(DeviceType::Block)
+        );
+    }
+
+    #[test]
+    fn virtio_device_type_invalid() {
+        // Non-VirtIO vendor ID.
+        assert_eq!(
+            virtio_device_type(&DeviceFunctionInfo {
+                vendor_id: 0x1234,
+                device_id: TRANSITIONAL_BLOCK,
+                class: 0,
+                subclass: 0,
+                prog_if: 0,
+                revision: 0,
+                header_type: bus::HeaderType::Standard,
+            }),
+            None
+        );
+
+        // Invalid device ID.
+        assert_eq!(
+            virtio_device_type(&DeviceFunctionInfo {
+                vendor_id: VIRTIO_VENDOR_ID,
+                device_id: 0x1040,
+                class: 0,
+                subclass: 0,
+                prog_if: 0,
+                revision: 0,
+                header_type: bus::HeaderType::Standard,
+            }),
+            None
+        );
     }
 }
