@@ -2,6 +2,7 @@
 
 use bitflags::bitflags;
 use core::fmt::{self, Display, Formatter};
+use log::warn;
 
 const INVALID_READ: u32 = 0xffffffff;
 // PCI MMIO configuration region size.
@@ -16,6 +17,9 @@ const MAX_FUNCTIONS: u8 = 8;
 
 /// The offset in bytes to the status and command fields within PCI configuration space.
 const STATUS_COMMAND_OFFSET: u8 = 0x04;
+
+/// ID for vendor-specific PCI capabilities.
+pub const PCI_CAP_ID_VNDR: u8 = 0x09;
 
 bitflags! {
     /// The status register in PCI configuration space.
@@ -191,6 +195,73 @@ impl PciRoot {
             command.bits().into(),
         );
     }
+
+    /// Gets an iterator over the capabilities of the given device function.
+    pub fn capabilities(&self, device_function: DeviceFunction) -> CapabilityIterator {
+        CapabilityIterator {
+            root: self.clone(),
+            device_function,
+            next_capability_offset: self.capabilities_offset(device_function),
+        }
+    }
+
+    /// Gets the capabilities 'pointer' for the device function, if any.
+    fn capabilities_offset(&self, device_function: DeviceFunction) -> Option<u8> {
+        let (status, _) = self.get_status_command(device_function);
+        if status.contains(Status::CAPABILITIES_LIST) {
+            Some((self.config_read_word(device_function, 0x34) & 0xFC) as u8)
+        } else {
+            None
+        }
+    }
+}
+
+/// Iterator over capabilities for a device.
+#[derive(Debug)]
+pub struct CapabilityIterator {
+    root: PciRoot,
+    device_function: DeviceFunction,
+    next_capability_offset: Option<u8>,
+}
+
+impl Iterator for CapabilityIterator {
+    type Item = CapabilityInfo;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let offset = self.next_capability_offset?;
+
+        // Read the first 4 bytes of the capability.
+        let capability_header = self.root.config_read_word(self.device_function, offset);
+        let id = capability_header as u8;
+        let next_offset = (capability_header >> 8) as u8;
+        let private_header = (capability_header >> 16) as u16;
+
+        self.next_capability_offset = if next_offset == 0 {
+            None
+        } else if next_offset < 64 || next_offset & 0x3 != 0 {
+            warn!("Invalid next capability offset {:#04x}", next_offset);
+            None
+        } else {
+            Some(next_offset)
+        };
+
+        Some(CapabilityInfo {
+            offset,
+            id,
+            private_header,
+        })
+    }
+}
+
+/// Information about a PCI device capability.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct CapabilityInfo {
+    /// The offset of the capability in the PCI configuration space of the device function.
+    pub offset: u8,
+    /// The ID of the capability.
+    pub id: u8,
+    /// The third and fourth bytes of the capability, to save reading them again.
+    pub private_header: u16,
 }
 
 /// An iterator which enumerates PCI devices and functions on a given bus.
