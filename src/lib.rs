@@ -5,12 +5,14 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 mod blk;
 mod console;
 mod gpu;
 mod hal;
+#[cfg(feature = "alloc")]
 mod input;
 mod net;
 mod queue;
@@ -21,6 +23,7 @@ pub use self::blk::{BlkResp, RespStatus, VirtIOBlk};
 pub use self::console::VirtIOConsole;
 pub use self::gpu::VirtIOGpu;
 pub use self::hal::{Hal, PhysAddr, VirtAddr};
+#[cfg(feature = "alloc")]
 pub use self::input::{InputConfigSelect, InputEvent, VirtIOInput};
 pub use self::net::VirtIONet;
 use self::queue::VirtQueue;
