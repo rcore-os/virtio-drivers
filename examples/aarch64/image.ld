@@ -70,6 +70,9 @@ SECTIONS
 		boot_stack_end = .;
 	} >image
 
+	. = ALIGN(4K);
+	PROVIDE(dma_region = .);
+
 	/*
 	 * Remove unused sections from the image.
 	 */

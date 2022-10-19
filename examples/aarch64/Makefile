@@ -2,6 +2,7 @@ target := aarch64-unknown-none
 mode := release
 kernel := target/$(target)/$(mode)/aarch64
 kernel_bin := target/$(target)/$(mode)/aarch64.bin
+img := target/$(target)/$(mode)/img
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=aarch64
@@ -36,11 +37,18 @@ header: kernel
 clean:
 	cargo clean
 
-qemu: $(kernel_bin)
+qemu: $(kernel_bin) $(img)
 	qemu-system-aarch64 \
 		-machine virt \
 		-cpu max \
 		-serial mon:stdio \
-		-kernel $(kernel_bin)
+		-kernel $(kernel_bin) \
+		-global virtio-mmio.force-legacy=false \
+		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device virtio-blk-device,drive=x0 \
+		-device virtio-gpu-device
+
+$(img):
+	dd if=/dev/zero of=$@ bs=512 count=32
 
 run: qemu
