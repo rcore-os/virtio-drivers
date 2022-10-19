@@ -6,7 +6,7 @@ use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_I
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
-    volatile::{volread, volwrite, ReadOnly, Volatile},
+    volatile::{volread, volwrite, ReadOnly, Volatile, VolatileWritable, WriteOnly},
 };
 use core::{
     fmt::{self, Display, Formatter},
@@ -34,6 +34,8 @@ const CAP_BAR_OFFSET: u8 = 4;
 const CAP_BAR_OFFSET_OFFSET: u8 = 8;
 /// The offset of the `length` field within `virtio_pci_cap`.
 const CAP_LENGTH_OFFSET: u8 = 12;
+/// The offset of the`notify_off_multiplier` field within `virtio_pci_notify_cap`.
+const CAP_NOTIFY_OFF_MULTIPLIER_OFFSET: u8 = 16;
 
 /// Common configuration.
 const VIRTIO_PCI_CAP_COMMON_CFG: u8 = 1;
@@ -80,6 +82,12 @@ pub struct PciTransport {
     device_function: DeviceFunction,
     /// The common configuration structure within some BAR.
     common_cfg: NonNull<CommonCfg>,
+    // TODO: Use a raw slice, once they are supported by our MSRV.
+    /// The start of the queue notification region within some BAR.
+    notify_region: NonNull<WriteOnly<u16>>,
+    /// The size of the queue notification region in bytes.
+    notify_region_size: usize,
+    notify_off_multiplier: u32,
 }
 
 impl PciTransport {
@@ -93,6 +101,8 @@ impl PciTransport {
     ) -> Result<Self, VirtioPciError> {
         // Find the PCI capabilities we need.
         let mut common_cfg = None;
+        let mut notify_cfg = None;
+        let mut notify_off_multiplier = 0;
         for capability in root.capabilities(device_function) {
             if capability.id != PCI_CAP_ID_VNDR {
                 continue;
@@ -115,6 +125,13 @@ impl PciTransport {
                 VIRTIO_PCI_CAP_COMMON_CFG if common_cfg.is_none() => {
                     common_cfg = Some(struct_info);
                 }
+                VIRTIO_PCI_CAP_NOTIFY_CFG if cap_len >= 20 && notify_cfg.is_none() => {
+                    notify_cfg = Some(struct_info);
+                    notify_off_multiplier = root.config_read_word(
+                        device_function,
+                        capability.offset + CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
+                    );
+                }
                 _ => {}
             }
         }
@@ -125,10 +142,21 @@ impl PciTransport {
             &common_cfg.ok_or(VirtioPciError::MissingCommonConfig)?,
         )?;
 
+        let notify_cfg = notify_cfg.ok_or(VirtioPciError::MissingNotifyConfig)?;
+        if notify_off_multiplier % 2 != 0 {
+            return Err(VirtioPciError::InvalidNotifyOffMultiplier(
+                notify_off_multiplier,
+            ));
+        }
+        let notify_region = get_bar_region::<H, _>(&mut root, device_function, &notify_cfg)?;
+
         Ok(Self {
             root,
             device_function,
             common_cfg,
+            notify_region,
+            notify_region_size: notify_cfg.length as usize,
+            notify_off_multiplier,
         })
     }
 }
@@ -170,7 +198,18 @@ impl Transport for PciTransport {
     }
 
     fn notify(&mut self, queue: u16) {
-        todo!()
+        unsafe {
+            volwrite!(self.common_cfg, queue_select, queue);
+            // TODO: Consider caching this somewhere (per queue).
+            let queue_notify_off = volread!(self.common_cfg, queue_notify_off);
+
+            let offset_bytes = usize::from(queue_notify_off) * self.notify_off_multiplier as usize;
+            assert!(offset_bytes + size_of::<u16>() <= self.notify_region_size);
+            self.notify_region
+                .as_ptr()
+                .add(offset_bytes / size_of::<u16>())
+                .vwrite(queue);
+        }
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
@@ -278,6 +317,11 @@ fn get_bar_region<H: Hal, T>(
 pub enum VirtioPciError {
     /// No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found.
     MissingCommonConfig,
+    /// No valid `VIRTIO_PCI_CAP_NOTIFY_CFG` capability was found.
+    MissingNotifyConfig,
+    /// `VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple
+    /// of 2.
+    InvalidNotifyOffMultiplier(u32),
     /// An IO BAR was provided rather than a memory BAR.
     UnexpectedIoBar,
     /// A BAR which we need was not allocated an address.
@@ -295,6 +339,17 @@ impl Display for VirtioPciError {
                 f,
                 "No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found."
             ),
+            Self::MissingNotifyConfig => write!(
+                f,
+                "No valid `VIRTIO_PCI_CAP_NOTIFY_CFG` capability was found."
+            ),
+            Self::InvalidNotifyOffMultiplier(notify_off_multiplier) => {
+                write!(
+                    f,
+                    "`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {}",
+                    notify_off_multiplier
+                )
+            }
             Self::UnexpectedIoBar => write!(f, "Unexpected IO BAR (expected memory BAR)."),
             Self::BarNotAllocated(bar_index) => write!(f, "Bar {} not allocated.", bar_index),
             Self::BarOffsetOutOfRange => write!(f, "Capability offset greater than BAR length."),
