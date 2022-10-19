@@ -165,7 +165,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         }
         self.control_queue
             .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
-        self.transport.notify(QUEUE_TRANSMIT as u32);
+        self.transport.notify(QUEUE_TRANSMIT);
         while !self.control_queue.can_pop() {
             spin_loop();
         }
@@ -179,7 +179,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
         self.cursor_queue.add(&[self.queue_buf_send], &[])?;
-        self.transport.notify(QUEUE_CURSOR as u32);
+        self.transport.notify(QUEUE_CURSOR);
         while !self.cursor_queue.can_pop() {
             spin_loop();
         }
@@ -483,8 +483,8 @@ struct UpdateCursor {
     _padding: u32,
 }
 
-const QUEUE_TRANSMIT: usize = 0;
-const QUEUE_CURSOR: usize = 1;
+const QUEUE_TRANSMIT: u16 = 0;
+const QUEUE_CURSOR: u16 = 1;
 
 const SCANOUT_ID: u32 = 0;
 const RESOURCE_ID_FB: u32 = 0xbabe;

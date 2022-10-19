@@ -34,7 +34,7 @@ impl Transport for FakeTransport {
         self.max_queue_size
     }
 
-    fn notify(&mut self, queue: u32) {
+    fn notify(&mut self, queue: u16) {
         self.state.lock().unwrap().queues[queue as usize].notified = true;
     }
 
@@ -48,7 +48,7 @@ impl Transport for FakeTransport {
 
     fn queue_set(
         &mut self,
-        queue: u32,
+        queue: u16,
         size: u32,
         descriptors: PhysAddr,
         driver_area: PhysAddr,
@@ -61,7 +61,7 @@ impl Transport for FakeTransport {
         state.queues[queue as usize].device_area = device_area;
     }
 
-    fn queue_used(&mut self, queue: u32) -> bool {
+    fn queue_used(&mut self, queue: u16) -> bool {
         self.state.lock().unwrap().queues[queue as usize].descriptors != 0
     }
 
@@ -92,8 +92,8 @@ impl State {
     /// Simulates the device writing to the given queue.
     ///
     /// The fake device always uses descriptors in order.
-    pub fn write_to_queue(&mut self, queue_size: u16, queue_index: usize, data: &[u8]) {
-        let receive_queue = &self.queues[queue_index];
+    pub fn write_to_queue(&mut self, queue_size: u16, queue_index: u16, data: &[u8]) {
+        let receive_queue = &self.queues[queue_index as usize];
         assert_ne!(receive_queue.descriptors, 0);
         fake_write_to_queue(
             queue_size,

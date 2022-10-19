@@ -22,7 +22,7 @@ pub trait Transport {
     fn max_queue_size(&self) -> u32;
 
     /// Notifies the given queue on the device.
-    fn notify(&mut self, queue: u32);
+    fn notify(&mut self, queue: u16);
 
     /// Sets the device status.
     fn set_status(&mut self, status: DeviceStatus);
@@ -33,7 +33,7 @@ pub trait Transport {
     /// Sets up the given queue.
     fn queue_set(
         &mut self,
-        queue: u32,
+        queue: u16,
         size: u32,
         descriptors: PhysAddr,
         driver_area: PhysAddr,
@@ -41,7 +41,7 @@ pub trait Transport {
     );
 
     /// Returns whether the queue is in use, i.e. has a nonzero PFN or is marked as ready.
-    fn queue_used(&mut self, queue: u32) -> bool;
+    fn queue_used(&mut self, queue: u16) -> bool;
 
     /// Acknowledges an interrupt.
     ///

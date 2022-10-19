@@ -6,8 +6,8 @@ use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
 
-const QUEUE_RECEIVEQ_PORT_0: usize = 0;
-const QUEUE_TRANSMITQ_PORT_0: usize = 1;
+const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
+const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: u16 = 2;
 
 /// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
@@ -93,7 +93,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         self.transmitq.add(&[&buf], &[])?;
-        self.transport.notify(QUEUE_TRANSMITQ_PORT_0 as u32);
+        self.transport.notify(QUEUE_TRANSMITQ_PORT_0);
         while !self.transmitq.can_pop() {
             spin_loop();
         }
