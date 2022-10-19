@@ -6,7 +6,9 @@ use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_I
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
-    volatile::{volread, volwrite, ReadOnly, Volatile, VolatileWritable, WriteOnly},
+    volatile::{
+        volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
+    },
 };
 use core::{
     fmt::{self, Display, Formatter},
@@ -88,6 +90,8 @@ pub struct PciTransport {
     /// The size of the queue notification region in bytes.
     notify_region_size: usize,
     notify_off_multiplier: u32,
+    /// The ISR status register within some BAR.
+    isr_status: NonNull<Volatile<u32>>,
 }
 
 impl PciTransport {
@@ -103,6 +107,7 @@ impl PciTransport {
         let mut common_cfg = None;
         let mut notify_cfg = None;
         let mut notify_off_multiplier = 0;
+        let mut isr_cfg = None;
         for capability in root.capabilities(device_function) {
             if capability.id != PCI_CAP_ID_VNDR {
                 continue;
@@ -132,6 +137,9 @@ impl PciTransport {
                         capability.offset + CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
                     );
                 }
+                VIRTIO_PCI_CAP_ISR_CFG if isr_cfg.is_none() => {
+                    isr_cfg = Some(struct_info);
+                }
                 _ => {}
             }
         }
@@ -150,6 +158,12 @@ impl PciTransport {
         }
         let notify_region = get_bar_region::<H, _>(&mut root, device_function, &notify_cfg)?;
 
+        let isr_status = get_bar_region::<H, _>(
+            &mut root,
+            device_function,
+            &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
+        )?;
+
         Ok(Self {
             root,
             device_function,
@@ -157,6 +171,7 @@ impl PciTransport {
             notify_region,
             notify_region_size: notify_cfg.length as usize,
             notify_off_multiplier,
+            isr_status,
         })
     }
 }
@@ -251,7 +266,11 @@ impl Transport for PciTransport {
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        todo!()
+        // Safe because TODO
+        // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
+        let isr_status = unsafe { self.isr_status.as_ptr().vread() };
+        // TODO: Distinguish between queue interrupt and device configuration interrupt.
+        isr_status & 0x3 != 0
     }
 
     fn config_space(&self) -> NonNull<u64> {
@@ -322,6 +341,8 @@ pub enum VirtioPciError {
     /// `VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple
     /// of 2.
     InvalidNotifyOffMultiplier(u32),
+    /// No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.
+    MissingIsrConfig,
     /// An IO BAR was provided rather than a memory BAR.
     UnexpectedIoBar,
     /// A BAR which we need was not allocated an address.
@@ -349,6 +370,9 @@ impl Display for VirtioPciError {
                     "`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {}",
                     notify_off_multiplier
                 )
+            }
+            Self::MissingIsrConfig => {
+                write!(f, "No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.")
             }
             Self::UnexpectedIoBar => write!(f, "Unexpected IO BAR (expected memory BAR)."),
             Self::BarNotAllocated(bar_index) => write!(f, "Bar {} not allocated.", bar_index),
