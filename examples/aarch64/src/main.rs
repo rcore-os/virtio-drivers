@@ -139,8 +139,48 @@ fn virtio_net<T: Transport>(transport: T) {
     info!("virtio-net test finished");
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum PciRangeType {
+    ConfigurationSpace,
+    IoSpace,
+    Memory32,
+    Memory64,
+}
+
+impl From<u8> for PciRangeType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::ConfigurationSpace,
+            1 => Self::IoSpace,
+            2 => Self::Memory32,
+            3 => Self::Memory64,
+            _ => panic!("Tried to convert invalid range type {}", value),
+        }
+    }
+}
+
 fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
     let reg = pci_node.reg().expect("PCI node missing reg property.");
+    let ranges = pci_node
+        .property("ranges")
+        .expect("PCI node missing ranges property.");
+    for i in 0..ranges.value.len() / 28 {
+        let range = &ranges.value[i * 28..(i + 1) * 28];
+        let prefetchable = range[0] & 0x80 != 0;
+        let range_type = PciRangeType::from(range[0] & 0x3);
+        let bus_address = u64::from_be_bytes(range[4..12].try_into().unwrap());
+        let cpu_physical = u64::from_be_bytes(range[12..20].try_into().unwrap());
+        let size = u64::from_be_bytes(range[20..28].try_into().unwrap());
+        info!(
+            "range: {:?} {}prefetchable bus address: {:#018x} host physical address: {:#018x} size: {:#018x}",
+            range_type,
+            if prefetchable { "" } else { "non-" },
+            bus_address,
+            cpu_physical,
+            size
+        );
+    }
+
     for region in reg {
         info!(
             "Reg: {:?}-{:#x}",
