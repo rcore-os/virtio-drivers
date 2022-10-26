@@ -92,6 +92,10 @@ pub struct PciTransport {
     notify_off_multiplier: u32,
     /// The ISR status register within some BAR.
     isr_status: NonNull<Volatile<u32>>,
+    /// The VirtIO device-specific configuration within some BAR.
+    config_space: Option<NonNull<u64>>,
+    /// The size of the VirtIO device-specific configuration region in bytes.
+    config_space_size: usize,
 }
 
 impl PciTransport {
@@ -108,6 +112,7 @@ impl PciTransport {
         let mut notify_cfg = None;
         let mut notify_off_multiplier = 0;
         let mut isr_cfg = None;
+        let mut device_cfg = None;
         for capability in root.capabilities(device_function) {
             if capability.id != PCI_CAP_ID_VNDR {
                 continue;
@@ -140,6 +145,9 @@ impl PciTransport {
                 VIRTIO_PCI_CAP_ISR_CFG if isr_cfg.is_none() => {
                     isr_cfg = Some(struct_info);
                 }
+                VIRTIO_PCI_CAP_DEVICE_CFG if device_cfg.is_none() => {
+                    device_cfg = Some(struct_info);
+                }
                 _ => {}
             }
         }
@@ -164,6 +172,20 @@ impl PciTransport {
             &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
         )?;
 
+        let config_space;
+        let config_space_size;
+        if let Some(device_cfg) = device_cfg {
+            config_space = Some(get_bar_region::<H, _>(
+                &mut root,
+                device_function,
+                &device_cfg,
+            )?);
+            config_space_size = device_cfg.length as usize;
+        } else {
+            config_space = None;
+            config_space_size = 0;
+        }
+
         Ok(Self {
             root,
             device_function,
@@ -172,6 +194,8 @@ impl PciTransport {
             notify_region_size: notify_cfg.length as usize,
             notify_off_multiplier,
             isr_status,
+            config_space,
+            config_space_size,
         })
     }
 }
@@ -274,7 +298,9 @@ impl Transport for PciTransport {
     }
 
     fn config_space(&self) -> NonNull<u64> {
-        todo!()
+        // TODO: Check config_space_size
+        self.config_space
+            .expect("No VIRTIO_PCI_CAP_DEVICE_CFG capability.")
     }
 }
 
