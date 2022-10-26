@@ -1,7 +1,10 @@
 //! Module for dealing with a PCI bus in general, without anything specific to VirtIO.
 
 use bitflags::bitflags;
-use core::fmt::{self, Display, Formatter};
+use core::{
+    convert::TryFrom,
+    fmt::{self, Display, Formatter},
+};
 use log::warn;
 
 const INVALID_READ: u32 = 0xffffffff;
@@ -17,6 +20,8 @@ const MAX_FUNCTIONS: u8 = 8;
 
 /// The offset in bytes to the status and command fields within PCI configuration space.
 const STATUS_COMMAND_OFFSET: u8 = 0x04;
+/// The offset in bytes to BAR0 within PCI configuration space.
+const BAR0_OFFSET: u8 = 0x10;
 
 /// ID for vendor-specific PCI capabilities.
 pub const PCI_CAP_ID_VNDR: u8 = 0x09;
@@ -74,6 +79,21 @@ bitflags! {
         const FAST_BACK_TO_BACK_ENABLE = 1 << 9;
         /// Assertion of the device's INTx# signal is disabled.
         const INTERRUPT_DISABLE = 1 << 10;
+    }
+}
+
+/// Errors accessing a PCI device.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PciError {
+    /// The device reported an invalid BAR type.
+    InvalidBarType,
+}
+
+impl Display for PciError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::InvalidBarType => write!(f, "Invalid PCI BAR type."),
+        }
     }
 }
 
@@ -205,6 +225,63 @@ impl PciRoot {
         }
     }
 
+    /// Gets information about the given BAR of the given device function.
+    pub fn bar_info(
+        &mut self,
+        device_function: DeviceFunction,
+        bar_index: u8,
+    ) -> Result<BarInfo, PciError> {
+        let bar_orig = self.config_read_word(device_function, BAR0_OFFSET + 4 * bar_index);
+
+        // Get the size of the BAR.
+        self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, 0xffffffff);
+        let size_mask = self.config_read_word(device_function, BAR0_OFFSET + 4 * bar_index);
+        let size = !(size_mask & 0xfffffff0) + 1;
+
+        // Restore the original value.
+        self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, bar_orig);
+
+        if bar_orig & 0x00000001 == 0x00000001 {
+            // I/O space
+            let address = bar_orig & 0xfffffffc;
+            Ok(BarInfo::IO { address, size })
+        } else {
+            // Memory space
+            let mut address = u64::from(bar_orig & 0xfffffff0);
+            let prefetchable = bar_orig & 0x00000008 != 0;
+            let address_type = MemoryBarType::try_from(((bar_orig & 0x00000006) >> 1) as u8)?;
+            if address_type == MemoryBarType::Width64 {
+                if bar_index >= 5 {
+                    return Err(PciError::InvalidBarType);
+                }
+                let address_top =
+                    self.config_read_word(device_function, BAR0_OFFSET + 4 * (bar_index + 1));
+                address |= u64::from(address_top) << 32;
+            }
+            Ok(BarInfo::Memory {
+                address_type,
+                prefetchable,
+                address,
+                size,
+            })
+        }
+    }
+
+    /// Sets the address of the given 32-bit memory or I/O BAR of the given device function.
+    pub fn set_bar_32(&mut self, device_function: DeviceFunction, bar_index: u8, address: u32) {
+        self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, address);
+    }
+
+    /// Sets the address of the given 64-bit memory BAR of the given device function.
+    pub fn set_bar_64(&mut self, device_function: DeviceFunction, bar_index: u8, address: u64) {
+        self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, address as u32);
+        self.config_write_word(
+            device_function,
+            BAR0_OFFSET + 4 * (bar_index + 1),
+            (address >> 32) as u32,
+        );
+    }
+
     /// Gets the capabilities 'pointer' for the device function, if any.
     fn capabilities_offset(&self, device_function: DeviceFunction) -> Option<u8> {
         let (status, _) = self.get_status_command(device_function);
@@ -212,6 +289,84 @@ impl PciRoot {
             Some((self.config_read_word(device_function, 0x34) & 0xFC) as u8)
         } else {
             None
+        }
+    }
+}
+
+/// Information about a PCI Base Address Register.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BarInfo {
+    /// The BAR is for a memory region.
+    Memory {
+        /// The size of the BAR address and where it can be located.
+        address_type: MemoryBarType,
+        /// If true, then reading from the region doesn't have side effects. The CPU may cache reads
+        /// and merge repeated stores.
+        prefetchable: bool,
+        /// The memory address, always 16-byte aligned.
+        address: u64,
+        /// The size of the BAR in bytes.
+        size: u32,
+    },
+    /// The BAR is for an I/O region.
+    IO {
+        /// The I/O address, always 4-byte aligned.
+        address: u32,
+        /// The size of the BAR in bytes.
+        size: u32,
+    },
+}
+
+impl Display for BarInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Memory {
+                address_type,
+                prefetchable,
+                address,
+                size,
+            } => write!(
+                f,
+                "Memory space at {:#010x}, size {}, type {:?}, prefetchable {}",
+                address, size, address_type, prefetchable
+            ),
+            Self::IO { address, size } => {
+                write!(f, "I/O space at {:#010x}, size {}", address, size)
+            }
+        }
+    }
+}
+
+/// The location allowed for a memory BAR.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MemoryBarType {
+    /// The BAR has a 32-bit address and can be mapped anywhere in 32-bit address space.
+    Width32,
+    /// The BAR must be mapped below 1MiB.
+    Below1MiB,
+    /// The BAR has a 64-bit address and can be mapped anywhere in 64-bit address space.
+    Width64,
+}
+
+impl From<MemoryBarType> for u8 {
+    fn from(bar_type: MemoryBarType) -> Self {
+        match bar_type {
+            MemoryBarType::Width32 => 0,
+            MemoryBarType::Below1MiB => 1,
+            MemoryBarType::Width64 => 2,
+        }
+    }
+}
+
+impl TryFrom<u8> for MemoryBarType {
+    type Error = PciError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Width32),
+            1 => Ok(Self::Below1MiB),
+            2 => Ok(Self::Width64),
+            _ => Err(PciError::InvalidBarType),
         }
     }
 }
