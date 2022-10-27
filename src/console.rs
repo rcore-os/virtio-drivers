@@ -1,9 +1,9 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{ReadOnly, WriteOnly};
+use crate::volatile::{volread, ReadOnly, WriteOnly};
 use bitflags::*;
-use core::{fmt, hint::spin_loop};
+use core::hint::spin_loop;
 use log::*;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
@@ -32,8 +32,15 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_ref() };
-        info!("Config: {:?}", config);
+        unsafe {
+            let columns = volread!(config_space, cols);
+            let rows = volread!(config_space, rows);
+            let max_ports = volread!(config_space, max_nr_ports);
+            info!(
+                "Columns: {} Rows: {} Max ports: {}",
+                columns, rows, max_ports,
+            );
+        }
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = DMA::new(1)?;
@@ -108,16 +115,6 @@ struct Config {
     rows: ReadOnly<u16>,
     max_nr_ports: ReadOnly<u32>,
     emerg_wr: WriteOnly<u32>,
-}
-
-impl fmt::Debug for Config {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Config")
-            .field("cols", &self.cols)
-            .field("rows", &self.rows)
-            .field("max_nr_ports", &self.max_nr_ports)
-            .finish()
-    }
 }
 
 bitflags! {

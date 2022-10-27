@@ -177,7 +177,6 @@ bitflags! {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 struct Config {
     mac: ReadOnly<EthernetAddress>,
     status: ReadOnly<Status>,

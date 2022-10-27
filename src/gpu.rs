@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{ReadOnly, Volatile, WriteOnly};
+use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
@@ -44,8 +44,14 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
 
         // read configuration space
         let config_space = transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_ref() };
-        info!("Config: {:?}", config);
+        unsafe {
+            let events_read = volread!(config_space, events_read);
+            let num_scanouts = volread!(config_space, num_scanouts);
+            info!(
+                "events_read: {:#x}, num_scanouts: {:#x}",
+                events_read, num_scanouts
+            );
+        }
 
         let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, 2)?;
         let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, 2)?;
