@@ -44,9 +44,22 @@ qemu: $(kernel_bin) $(img)
 		-serial mon:stdio \
 		-kernel $(kernel_bin) \
 		-global virtio-mmio.force-legacy=false \
+		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device
+
+qemu-pci: $(kernel_bin) $(img)
+	qemu-system-aarch64 \
+		-machine virt \
+		-cpu max \
+		-serial mon:stdio \
+		-kernel $(kernel_bin) \
+		-nic none \
+		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device virtio-blk-pci,drive=x0 \
+		-device virtio-gpu-pci \
+		-device virtio-serial,id=virtio-serial0
 
 $(img):
 	dd if=/dev/zero of=$@ bs=512 count=32

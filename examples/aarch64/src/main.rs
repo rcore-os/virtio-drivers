@@ -187,7 +187,12 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
                 dump_bar_contents(&mut pci_root, device_function, 4);
                 let mut transport =
                     PciTransport::new::<HalImpl>(pci_root.clone(), device_function).unwrap();
-                info!("  Features: {:#018x}", transport.read_device_features());
+                info!(
+                    "Detected virtio PCI device with device type {:?}, features {:#018x}",
+                    transport.device_type(),
+                    transport.read_device_features(),
+                );
+                virtio_device(transport);
             }
         }
     }
