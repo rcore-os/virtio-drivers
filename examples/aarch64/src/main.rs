@@ -150,7 +150,11 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
         // Safe because we know the pointer is to a valid MMIO region.
         let mut pci_root = unsafe { PciRoot::new(region.starting_address as *mut u8, cam) };
         for (device_function, info) in pci_root.enumerate_bus(0) {
-            info!("Found {} at {}", info, device_function);
+            let (status, command) = pci_root.get_status_command(device_function);
+            info!(
+                "Found {} at {}, status {:?} command {:?}",
+                info, device_function, status, command
+            );
             if let Some(virtio_type) = virtio_device_type(&info) {
                 info!("  VirtIO {:?}", virtio_type);
             }

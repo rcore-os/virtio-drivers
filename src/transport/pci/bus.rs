@@ -1,5 +1,6 @@
 //! Module for dealing with a PCI bus in general, without anything specific to VirtIO.
 
+use bitflags::bitflags;
 use core::fmt::{self, Display, Formatter};
 
 const INVALID_READ: u32 = 0xffffffff;
@@ -12,6 +13,65 @@ const AARCH64_PCIE_CFG_SIZE: u32 = 0x10000000;
 const MAX_DEVICES: u8 = 32;
 /// The maximum number of functions on a device.
 const MAX_FUNCTIONS: u8 = 8;
+
+/// The offset in bytes to the status and command fields within PCI configuration space.
+const STATUS_COMMAND_OFFSET: u8 = 0x04;
+
+bitflags! {
+    /// The status register in PCI configuration space.
+    pub struct Status: u16 {
+        // Bits 0-2 are reserved.
+        /// The state of the device's INTx# signal.
+        const INTERRUPT_STATUS = 1 << 3;
+        /// The device has a linked list of capabilities.
+        const CAPABILITIES_LIST = 1 << 4;
+        /// The device is capabile of running at 66 MHz rather than 33 MHz.
+        const MHZ_66_CAPABLE = 1 << 5;
+        // Bit 6 is reserved.
+        /// The device can accept fast back-to-back transactions not from the same agent.
+        const FAST_BACK_TO_BACK_CAPABLE = 1 << 7;
+        /// The bus agent observed a parity error (if parity error handling is enabled).
+        const MASTER_DATA_PARITY_ERROR = 1 << 8;
+        // Bits 9-10 are DEVSEL timing.
+        /// A target device terminated a transaction with target-abort.
+        const SIGNALED_TARGET_ABORT = 1 << 11;
+        /// A master device transaction was terminated with target-abort.
+        const RECEIVED_TARGET_ABORT = 1 << 12;
+        /// A master device transaction was terminated with master-abort.
+        const RECEIVED_MASTER_ABORT = 1 << 13;
+        /// A device asserts SERR#.
+        const SIGNALED_SYSTEM_ERROR = 1 << 14;
+        /// The device detects a parity error, even if parity error handling is disabled.
+        const DETECTED_PARITY_ERROR = 1 << 15;
+    }
+}
+
+bitflags! {
+    /// The command register in PCI configuration space.
+    pub struct Command: u16 {
+        /// The device can respond to I/O Space accesses.
+        const IO_SPACE = 1 << 0;
+        /// The device can respond to Memory Space accesses.
+        const MEMORY_SPACE = 1 << 1;
+        /// The device can behave as a bus master.
+        const BUS_MASTER = 1 << 2;
+        /// The device can monitor Special Cycle operations.
+        const SPECIAL_CYCLES = 1 << 3;
+        /// The device can generate the Memory Write and Invalidate command.
+        const MEMORY_WRITE_AND_INVALIDATE_ENABLE = 1 << 4;
+        /// The device will snoop palette register data.
+        const VGA_PALETTE_SNOOP = 1 << 5;
+        /// The device should take its normal action when a parity error is detected.
+        const PARITY_ERROR_RESPONSE = 1 << 6;
+        // Bit 7 is reserved.
+        /// The SERR# driver is enabled.
+        const SERR_ENABLE = 1 << 8;
+        /// The device is allowed to generate fast back-to-back transactions.
+        const FAST_BACK_TO_BACK_ENABLE = 1 << 9;
+        /// Assertion of the device's INTx# signal is disabled.
+        const INTERRUPT_DISABLE = 1 << 10;
+    }
+}
 
 /// The root complex of a PCI bus.
 #[derive(Clone, Debug)]
@@ -87,6 +147,22 @@ impl PciRoot {
         }
     }
 
+    /// Writes 4 bytes to configuration space using the appropriate CAM.
+    fn config_write_word(
+        &mut self,
+        device_function: DeviceFunction,
+        register_offset: u8,
+        data: u32,
+    ) {
+        let address = self.cam_offset(device_function, register_offset);
+        // Safe because both the `mmio_base` and the address offset are properly aligned, and the
+        // resulting pointer is within the MMIO range of the CAM.
+        unsafe {
+            // Right shift to convert from byte offset to word offset.
+            (self.mmio_base.add((address >> 2) as usize)).write_volatile(data)
+        }
+    }
+
     /// Enumerates PCI devices on the given bus.
     pub fn enumerate_bus(&self, bus: u8) -> BusDeviceIterator {
         BusDeviceIterator {
@@ -97,6 +173,23 @@ impl PciRoot {
                 function: 0,
             },
         }
+    }
+
+    /// Reads the status and command registers of the given device function.
+    pub fn get_status_command(&self, device_function: DeviceFunction) -> (Status, Command) {
+        let status_command = self.config_read_word(device_function, STATUS_COMMAND_OFFSET);
+        let status = Status::from_bits_truncate((status_command >> 16) as u16);
+        let command = Command::from_bits_truncate(status_command as u16);
+        (status, command)
+    }
+
+    /// Sets the command register of the given device function.
+    pub fn set_command(&mut self, device_function: DeviceFunction, command: Command) {
+        self.config_write_word(
+            device_function,
+            STATUS_COMMAND_OFFSET,
+            command.bits().into(),
+        );
     }
 }
 
