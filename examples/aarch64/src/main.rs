@@ -6,7 +6,11 @@ mod hal;
 mod logger;
 mod pl011;
 
-use core::{mem::size_of, panic::PanicInfo, ptr::NonNull};
+use core::{
+    mem::size_of,
+    panic::PanicInfo,
+    ptr::{self, NonNull},
+};
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
@@ -180,6 +184,7 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
             if let Some(virtio_type) = virtio_device_type(&info) {
                 info!("  VirtIO {:?}", virtio_type);
                 allocate_bars(&mut pci_root, device_function, &mut allocator);
+                dump_bar_contents(&mut pci_root, device_function, 4);
                 let mut transport =
                     PciTransport::new::<HalImpl>(pci_root.clone(), device_function).unwrap();
                 info!("  Features: {:#018x}", transport.read_device_features());
@@ -246,6 +251,25 @@ impl PciMemory32Allocator {
 
 const fn align_up(value: u32, alignment: u32) -> u32 {
     ((value - 1) | (alignment - 1)) + 1
+}
+
+fn dump_bar_contents(root: &mut PciRoot, device_function: DeviceFunction, bar_index: u8) {
+    let bar_info = root.bar_info(device_function, bar_index).unwrap();
+    trace!("Dumping bar {}: {:#x?}", bar_index, bar_info);
+    if let BarInfo::Memory { address, size, .. } = bar_info {
+        let start = address as *const u8;
+        unsafe {
+            let mut buf = [0u8; 32];
+            for i in 0..size / 32 {
+                let ptr = start.add(i as usize * 32);
+                ptr::copy(ptr, buf.as_mut_ptr(), 32);
+                if buf.iter().any(|b| *b != 0xff) {
+                    trace!("  {:?}: {:x?}", ptr, buf);
+                }
+            }
+        }
+    }
+    trace!("End of dump");
 }
 
 /// Allocates appropriately-sized memory regions and assigns them to the device's BARs.
