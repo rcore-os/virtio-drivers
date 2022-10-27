@@ -318,6 +318,11 @@ fn allocate_bars(
         device_function,
         Command::IO_SPACE | Command::MEMORY_SPACE | Command::BUS_MASTER,
     );
+    let (status, command) = root.get_status_command(device_function);
+    debug!(
+        "Allocated BARs and enabled device, status {:?} command {:?}",
+        status, command
+    );
 }
 
 #[panic_handler]
