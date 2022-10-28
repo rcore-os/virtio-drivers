@@ -131,6 +131,8 @@ impl Iterator for BusDeviceIterator {
                 let subclass = (class_revision >> 16) as u8;
                 let prog_if = (class_revision >> 8) as u8;
                 let revision = class_revision as u8;
+                let bist_type_latency_cache = self.root.config_read_word(current, 12);
+                let header_type = HeaderType::from((bist_type_latency_cache >> 16) as u8 & 0x7f);
                 return Some((
                     current,
                     DeviceFunctionInfo {
@@ -140,6 +142,7 @@ impl Iterator for BusDeviceIterator {
                         subclass,
                         prog_if,
                         revision,
+                        header_type,
                     },
                 ));
             }
@@ -180,14 +183,45 @@ pub struct DeviceFunctionInfo {
     pub prog_if: u8,
     /// The PCI revision ID.
     pub revision: u8,
+    /// The type of PCI device.
+    pub header_type: HeaderType,
 }
 
 impl Display for DeviceFunctionInfo {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
-            "{:04x}:{:04x} (class {:02x}.{:02x}, rev {:02x})",
-            self.vendor_id, self.device_id, self.class, self.subclass, self.revision
+            "{:04x}:{:04x} (class {:02x}.{:02x}, rev {:02x}) {:?}",
+            self.vendor_id,
+            self.device_id,
+            self.class,
+            self.subclass,
+            self.revision,
+            self.header_type,
         )
+    }
+}
+
+/// The type of a PCI device function header.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum HeaderType {
+    /// A normal PCI device.
+    Standard,
+    /// A PCI to PCI bridge.
+    PciPciBridge,
+    /// A PCI to CardBus bridge.
+    PciCardbusBridge,
+    /// Unrecognised header type.
+    Unrecognised(u8),
+}
+
+impl From<u8> for HeaderType {
+    fn from(value: u8) -> Self {
+        match value {
+            0x00 => Self::Standard,
+            0x01 => Self::PciPciBridge,
+            0x02 => Self::PciCardbusBridge,
+            _ => Self::Unrecognised(value),
+        }
     }
 }
