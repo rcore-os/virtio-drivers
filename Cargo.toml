@@ -17,3 +17,7 @@ categories = ["hardware-support", "no-std"]
 [dependencies]
 log = "0.4"
 bitflags = "1.3"
+
+[features]
+default = ["alloc"]
+alloc = []

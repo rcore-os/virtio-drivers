@@ -1,0 +1,16 @@
+[package]
+name = "aarch64"
+version = "0.1.0"
+authors = ["Andrew Walbran <qwandor@google.com>"]
+edition = "2021"
+
+[dependencies]
+fdt = "0.1.4"
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+log = "0.4.17"
+psci = "0.1.1"
+spin = "0.9.4"
+virtio-drivers = { path = "../..", default-features = false }
+
+[build-dependencies]
+cc = "1.0.73"
