@@ -1,7 +1,2 @@
 [build]
 target = "aarch64-unknown-none"
-
-[target.aarch64-unknown-none]
-rustflags = [
-    "-C", "link-arg=-Timage.ld",
-]

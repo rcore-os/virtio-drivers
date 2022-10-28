@@ -4,7 +4,14 @@
 mod exceptions;
 mod hal;
 mod logger;
+#[cfg(platform = "qemu")]
 mod pl011;
+#[cfg(platform = "qemu")]
+use pl011 as uart;
+#[cfg(platform = "crosvm")]
+mod uart8250;
+#[cfg(platform = "crosvm")]
+use uart8250 as uart;
 
 use core::{
     mem::size_of,
@@ -26,6 +33,14 @@ use virtio_drivers::{
         DeviceType, Transport,
     },
 };
+
+/// Base memory-mapped address of the primary PL011 UART device.
+#[cfg(platform = "qemu")]
+pub const UART_BASE_ADDRESS: usize = 0x900_0000;
+
+/// The base address of the first 8250 UART.
+#[cfg(platform = "crosvm")]
+pub const UART_BASE_ADDRESS: usize = 0x3f8;
 
 #[no_mangle]
 extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
