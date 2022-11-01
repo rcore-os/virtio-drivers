@@ -263,13 +263,23 @@ fn allocate_bars(
             address_type, size, ..
         } = info
         {
-            if address_type != MemoryBarType::Width32 {
-                panic!("Memory BAR address type {:?} not supported.", address_type);
-            }
-            if size > 0 {
-                let address = allocator.allocate_memory_32(size);
-                debug!("Allocated address {:#010x}", address);
-                root.set_bar_32(device_function, bar_index, address);
+            match address_type {
+                MemoryBarType::Width32 => {
+                    if size > 0 {
+                        let address = allocator.allocate_memory_32(size);
+                        debug!("Allocated address {:#010x}", address);
+                        root.set_bar_32(device_function, bar_index, address);
+                    }
+                }
+                MemoryBarType::Width64 => {
+                    if size > 0 {
+                        let address = allocator.allocate_memory_32(size);
+                        debug!("Allocated address {:#010x}", address);
+                        root.set_bar_64(device_function, bar_index, address.into());
+                    }
+                }
+
+                _ => panic!("Memory BAR address type {:?} not supported.", address_type),
             }
         }
 
