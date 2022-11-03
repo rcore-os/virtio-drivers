@@ -150,6 +150,8 @@ impl PciRoot {
     }
 
     fn cam_offset(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
+        assert!(device_function.valid());
+
         let bdf = (device_function.bus as u32) << 8
             | (device_function.device as u32) << 3
             | device_function.function as u32;
@@ -158,13 +160,11 @@ impl PciRoot {
             Cam::MmioCam => {
                 address = bdf << 8 | register_offset as u32;
                 // Ensure that address is within range.
-                // TODO: Return an error rather than panicking?
                 assert!(address < AARCH64_PCI_CFG_SIZE);
             }
             Cam::Ecam => {
                 address = bdf << 12 | register_offset as u32;
                 // Ensure that address is within range.
-                // TODO: Return an error rather than panicking?
                 assert!(address < AARCH64_PCIE_CFG_SIZE);
             }
         }
@@ -524,6 +524,14 @@ pub struct DeviceFunction {
     pub device: u8,
     /// The function number of the device, between 0 and 7.
     pub function: u8,
+}
+
+impl DeviceFunction {
+    /// Returns whether the device and function numbers are valid, i.e. the device is between 0 and
+    /// 31, and the function is between 0 and 7.
+    pub fn valid(&self) -> bool {
+        self.device < 32 && self.function < 8
+    }
 }
 
 impl Display for DeviceFunction {
