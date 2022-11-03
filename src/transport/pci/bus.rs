@@ -223,7 +223,7 @@ impl PciRoot {
     /// Gets an iterator over the capabilities of the given device function.
     pub fn capabilities(&self, device_function: DeviceFunction) -> CapabilityIterator {
         CapabilityIterator {
-            root: self.clone(),
+            root: self,
             device_function,
             next_capability_offset: self.capabilities_offset(device_function),
         }
@@ -401,13 +401,13 @@ impl TryFrom<u8> for MemoryBarType {
 
 /// Iterator over capabilities for a device.
 #[derive(Debug)]
-pub struct CapabilityIterator {
-    root: PciRoot,
+pub struct CapabilityIterator<'a> {
+    root: &'a PciRoot,
     device_function: DeviceFunction,
     next_capability_offset: Option<u8>,
 }
 
-impl Iterator for CapabilityIterator {
+impl<'a> Iterator for CapabilityIterator<'a> {
     type Item = CapabilityInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
