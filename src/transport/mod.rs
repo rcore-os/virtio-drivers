@@ -51,19 +51,25 @@ pub trait Transport {
     ///
     /// Ref: virtio 3.1.1 Device Initialization
     fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) {
-        self.set_status(DeviceStatus::ACKNOWLEDGE);
-        self.set_status(DeviceStatus::DRIVER);
+        self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
 
         let features = self.read_device_features();
         self.write_driver_features(negotiate_features(features));
-        self.set_status(DeviceStatus::FEATURES_OK);
+        self.set_status(
+            DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK,
+        );
 
         self.set_guest_page_size(PAGE_SIZE as u32);
     }
 
     /// Finishes initializing the device.
     fn finish_init(&mut self) {
-        self.set_status(DeviceStatus::DRIVER_OK);
+        self.set_status(
+            DeviceStatus::ACKNOWLEDGE
+                | DeviceStatus::DRIVER
+                | DeviceStatus::FEATURES_OK
+                | DeviceStatus::DRIVER_OK,
+        );
     }
 
     /// Gets the pointer to the config space.
