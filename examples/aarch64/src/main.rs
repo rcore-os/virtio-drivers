@@ -186,7 +186,7 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
                 allocate_bars(&mut pci_root, device_function, &mut allocator);
                 dump_bar_contents(&mut pci_root, device_function, 4);
                 let mut transport =
-                    PciTransport::new::<HalImpl>(pci_root.clone(), device_function).unwrap();
+                    PciTransport::new::<HalImpl>(&mut pci_root, device_function).unwrap();
                 info!(
                     "Detected virtio PCI device with device type {:?}, features {:#018x}",
                     transport.device_type(),
