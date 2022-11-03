@@ -19,11 +19,11 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 
 ### Transports
 
-| Transport   | Supported |           |
-| ----------- | --------- | --------- |
-| Legacy MMIO | ✅        | version 1 |
-| MMIO        | ✅        | version 2 |
-| PCI         | ❌        |           |
+| Transport   | Supported |                                                   |
+| ----------- | --------- | ------------------------------------------------- |
+| Legacy MMIO | ✅        | version 1                                         |
+| MMIO        | ✅        | version 2                                         |
+| PCI         | ✅        | Memory-mapped CAM only, e.g. aarch64 or PCIe ECAM |
 
 ### Device-independent features
 
