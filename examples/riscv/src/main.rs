@@ -7,8 +7,7 @@ extern crate opensbi_rt;
 
 use alloc::vec;
 use core::ptr::NonNull;
-use device_tree::util::SliceRead;
-use device_tree::{DeviceTree, Node};
+use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::{info, warn, LevelFilter};
 use virtio_drivers::*;
 use virtio_impl::HalImpl;
@@ -24,39 +23,32 @@ extern "C" fn main(_hartid: usize, device_tree_paddr: usize) {
 
 fn init_dt(dtb: usize) {
     info!("device tree @ {:#x}", dtb);
-    #[repr(C)]
-    struct DtbHeader {
-        be_magic: u32,
-        be_size: u32,
-    }
-    let header = unsafe { &*(dtb as *const DtbHeader) };
-    let magic = u32::from_be(header.be_magic);
-    const DEVICE_TREE_MAGIC: u32 = 0xd00dfeed;
-    assert_eq!(magic, DEVICE_TREE_MAGIC);
-    let size = u32::from_be(header.be_size);
-    let dtb_data = unsafe { core::slice::from_raw_parts(dtb as *const u8, size as usize) };
-    let dt = DeviceTree::load(dtb_data).expect("failed to parse device tree");
-    walk_dt_node(&dt.root);
+    // Safe because the pointer is a valid pointer to unaliased memory.
+    let fdt = unsafe { Fdt::from_ptr(dtb as *const u8).unwrap() };
+    walk_dt(fdt);
 }
 
-fn walk_dt_node(dt: &Node) {
-    if let Ok(compatible) = dt.prop_str("compatible") {
-        if compatible == "virtio,mmio" {
-            virtio_probe(dt);
+fn walk_dt(fdt: Fdt) {
+    for node in fdt.all_nodes() {
+        if let Some(compatible) = node.compatible() {
+            if compatible.all().any(|s| s == "virtio,mmio") {
+                virtio_probe(node);
+            }
         }
     }
-    for child in dt.children.iter() {
-        walk_dt_node(child);
-    }
 }
 
-fn virtio_probe(node: &Node) {
-    if let Some(reg) = node.prop_raw("reg") {
-        let paddr = reg.as_slice().read_be_u64(0).unwrap();
-        let size = reg.as_slice().read_be_u64(8).unwrap();
+fn virtio_probe(node: FdtNode) {
+    if let Some(reg) = node.reg().and_then(|mut reg| reg.next()) {
+        let paddr = reg.starting_address as usize;
+        let size = reg.size.unwrap();
         let vaddr = paddr;
         info!("walk dt addr={:#x}, size={:#x}", paddr, size);
-        info!("Device tree node {:?}", node);
+        info!(
+            "Device tree node {}: {:?}",
+            node.name,
+            node.compatible().map(Compatible::first),
+        );
         let header = NonNull::new(vaddr as *mut VirtIOHeader).unwrap();
         match unsafe { MmioTransport::new(header) } {
             Err(e) => warn!("Error creating VirtIO MMIO transport: {}", e),
