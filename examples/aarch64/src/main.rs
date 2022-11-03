@@ -13,7 +13,7 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
     pci::{
-        bus::{Cam, PciRoot},
+        bus::{BarInfo, Cam, Command, DeviceFunction, MemoryBarType, PciRoot},
         virtio_device_type, PciTransport,
     },
     DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOGpu, VirtIOHeader, VirtIONet,
@@ -161,25 +161,7 @@ impl From<u8> for PciRangeType {
 
 fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
     let reg = pci_node.reg().expect("PCI node missing reg property.");
-    let ranges = pci_node
-        .property("ranges")
-        .expect("PCI node missing ranges property.");
-    for i in 0..ranges.value.len() / 28 {
-        let range = &ranges.value[i * 28..(i + 1) * 28];
-        let prefetchable = range[0] & 0x80 != 0;
-        let range_type = PciRangeType::from(range[0] & 0x3);
-        let bus_address = u64::from_be_bytes(range[4..12].try_into().unwrap());
-        let cpu_physical = u64::from_be_bytes(range[12..20].try_into().unwrap());
-        let size = u64::from_be_bytes(range[20..28].try_into().unwrap());
-        info!(
-            "range: {:?} {}prefetchable bus address: {:#018x} host physical address: {:#018x} size: {:#018x}",
-            range_type,
-            if prefetchable { "" } else { "non-" },
-            bus_address,
-            cpu_physical,
-            size
-        );
-    }
+    let mut allocator = PciMemory32Allocator::for_pci_ranges(&pci_node);
 
     for region in reg {
         info!(
@@ -197,12 +179,111 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
             );
             if let Some(virtio_type) = virtio_device_type(&info) {
                 info!("  VirtIO {:?}", virtio_type);
+                allocate_bars(&mut pci_root, device_function, &mut allocator);
                 let mut transport =
                     PciTransport::new::<HalImpl>(pci_root.clone(), device_function).unwrap();
                 info!("  Features: {:#018x}", transport.read_device_features());
             }
         }
     }
+}
+
+/// Allocates 32-bit memory addresses for PCI BARs.
+struct PciMemory32Allocator {
+    start: u32,
+    end: u32,
+}
+
+impl PciMemory32Allocator {
+    /// Creates a new allocator based on the ranges property of the given PCI node.
+    pub fn for_pci_ranges(pci_node: &FdtNode) -> Self {
+        let ranges = pci_node
+            .property("ranges")
+            .expect("PCI node missing ranges property.");
+        let mut memory_32_address = 0;
+        let mut memory_32_size = 0;
+        for i in 0..ranges.value.len() / 28 {
+            let range = &ranges.value[i * 28..(i + 1) * 28];
+            let prefetchable = range[0] & 0x80 != 0;
+            let range_type = PciRangeType::from(range[0] & 0x3);
+            let bus_address = u64::from_be_bytes(range[4..12].try_into().unwrap());
+            let cpu_physical = u64::from_be_bytes(range[12..20].try_into().unwrap());
+            let size = u64::from_be_bytes(range[20..28].try_into().unwrap());
+            info!(
+                "range: {:?} {}prefetchable bus address: {:#018x} host physical address: {:#018x} size: {:#018x}",
+                range_type,
+                if prefetchable { "" } else { "non-" },
+                bus_address,
+                cpu_physical,
+                size,
+            );
+            if range_type == PciRangeType::Memory32 && size > memory_32_size.into() {
+                assert_eq!(bus_address, cpu_physical);
+                memory_32_address = u32::try_from(cpu_physical).unwrap();
+                memory_32_size = u32::try_from(size).unwrap();
+            }
+        }
+        if memory_32_size == 0 {
+            panic!("No 32-bit PCI memory region found.");
+        }
+        Self {
+            start: memory_32_address,
+            end: memory_32_address + memory_32_size,
+        }
+    }
+
+    /// Allocates a 32-bit memory address region for a PCI BAR of the given power-of-2 size.
+    ///
+    /// It will have alignment matching the size. The size must be a power of 2.
+    pub fn allocate_memory_32(&mut self, size: u32) -> u32 {
+        assert!(size.is_power_of_two());
+        let allocated_address = align_up(self.start, size);
+        assert!(allocated_address + size <= self.end);
+        self.start = allocated_address + size;
+        allocated_address
+    }
+}
+
+const fn align_up(value: u32, alignment: u32) -> u32 {
+    ((value - 1) | (alignment - 1)) + 1
+}
+
+/// Allocates appropriately-sized memory regions and assigns them to the device's BARs.
+fn allocate_bars(
+    root: &mut PciRoot,
+    device_function: DeviceFunction,
+    allocator: &mut PciMemory32Allocator,
+) {
+    let mut bar_index = 0;
+    while bar_index < 6 {
+        let info = root.bar_info(device_function, bar_index).unwrap();
+        debug!("BAR {}: {}", bar_index, info);
+        // Ignore I/O bars, as they aren't required for the VirtIO driver.
+        if let BarInfo::Memory {
+            address_type, size, ..
+        } = info
+        {
+            if address_type != MemoryBarType::Width32 {
+                panic!("Memory BAR address type {:?} not supported.", address_type);
+            }
+            if size > 0 {
+                let address = allocator.allocate_memory_32(size);
+                debug!("Allocated address {:#010x}", address);
+                root.set_bar_32(device_function, bar_index, address);
+            }
+        }
+
+        bar_index += 1;
+        if info.takes_two_entries() {
+            bar_index += 1;
+        }
+    }
+
+    // Enable the device to use its BARs.
+    root.set_command(
+        device_function,
+        Command::IO_SPACE | Command::MEMORY_SPACE | Command::BUS_MASTER,
+    );
 }
 
 #[panic_handler]

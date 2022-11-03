@@ -322,6 +322,18 @@ pub enum BarInfo {
 }
 
 impl BarInfo {
+    /// Returns whether this BAR is a 64-bit memory region, and so takes two entries in the table in
+    /// configuration space.
+    pub fn takes_two_entries(&self) -> bool {
+        matches!(
+            self,
+            BarInfo::Memory {
+                address_type: MemoryBarType::Width64,
+                ..
+            }
+        )
+    }
+
     /// Returns the address and size of this BAR if it is a memory bar, or `None` if it is an IO
     /// BAR.
     pub fn memory_address_size(&self) -> Option<(u64, u32)> {
