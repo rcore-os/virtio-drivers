@@ -98,7 +98,7 @@ impl Display for PciError {
 }
 
 /// The root complex of a PCI bus.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PciRoot {
     mmio_base: *mut u32,
     cam: Cam,
@@ -133,6 +133,19 @@ impl PciRoot {
         Self {
             mmio_base: mmio_base as *mut u32,
             cam,
+        }
+    }
+
+    /// Makes a clone of the `PciRoot`, pointing at the same MMIO region.
+    ///
+    /// # Safety
+    ///
+    /// This function allows concurrent mutable access to the PCI CAM. To avoid this causing
+    /// problems, the returned `PciRoot` instance must only be used to read read-only fields.
+    unsafe fn unsafe_clone(&self) -> Self {
+        Self {
+            mmio_base: self.mmio_base,
+            cam: self.cam,
         }
     }
 
@@ -193,8 +206,10 @@ impl PciRoot {
 
     /// Enumerates PCI devices on the given bus.
     pub fn enumerate_bus(&self, bus: u8) -> BusDeviceIterator {
+        // Safe because the BusDeviceIterator only reads read-only fields.
+        let root = unsafe { self.unsafe_clone() };
         BusDeviceIterator {
-            root: self.clone(),
+            root,
             next: DeviceFunction {
                 bus,
                 device: 0,
@@ -450,6 +465,8 @@ pub struct CapabilityInfo {
 /// An iterator which enumerates PCI devices and functions on a given bus.
 #[derive(Debug)]
 pub struct BusDeviceIterator {
+    /// This must only be used to read read-only fields, and must not be exposed outside this
+    /// module, because it uses the same CAM as the main `PciRoot` instance.
     root: PciRoot,
     next: DeviceFunction,
 }
