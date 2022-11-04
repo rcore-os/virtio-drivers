@@ -5,14 +5,14 @@ pub mod bus;
 use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR};
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
-    hal::{Hal, PhysAddr},
+    hal::{Hal, PhysAddr, VirtAddr},
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
 };
 use core::{
     fmt::{self, Display, Formatter},
-    mem::size_of,
+    mem::{align_of, size_of},
     ptr::NonNull,
 };
 
@@ -210,7 +210,8 @@ impl Transport for PciTransport {
     }
 
     fn read_device_features(&mut self) -> u64 {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe {
             volwrite!(self.common_cfg, device_feature_select, 0);
             let mut device_features_bits = volread!(self.common_cfg, device_feature) as u64;
@@ -221,7 +222,8 @@ impl Transport for PciTransport {
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe {
             volwrite!(self.common_cfg, driver_feature_select, 0);
             volwrite!(self.common_cfg, driver_feature, driver_features as u32);
@@ -235,10 +237,14 @@ impl Transport for PciTransport {
     }
 
     fn max_queue_size(&self) -> u32 {
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe { volread!(self.common_cfg, queue_size) }.into()
     }
 
     fn notify(&mut self, queue: u16) {
+        // Safe because the common config and notify region pointers are valid and we checked in
+        // get_bar_region that they were aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
             // TODO: Consider caching this somewhere (per queue).
@@ -254,7 +260,8 @@ impl Transport for PciTransport {
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe {
             volwrite!(self.common_cfg, device_status, status.bits() as u8);
         }
@@ -272,7 +279,8 @@ impl Transport for PciTransport {
         driver_area: PhysAddr,
         device_area: PhysAddr,
     ) {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
             volwrite!(self.common_cfg, queue_size, size as u16);
@@ -284,7 +292,8 @@ impl Transport for PciTransport {
     }
 
     fn queue_used(&mut self, queue: u16) -> bool {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
             volread!(self.common_cfg, queue_enable) == 1
@@ -292,7 +301,8 @@ impl Transport for PciTransport {
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        // Safe because TODO
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status = unsafe { self.isr_status.as_ptr().vread() };
         // TODO: Distinguish between queue interrupt and device configuration interrupt.
@@ -356,7 +366,14 @@ fn get_bar_region<H: Hal, T>(
         return Err(VirtioPciError::BarOffsetOutOfRange);
     }
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
-    Ok(NonNull::new(H::phys_to_virt(paddr) as _).unwrap())
+    let vaddr = H::phys_to_virt(paddr);
+    if vaddr % align_of::<T>() != 0 {
+        return Err(VirtioPciError::Misaligned {
+            vaddr,
+            alignment: align_of::<T>(),
+        });
+    }
+    Ok(NonNull::new(vaddr as _).unwrap())
 }
 
 /// An error encountered initialising a VirtIO PCI transport.
@@ -379,6 +396,13 @@ pub enum VirtioPciError {
     BarNotAllocated(u8),
     /// The offset for some capability was greater than the length of the BAR.
     BarOffsetOutOfRange,
+    /// The virtual address was not aligned as expected.
+    Misaligned {
+        /// The virtual address in question.
+        vaddr: VirtAddr,
+        /// The expected alignment in bytes.
+        alignment: usize,
+    },
     /// A generic PCI error,
     Pci(PciError),
 }
@@ -412,6 +436,11 @@ impl Display for VirtioPciError {
             Self::UnexpectedIoBar => write!(f, "Unexpected IO BAR (expected memory BAR)."),
             Self::BarNotAllocated(bar_index) => write!(f, "Bar {} not allocated.", bar_index),
             Self::BarOffsetOutOfRange => write!(f, "Capability offset greater than BAR length."),
+            Self::Misaligned { vaddr, alignment } => write!(
+                f,
+                "Virtual address {:#018x} was not aligned to a {} byte boundary as expected.",
+                vaddr, alignment
+            ),
             Self::Pci(pci_error) => pci_error.fmt(f),
         }
     }
