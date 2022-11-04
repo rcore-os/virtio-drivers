@@ -91,7 +91,7 @@ pub struct PciTransport {
     notify_region_size: usize,
     notify_off_multiplier: u32,
     /// The ISR status register within some BAR.
-    isr_status: NonNull<Volatile<u32>>,
+    isr_status: NonNull<Volatile<u8>>,
     /// The VirtIO device-specific configuration within some BAR.
     config_space: Option<NonNull<u64>>,
     /// The size of the VirtIO device-specific configuration region in bytes.
