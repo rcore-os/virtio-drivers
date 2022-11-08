@@ -91,7 +91,7 @@ pub struct PciTransport {
     /// The ISR status register within some BAR.
     isr_status: NonNull<Volatile<u8>>,
     /// The VirtIO device-specific configuration within some BAR.
-    config_space: Option<NonNull<[u64]>>,
+    config_space: Option<NonNull<[u32]>>,
 }
 
 impl PciTransport {
@@ -300,7 +300,7 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn config_space(&self) -> NonNull<u64> {
+    fn config_space(&self) -> NonNull<u32> {
         // TODO: Check config_space_size
         // TODO: Use NonNull::as_non_null_ptr once it is stable.
         NonNull::new(

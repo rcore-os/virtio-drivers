@@ -13,7 +13,7 @@ pub struct FakeTransport {
     pub device_type: DeviceType,
     pub max_queue_size: u32,
     pub device_features: u64,
-    pub config_space: NonNull<u64>,
+    pub config_space: NonNull<u32>,
     pub state: Arc<Mutex<State>>,
 }
 
@@ -74,7 +74,7 @@ impl Transport for FakeTransport {
         pending
     }
 
-    fn config_space(&self) -> NonNull<u64> {
+    fn config_space(&self) -> NonNull<u32> {
         self.config_space
     }
 }
