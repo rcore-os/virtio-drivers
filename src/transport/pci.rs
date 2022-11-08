@@ -13,7 +13,7 @@ use crate::{
 use core::{
     fmt::{self, Display, Formatter},
     mem::{align_of, size_of},
-    ptr::NonNull,
+    ptr::{self, addr_of_mut, NonNull},
 };
 
 /// The PCI vendor ID for VirtIO devices.
@@ -93,9 +93,7 @@ pub struct PciTransport {
     /// The ISR status register within some BAR.
     isr_status: NonNull<Volatile<u8>>,
     /// The VirtIO device-specific configuration within some BAR.
-    config_space: Option<NonNull<u64>>,
-    /// The size of the VirtIO device-specific configuration region in bytes.
-    config_space_size: usize,
+    config_space: Option<NonNull<[u64]>>,
 }
 
 impl PciTransport {
@@ -180,15 +178,15 @@ impl PciTransport {
             &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
         )?;
 
-        let config_space;
-        let config_space_size;
-        if let Some(device_cfg) = device_cfg {
-            config_space = Some(get_bar_region::<H, _>(root, device_function, &device_cfg)?);
-            config_space_size = device_cfg.length as usize;
+        let config_space = if let Some(device_cfg) = device_cfg {
+            Some(get_bar_region_slice::<H, _>(
+                root,
+                device_function,
+                &device_cfg,
+            )?)
         } else {
-            config_space = None;
-            config_space_size = 0;
-        }
+            None
+        };
 
         Ok(Self {
             device_type,
@@ -199,7 +197,6 @@ impl PciTransport {
             notify_off_multiplier,
             isr_status,
             config_space,
-            config_space_size,
         })
     }
 }
@@ -311,8 +308,13 @@ impl Transport for PciTransport {
 
     fn config_space(&self) -> NonNull<u64> {
         // TODO: Check config_space_size
-        self.config_space
-            .expect("No VIRTIO_PCI_CAP_DEVICE_CFG capability.")
+        // TODO: Use NonNull::as_non_null_ptr once it is stable.
+        NonNull::new(
+            self.config_space
+                .expect("No VIRTIO_PCI_CAP_DEVICE_CFG capability.")
+                .as_ptr() as *mut u64,
+        )
+        .unwrap()
     }
 }
 
@@ -374,6 +376,17 @@ fn get_bar_region<H: Hal, T>(
         });
     }
     Ok(NonNull::new(vaddr as _).unwrap())
+}
+
+fn get_bar_region_slice<H: Hal, T>(
+    root: &mut PciRoot,
+    device_function: DeviceFunction,
+    struct_info: &VirtioCapabilityInfo,
+) -> Result<NonNull<[T]>, VirtioPciError> {
+    let ptr = get_bar_region::<H, T>(root, device_function, struct_info)?;
+    let raw_slice =
+        ptr::slice_from_raw_parts_mut(ptr.as_ptr(), struct_info.length as usize / size_of::<T>());
+    Ok(NonNull::new(raw_slice).unwrap())
 }
 
 /// An error encountered initialising a VirtIO PCI transport.
