@@ -86,9 +86,7 @@ pub struct PciTransport {
     common_cfg: NonNull<CommonCfg>,
     // TODO: Use a raw slice, once they are supported by our MSRV.
     /// The start of the queue notification region within some BAR.
-    notify_region: NonNull<WriteOnly<u16>>,
-    /// The size of the queue notification region in bytes.
-    notify_region_size: usize,
+    notify_region: NonNull<[WriteOnly<u16>]>,
     notify_off_multiplier: u32,
     /// The ISR status register within some BAR.
     isr_status: NonNull<Volatile<u8>>,
@@ -170,7 +168,7 @@ impl PciTransport {
                 notify_off_multiplier,
             ));
         }
-        let notify_region = get_bar_region::<H, _>(root, device_function, &notify_cfg)?;
+        let notify_region = get_bar_region_slice::<H, _>(root, device_function, &notify_cfg)?;
 
         let isr_status = get_bar_region::<H, _>(
             root,
@@ -193,7 +191,6 @@ impl PciTransport {
             device_function,
             common_cfg,
             notify_region,
-            notify_region_size: notify_cfg.length as usize,
             notify_off_multiplier,
             isr_status,
             config_space,
@@ -248,11 +245,8 @@ impl Transport for PciTransport {
             let queue_notify_off = volread!(self.common_cfg, queue_notify_off);
 
             let offset_bytes = usize::from(queue_notify_off) * self.notify_off_multiplier as usize;
-            assert!(offset_bytes + size_of::<u16>() <= self.notify_region_size);
-            self.notify_region
-                .as_ptr()
-                .add(offset_bytes / size_of::<u16>())
-                .vwrite(queue);
+            let index = offset_bytes / size_of::<u16>();
+            addr_of_mut!((*self.notify_region.as_ptr())[index]).vwrite(queue);
         }
     }
 
