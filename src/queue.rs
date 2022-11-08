@@ -317,7 +317,7 @@ impl<H: Hal> VirtQueueLayout<H> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
         let size = align_up(desc + avail) + align_up(used);
         // Allocate contiguous pages.
-        let dma = Dma::new(size / PAGE_SIZE)?;
+        let dma = Dma::new(size / PAGE_SIZE, BufferDirection::Both)?;
         Ok(Self::Legacy {
             dma,
             avail_offset: desc,
@@ -332,8 +332,8 @@ impl<H: Hal> VirtQueueLayout<H> {
     /// and allows the HAL to know which DMA regions are used in which direction.
     fn allocate_flexible(queue_size: u16) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
-        let driver_to_device_dma = Dma::new(pages(desc + avail))?;
-        let device_to_driver_dma = Dma::new(pages(used))?;
+        let driver_to_device_dma = Dma::new(pages(desc + avail), BufferDirection::DriverToDevice)?;
+        let device_to_driver_dma = Dma::new(pages(used), BufferDirection::DeviceToDriver)?;
         Ok(Self::Modern {
             driver_to_device_dma,
             device_to_driver_dma,
@@ -461,6 +461,9 @@ impl Descriptor {
             | match direction {
                 BufferDirection::DeviceToDriver => DescFlags::WRITE,
                 BufferDirection::DriverToDevice => DescFlags::empty(),
+                BufferDirection::Both => {
+                    panic!("Buffer passed to device should never use BufferDirection::Both.")
+                }
             };
     }
 
