@@ -40,6 +40,9 @@ pub trait Transport {
         device_area: PhysAddr,
     );
 
+    /// Disables and resets the given queue.
+    fn queue_unset(&mut self, queue: u16);
+
     /// Returns whether the queue is in use, i.e. has a nonzero PFN or is marked as ready.
     fn queue_used(&mut self, queue: u16) -> bool;
 

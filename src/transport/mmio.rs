@@ -418,6 +418,34 @@ impl Transport for MmioTransport {
         }
     }
 
+    fn queue_unset(&mut self, queue: u16) {
+        match self.version {
+            MmioVersion::Legacy => {
+                // Safe because self.header points to a valid VirtIO MMIO region.
+                unsafe {
+                    volwrite!(self.header, queue_sel, queue.into());
+                    volwrite!(self.header, queue_num, 0);
+                    volwrite!(self.header, legacy_queue_align, 0);
+                    volwrite!(self.header, legacy_queue_pfn, 0);
+                }
+            }
+            MmioVersion::Modern => {
+                // Safe because self.header points to a valid VirtIO MMIO region.
+                unsafe {
+                    volwrite!(self.header, queue_sel, queue.into());
+                    volwrite!(self.header, queue_ready, 0);
+                    volwrite!(self.header, queue_num, 0);
+                    volwrite!(self.header, queue_desc_low, 0);
+                    volwrite!(self.header, queue_desc_high, 0);
+                    volwrite!(self.header, queue_driver_low, 0);
+                    volwrite!(self.header, queue_driver_high, 0);
+                    volwrite!(self.header, queue_device_low, 0);
+                    volwrite!(self.header, queue_device_high, 0);
+                }
+            }
+        }
+    }
+
     fn queue_used(&mut self, queue: u16) -> bool {
         // Safe because self.header points to a valid VirtIO MMIO region.
         unsafe {

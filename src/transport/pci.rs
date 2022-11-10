@@ -283,6 +283,19 @@ impl Transport for PciTransport {
         }
     }
 
+    fn queue_unset(&mut self, queue: u16) {
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
+        unsafe {
+            volwrite!(self.common_cfg, queue_enable, 0);
+            volwrite!(self.common_cfg, queue_select, queue);
+            volwrite!(self.common_cfg, queue_size, 0);
+            volwrite!(self.common_cfg, queue_desc, 0);
+            volwrite!(self.common_cfg, queue_driver, 0);
+            volwrite!(self.common_cfg, queue_device, 0);
+        }
+    }
+
     fn queue_used(&mut self, queue: u16) -> bool {
         // Safe because the common config pointer is valid and we checked in get_bar_region that it
         // was aligned.
