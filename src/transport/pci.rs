@@ -300,15 +300,17 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn config_space(&self) -> NonNull<u32> {
-        // TODO: Check config_space_size
-        // TODO: Use NonNull::as_non_null_ptr once it is stable.
-        NonNull::new(
-            self.config_space
-                .expect("No VIRTIO_PCI_CAP_DEVICE_CFG capability.")
-                .as_ptr() as *mut u64,
-        )
-        .unwrap()
+    fn config_space<T>(&self) -> NonNull<T> {
+        if let Some(config_space) = self.config_space {
+            if size_of::<T>() > config_space.len() * size_of::<u32>() {
+                panic!("Config space too small.");
+            }
+            // TODO: Use NonNull::as_non_null_ptr once it is stable.
+            let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
+            config_space_ptr.cast()
+        } else {
+            panic!("No VIRTIO_PCI_CAP_DEVICE_CFG capability.");
+        }
     }
 }
 

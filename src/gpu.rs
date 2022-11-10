@@ -43,7 +43,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         });
 
         // read configuration space
-        let config_space = transport.config_space().cast::<Config>();
+        let config_space = transport.config_space::<Config>();
         unsafe {
             let events_read = volread!(config_space, events_read);
             let num_scanouts = volread!(config_space, num_scanouts);

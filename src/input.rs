@@ -75,7 +75,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let config = self.transport.config_space().cast::<Config>();
+        let config = self.transport.config_space::<Config>();
         let size;
         let data;
         // Safe because config points to a valid MMIO region for the config space.

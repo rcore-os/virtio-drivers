@@ -31,7 +31,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             let supported_features = Features::empty();
             (features & supported_features).bits()
         });
-        let config_space = transport.config_space().cast::<Config>();
+        let config_space = transport.config_space::<Config>();
         unsafe {
             let columns = volread!(config_space, cols);
             let rows = volread!(config_space, rows);
@@ -171,10 +171,10 @@ mod tests {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space).cast(),
+            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let mut console = VirtIOConsole::<FakeHal, FakeTransport>::new(transport).unwrap();
+        let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
 
         // Nothing is available to receive.
         assert_eq!(console.recv(false).unwrap(), None);

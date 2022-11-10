@@ -442,7 +442,7 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn config_space(&self) -> NonNull<u32> {
+    fn config_space<T>(&self) -> NonNull<T> {
         NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap()
     }
 }

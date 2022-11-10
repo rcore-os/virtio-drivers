@@ -28,7 +28,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         });
 
         // read configuration space
-        let config = transport.config_space().cast::<BlkConfig>();
+        let config = transport.config_space::<BlkConfig>();
         info!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
         let capacity = unsafe {

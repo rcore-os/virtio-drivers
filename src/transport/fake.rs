@@ -4,20 +4,20 @@ use crate::{
     DeviceType, PhysAddr,
 };
 use alloc::{sync::Arc, vec::Vec};
-use core::ptr::NonNull;
+use core::{any::TypeId, ptr::NonNull};
 use std::sync::Mutex;
 
 /// A fake implementation of [`Transport`] for unit tests.
 #[derive(Debug)]
-pub struct FakeTransport {
+pub struct FakeTransport<C: 'static> {
     pub device_type: DeviceType,
     pub max_queue_size: u32,
     pub device_features: u64,
-    pub config_space: NonNull<u32>,
+    pub config_space: NonNull<C>,
     pub state: Arc<Mutex<State>>,
 }
 
-impl Transport for FakeTransport {
+impl<C> Transport for FakeTransport<C> {
     fn device_type(&self) -> DeviceType {
         self.device_type
     }
@@ -74,8 +74,12 @@ impl Transport for FakeTransport {
         pending
     }
 
-    fn config_space(&self) -> NonNull<u32> {
-        self.config_space
+    fn config_space<T: 'static>(&self) -> NonNull<T> {
+        if TypeId::of::<T>() == TypeId::of::<C>() {
+            self.config_space.cast()
+        } else {
+            panic!("Unexpected config space type.");
+        }
     }
 }
 

@@ -74,7 +74,7 @@ pub trait Transport {
     }
 
     /// Gets the pointer to the config space.
-    fn config_space(&self) -> NonNull<u32>;
+    fn config_space<T: 'static>(&self) -> NonNull<T>;
 }
 
 bitflags! {
