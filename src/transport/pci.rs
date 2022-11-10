@@ -305,6 +305,12 @@ impl Transport for PciTransport {
         if let Some(config_space) = self.config_space {
             if size_of::<T>() > config_space.len() * size_of::<u32>() {
                 Err(Error::ConfigSpaceTooSmall)
+            } else if align_of::<T>() > 4 {
+                // Panic as this should only happen if the driver is written incorrectly.
+                panic!(
+                    "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+                    align_of::<T>()
+                );
             } else {
                 // TODO: Use NonNull::as_non_null_ptr once it is stable.
                 let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
