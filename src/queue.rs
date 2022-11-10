@@ -23,7 +23,7 @@ pub struct VirtQueue<H: Hal> {
     used: NonNull<UsedRing>,
 
     /// The index of queue
-    queue_idx: u32,
+    queue_idx: u16,
     /// The size of the queue.
     ///
     /// This is both the number of descriptors, and the number of slots in the available and used
@@ -81,7 +81,7 @@ impl<H: Hal> VirtQueue<H> {
             avail,
             used,
             queue_size: size,
-            queue_idx: idx as u32,
+            queue_idx: idx,
             num_used: 0,
             free_head: 0,
             avail_idx: 0,
