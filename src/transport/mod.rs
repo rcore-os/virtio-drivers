@@ -3,7 +3,7 @@ pub mod fake;
 pub mod mmio;
 pub mod pci;
 
-use crate::{PhysAddr, PAGE_SIZE};
+use crate::{PhysAddr, Result, PAGE_SIZE};
 use bitflags::bitflags;
 use core::ptr::NonNull;
 
@@ -74,7 +74,7 @@ pub trait Transport {
     }
 
     /// Gets the pointer to the config space.
-    fn config_space<T: 'static>(&self) -> NonNull<T>;
+    fn config_space<T: 'static>(&self) -> Result<NonNull<T>>;
 }
 
 bitflags! {

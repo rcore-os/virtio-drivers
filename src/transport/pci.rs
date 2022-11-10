@@ -9,6 +9,7 @@ use crate::{
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
+    Error,
 };
 use core::{
     fmt::{self, Display, Formatter},
@@ -300,16 +301,17 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn config_space<T>(&self) -> NonNull<T> {
+    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
         if let Some(config_space) = self.config_space {
             if size_of::<T>() > config_space.len() * size_of::<u32>() {
-                panic!("Config space too small.");
+                Err(Error::ConfigSpaceTooSmall)
+            } else {
+                // TODO: Use NonNull::as_non_null_ptr once it is stable.
+                let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
+                Ok(config_space_ptr.cast())
             }
-            // TODO: Use NonNull::as_non_null_ptr once it is stable.
-            let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
-            config_space_ptr.cast()
         } else {
-            panic!("No VIRTIO_PCI_CAP_DEVICE_CFG capability.");
+            Err(Error::ConfigSpaceMissing)
         }
     }
 }

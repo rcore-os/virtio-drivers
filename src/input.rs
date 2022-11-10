@@ -3,6 +3,7 @@ use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use alloc::boxed::Box;
 use bitflags::*;
+use core::ptr::NonNull;
 use log::*;
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -15,6 +16,7 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
     event_queue: VirtQueue<H>,
     status_queue: VirtQueue<H>,
     event_buf: Box<[InputEvent; 32]>,
+    config: NonNull<Config>,
 }
 
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
@@ -28,6 +30,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             let supported_features = Feature::empty();
             (features & supported_features).bits()
         });
+
+        let config = transport.config_space::<Config>()?;
 
         let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT, QUEUE_SIZE as u16)?;
         let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, QUEUE_SIZE as u16)?;
@@ -43,6 +47,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             event_queue,
             status_queue,
             event_buf,
+            config,
         })
     }
 
@@ -75,15 +80,14 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let config = self.transport.config_space::<Config>();
         let size;
         let data;
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {
-            volwrite!(config, select, select as u8);
-            volwrite!(config, subsel, subsel);
-            size = volread!(config, size);
-            data = volread!(config, data);
+            volwrite!(self.config, select, select as u8);
+            volwrite!(self.config, subsel, subsel);
+            size = volread!(self.config, size);
+            data = volread!(self.config, data);
         }
         out[..size as usize].copy_from_slice(&data[..size as usize]);
         size

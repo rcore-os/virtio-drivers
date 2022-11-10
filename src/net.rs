@@ -31,7 +31,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
             (features & supported_features).bits()
         });
         // read configuration space
-        let config = transport.config_space::<Config>();
+        let config = transport.config_space::<Config>()?;
         let mac;
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {

@@ -31,7 +31,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             let supported_features = Features::empty();
             (features & supported_features).bits()
         });
-        let config_space = transport.config_space::<Config>();
+        let config_space = transport.config_space::<Config>()?;
         unsafe {
             let columns = volread!(config_space, cols);
             let rows = volread!(config_space, rows);

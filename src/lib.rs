@@ -54,6 +54,10 @@ pub enum Error {
     DmaError,
     /// I/O Error
     IoError,
+    /// The config space advertised by the device is smaller than the driver expected.
+    ConfigSpaceTooSmall,
+    /// The device doesn't have any config space, but the driver expects some.
+    ConfigSpaceMissing,
 }
 
 /// Align `size` up to a page.

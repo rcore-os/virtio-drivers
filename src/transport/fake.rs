@@ -1,7 +1,7 @@
 use super::{DeviceStatus, Transport};
 use crate::{
     queue::{fake_write_to_queue, Descriptor},
-    DeviceType, PhysAddr,
+    DeviceType, PhysAddr, Result,
 };
 use alloc::{sync::Arc, vec::Vec};
 use core::{any::TypeId, ptr::NonNull};
@@ -74,9 +74,9 @@ impl<C> Transport for FakeTransport<C> {
         pending
     }
 
-    fn config_space<T: 'static>(&self) -> NonNull<T> {
+    fn config_space<T: 'static>(&self) -> Result<NonNull<T>> {
         if TypeId::of::<T>() == TypeId::of::<C>() {
-            self.config_space.cast()
+            Ok(self.config_space.cast())
         } else {
             panic!("Unexpected config space type.");
         }

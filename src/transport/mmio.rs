@@ -3,7 +3,7 @@ use crate::{
     align_up,
     queue::Descriptor,
     volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
-    PhysAddr, PAGE_SIZE,
+    Error, PhysAddr, PAGE_SIZE,
 };
 use core::{
     convert::{TryFrom, TryInto},
@@ -442,7 +442,7 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn config_space<T>(&self) -> NonNull<T> {
-        NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap()
+    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
+        Ok(NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap())
     }
 }
