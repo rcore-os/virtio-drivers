@@ -203,6 +203,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     }
 }
 
+impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
+    fn drop(&mut self) {
+        // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
+        // after they have been freed.
+        self.transport.queue_unset(QUEUE);
+    }
+}
+
 #[repr(C)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors

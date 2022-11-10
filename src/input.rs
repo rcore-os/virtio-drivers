@@ -94,6 +94,15 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     }
 }
 
+impl<H: Hal, T: Transport> Drop for VirtIOInput<H, T> {
+    fn drop(&mut self) {
+        // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
+        // after they have been freed.
+        self.transport.queue_unset(QUEUE_EVENT);
+        self.transport.queue_unset(QUEUE_STATUS);
+    }
+}
+
 /// Select value used for [`VirtIOInput::query_config_select()`].
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
