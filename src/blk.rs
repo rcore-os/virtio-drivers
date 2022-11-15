@@ -77,12 +77,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        let token = unsafe { self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])? };
         self.transport.notify(0);
         while !self.queue.can_pop() {
             spin_loop();
         }
-        self.queue.pop_used()?;
+        let (popped_token, _) = self.queue.pop_used()?;
+        assert_eq!(popped_token, token);
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),
@@ -143,12 +144,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        let token = unsafe { self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])? };
         self.transport.notify(0);
         while !self.queue.can_pop() {
             spin_loop();
         }
-        self.queue.pop_used()?;
+        let (popped_token, _) = self.queue.pop_used()?;
+        assert_eq!(popped_token, token);
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),

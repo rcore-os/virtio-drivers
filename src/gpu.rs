@@ -169,13 +169,16 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         unsafe {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
-        self.control_queue
-            .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
+        let token = unsafe {
+            self.control_queue
+                .add(&[self.queue_buf_send], &[self.queue_buf_recv])?
+        };
         self.transport.notify(QUEUE_TRANSMIT);
         while !self.control_queue.can_pop() {
             spin_loop();
         }
-        self.control_queue.pop_used()?;
+        let (popped_token, _) = self.control_queue.pop_used()?;
+        assert_eq!(popped_token, token);
         Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })
     }
 
@@ -184,12 +187,13 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         unsafe {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
-        self.cursor_queue.add(&[self.queue_buf_send], &[])?;
+        let token = unsafe { self.cursor_queue.add(&[self.queue_buf_send], &[])? };
         self.transport.notify(QUEUE_CURSOR);
         while !self.cursor_queue.can_pop() {
             spin_loop();
         }
-        self.cursor_queue.pop_used()?;
+        let (popped_token, _) = self.cursor_queue.pop_used()?;
+        assert_eq!(popped_token, token);
         Ok(())
     }
 

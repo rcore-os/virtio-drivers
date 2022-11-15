@@ -92,7 +92,11 @@ impl<H: Hal> VirtQueue<H> {
     /// Add buffers to the virtqueue, return a token.
     ///
     /// Ref: linux virtio_ring.c virtqueue_add
-    pub fn add(&mut self, inputs: &[&[u8]], outputs: &[&mut [u8]]) -> Result<u16> {
+    ///
+    /// # Safety
+    ///
+    /// The input and output buffers must remain valid until the token is returned by `pop_used`.
+    pub unsafe fn add(&mut self, inputs: &[*const [u8]], outputs: &[*mut [u8]]) -> Result<u16> {
         if inputs.is_empty() && outputs.is_empty() {
             return Err(Error::InvalidParam);
         }
@@ -109,14 +113,14 @@ impl<H: Hal> VirtQueue<H> {
         unsafe {
             for input in inputs.iter() {
                 let mut desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(input);
+                (*desc).set_buf::<H>(NonNull::new(*input as *mut [u8]).unwrap());
                 (*desc).flags = DescFlags::NEXT;
                 last = self.free_head;
                 self.free_head = (*desc).next;
             }
             for output in outputs.iter() {
                 let desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(output);
+                (*desc).set_buf::<H>(NonNull::new(*output).unwrap());
                 (*desc).flags = DescFlags::NEXT | DescFlags::WRITE;
                 last = self.free_head;
                 self.free_head = (*desc).next;
@@ -263,8 +267,11 @@ pub(crate) struct Descriptor {
 }
 
 impl Descriptor {
-    fn set_buf<H: Hal>(&mut self, buf: &[u8]) {
-        self.addr = H::virt_to_phys(buf.as_ptr() as usize) as u64;
+    /// # Safety
+    ///
+    /// The caller must ensure that the buffer lives at least as long as the descriptor is active.
+    unsafe fn set_buf<H: Hal>(&mut self, buf: NonNull<[u8]>) {
+        self.addr = H::virt_to_phys(buf.as_ptr() as *mut u8 as usize) as u64;
         self.len = buf.len() as u32;
     }
 }
@@ -408,7 +415,10 @@ mod tests {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
-        assert_eq!(queue.add(&[], &[]).unwrap_err(), Error::InvalidParam);
+        assert_eq!(
+            unsafe { queue.add(&[], &[]) }.unwrap_err(),
+            Error::InvalidParam
+        );
     }
 
     #[test]
@@ -418,9 +428,7 @@ mod tests {
         let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
-            queue
-                .add(&[&[], &[], &[]], &[&mut [], &mut []])
-                .unwrap_err(),
+            unsafe { queue.add(&[&[], &[], &[]], &[&mut [], &mut []]) }.unwrap_err(),
             Error::BufferTooSmall
         );
     }
@@ -435,9 +443,7 @@ mod tests {
 
         // Add a buffer chain consisting of two device-readable parts followed by two
         // device-writable parts.
-        let token = queue
-            .add(&[&[1, 2], &[3]], &[&mut [0, 0], &mut [0]])
-            .unwrap();
+        let token = unsafe { queue.add(&[&[1, 2], &[3]], &[&mut [0, 0], &mut [0]]) }.unwrap();
 
         assert_eq!(queue.available_desc(), 0);
         assert!(!queue.can_pop());

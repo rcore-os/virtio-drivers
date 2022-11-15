@@ -60,7 +60,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     }
 
     fn poll_retrieve(&mut self) -> Result<()> {
-        self.receiveq.add(&[], &[self.queue_buf_rx])?;
+        // Safe because the buffer lasts at least as long as the queue.
+        unsafe { self.receiveq.add(&[], &[self.queue_buf_rx])? };
         Ok(())
     }
 
@@ -99,12 +100,14 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     /// Put a char onto the device.
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
-        self.transmitq.add(&[&buf], &[])?;
+        // Safe because the buffer is valid until we pop_used below.
+        let token = unsafe { self.transmitq.add(&[&buf], &[]) }?;
         self.transport.notify(QUEUE_TRANSMITQ_PORT_0);
         while !self.transmitq.can_pop() {
             spin_loop();
         }
-        self.transmitq.pop_used()?;
+        let (popped_token, _) = self.transmitq.pop_used()?;
+        assert_eq!(popped_token, token);
         Ok(())
     }
 }
