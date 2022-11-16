@@ -3,7 +3,6 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
 use bitflags::*;
-use core::hint::spin_loop;
 use log::*;
 
 const QUEUE: u16 = 0;
@@ -77,13 +76,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        let token = unsafe { self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])? };
-        self.transport.notify(0);
-        while !self.queue.can_pop() {
-            spin_loop();
-        }
-        let (popped_token, _) = self.queue.pop_used()?;
-        assert_eq!(popped_token, token);
+        self.queue.add_notify_wait_pop(
+            &[req.as_buf()],
+            &[buf, resp.as_buf_mut()],
+            &mut self.transport,
+        )?;
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),
@@ -131,7 +128,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let token = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
-        self.transport.notify(0);
+        self.transport.notify(QUEUE);
         Ok(token)
     }
 
@@ -144,13 +141,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let mut resp = BlkResp::default();
-        let token = unsafe { self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])? };
-        self.transport.notify(0);
-        while !self.queue.can_pop() {
-            spin_loop();
-        }
-        let (popped_token, _) = self.queue.pop_used()?;
-        assert_eq!(popped_token, token);
+        self.queue.add_notify_wait_pop(
+            &[req.as_buf(), buf],
+            &[resp.as_buf_mut()],
+            &mut self.transport,
+        )?;
         match resp.status {
             RespStatus::Ok => Ok(()),
             _ => Err(Error::IoError),
@@ -187,7 +182,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let token = self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
-        self.transport.notify(0);
+        self.transport.notify(QUEUE);
         Ok(token)
     }
 

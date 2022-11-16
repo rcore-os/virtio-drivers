@@ -1,5 +1,6 @@
 #[cfg(test)]
 use core::cmp::min;
+use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::{self, addr_of_mut, NonNull};
 use core::sync::atomic::{fence, Ordering};
@@ -152,6 +153,32 @@ impl<H: Hal> VirtQueue<H> {
         fence(Ordering::SeqCst);
 
         Ok(head)
+    }
+
+    /// Add the given buffers to the virtqueue, notifies the device, blocks until the device uses
+    /// them, then pops them.
+    ///
+    /// This assumes that the device isn't processing any other buffers at the same time.
+    pub fn add_notify_wait_pop(
+        &mut self,
+        inputs: &[*const [u8]],
+        outputs: &[*mut [u8]],
+        transport: &mut impl Transport,
+    ) -> Result<u32> {
+        // Safe because we don't return until the same token has been popped, so they remain valid
+        // until then.
+        let token = unsafe { self.add(inputs, outputs) }?;
+
+        // Notify the queue.
+        transport.notify(self.queue_idx);
+
+        while !self.can_pop() {
+            spin_loop();
+        }
+        let (popped_token, length) = self.pop_used()?;
+        assert_eq!(popped_token, token);
+
+        Ok(length)
     }
 
     /// Returns a non-null pointer to the descriptor at the given index.

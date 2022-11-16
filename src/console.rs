@@ -3,7 +3,6 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use bitflags::*;
-use core::hint::spin_loop;
 use log::*;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
@@ -101,13 +100,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         // Safe because the buffer is valid until we pop_used below.
-        let token = unsafe { self.transmitq.add(&[&buf], &[]) }?;
-        self.transport.notify(QUEUE_TRANSMITQ_PORT_0);
-        while !self.transmitq.can_pop() {
-            spin_loop();
-        }
-        let (popped_token, _) = self.transmitq.pop_used()?;
-        assert_eq!(popped_token, token);
+        self.transmitq
+            .add_notify_wait_pop(&[&buf], &[], &mut self.transport)?;
         Ok(())
     }
 }
