@@ -70,7 +70,7 @@ jobs:
           - example: aarch64
             toolchain: stable
             target: aarch64-unknown-none
-            packages: qemu-system-arm
+            packages: qemu-system-arm gcc-aarch64-linux-gnu
           - example: riscv
             toolchain: nightly-2022-11-03
             target: riscv64imac-unknown-none-elf
