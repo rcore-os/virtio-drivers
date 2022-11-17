@@ -57,3 +57,23 @@ jobs:
         with:
           command: test
           args: --all-features
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: riscv64imac-unknown-none-elf
+          components: llvm-tools-preview, rustfmt
+      - name: Check code format
+        working-directory: examples/riscv
+        run: cargo fmt --all -- --check
+      - name: Build
+        working-directory: examples/riscv
+        run: make kernel
+      - name: Run
+        working-directory: examples/riscv
+        run: make qemu
