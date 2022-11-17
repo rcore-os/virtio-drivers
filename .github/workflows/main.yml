@@ -93,4 +93,4 @@ jobs:
         run: make kernel
       - name: Run
         working-directory: examples/${{ matrix.example }}
-        run: make qemu
+        run: QEMU_ARGS="-display none" make qemu

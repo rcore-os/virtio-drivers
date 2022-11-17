@@ -38,6 +38,7 @@ clean:
 
 qemu-legacy: kernel $(img)
 	qemu-system-$(arch) \
+	  $(QEMU_ARGS) \
 		-machine virt \
 		-serial mon:stdio \
 		-bios default \
@@ -51,6 +52,7 @@ qemu-legacy: kernel $(img)
 
 qemu: kernel $(img)
 	qemu-system-$(arch) \
+	  $(QEMU_ARGS) \
 		-machine virt \
 		-serial mon:stdio \
 		-bios default \
