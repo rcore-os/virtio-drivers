@@ -65,7 +65,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: nightly-2022-11-03
           target: riscv64imac-unknown-none-elf
           components: llvm-tools-preview, rustfmt
       - name: Check code format
