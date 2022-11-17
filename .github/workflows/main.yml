@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install QEMU
-        run: sudo apt install ${{ matrix.packages }}
+        run: sudo apt update && sudo apt install ${{ matrix.packages }}
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
