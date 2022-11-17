@@ -2,7 +2,7 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use crate::transport::Transport;
-use crate::volatile::{volread, ReadOnly, Volatile};
+use crate::volatile::{volread, ReadOnly};
 use bitflags::*;
 use log::*;
 
@@ -188,12 +188,12 @@ type EthernetAddress = [u8; 6];
 #[repr(C)]
 #[derive(Debug)]
 struct Header {
-    flags: Volatile<Flags>,
-    gso_type: Volatile<GsoType>,
-    hdr_len: Volatile<u16>, // cannot rely on this
-    gso_size: Volatile<u16>,
-    csum_start: Volatile<u16>,
-    csum_offset: Volatile<u16>,
+    flags: Flags,
+    gso_type: GsoType,
+    hdr_len: u16, // cannot rely on this
+    gso_size: u16,
+    csum_start: u16,
+    csum_offset: u16,
     // payload starts from here
 }
 
