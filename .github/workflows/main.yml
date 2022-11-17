@@ -60,20 +60,36 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example:
+          - aarch64
+          - riscv
+        include:
+          - example: aarch64
+            toolchain: stable
+            target: aarch64-unknown-none
+            packages: qemu-system-arm
+          - example: riscv
+            toolchain: nightly-2022-11-03
+            target: riscv64imac-unknown-none-elf
+            packages: qemu-system-misc
     steps:
       - uses: actions/checkout@v2
+      - name: Install QEMU
+        run: sudo apt install ${{ matrix.packages }}
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-11-03
-          target: riscv64imac-unknown-none-elf
+          toolchain: ${{ matrix.toolchain }}
+          target: ${{ matrix.target }}
           components: llvm-tools-preview, rustfmt
       - name: Check code format
-        working-directory: examples/riscv
+        working-directory: examples/${{ matrix.example }}
         run: cargo fmt --all -- --check
       - name: Build
-        working-directory: examples/riscv
+        working-directory: examples/${{ matrix.example }}
         run: make kernel
       - name: Run
-        working-directory: examples/riscv
+        working-directory: examples/${{ matrix.example }}
         run: make qemu
