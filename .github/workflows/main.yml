@@ -30,7 +30,12 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      - name: Build
+      - name: Build with no features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --no-default-features
+      - name: Build with all features
         uses: actions-rs/cargo@v1
         with:
           command: build
@@ -39,7 +44,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: doc
-      - name: Test
+      - name: Test with no features
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-default-features
+      - name: Test with all features
         uses: actions-rs/cargo@v1
         with:
           command: test
