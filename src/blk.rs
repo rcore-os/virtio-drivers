@@ -4,6 +4,7 @@ use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
 use bitflags::*;
 use log::*;
+use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
 
@@ -77,12 +78,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let mut resp = BlkResp::default();
         self.queue.add_notify_wait_pop(
-            &[req.as_buf()],
-            &[buf, resp.as_buf_mut()],
+            &[req.as_bytes()],
+            &[buf, resp.as_bytes_mut()],
             &mut self.transport,
         )?;
         match resp.status {
-            RespStatus::Ok => Ok(()),
+            RespStatus::OK => Ok(()),
             _ => Err(Error::IoError),
         }
     }
@@ -127,7 +128,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self.queue.add(&[req.as_buf()], &[buf, resp.as_buf_mut()])?;
+        let token = self
+            .queue
+            .add(&[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
         self.transport.notify(QUEUE);
         Ok(token)
     }
@@ -142,12 +145,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let mut resp = BlkResp::default();
         self.queue.add_notify_wait_pop(
-            &[req.as_buf(), buf],
-            &[resp.as_buf_mut()],
+            &[req.as_bytes(), buf],
+            &[resp.as_bytes_mut()],
             &mut self.transport,
         )?;
         match resp.status {
-            RespStatus::Ok => Ok(()),
+            RespStatus::OK => Ok(()),
             _ => Err(Error::IoError),
         }
     }
@@ -181,7 +184,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self.queue.add(&[req.as_buf(), buf], &[resp.as_buf_mut()])?;
+        let token = self
+            .queue
+            .add(&[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
         self.transport.notify(QUEUE);
         Ok(token)
     }
@@ -227,7 +232,7 @@ struct BlkConfig {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct BlkReq {
     type_: ReqType,
     reserved: u32,
@@ -236,7 +241,7 @@ struct BlkReq {
 
 /// Response of a VirtIOBlk request.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug, FromBytes)]
 pub struct BlkResp {
     status: RespStatus,
 }
@@ -249,7 +254,7 @@ impl BlkResp {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 enum ReqType {
     In = 0,
     Out = 1,
@@ -259,23 +264,25 @@ enum ReqType {
 }
 
 /// Status of a VirtIOBlk request.
-#[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub enum RespStatus {
+#[repr(transparent)]
+#[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, PartialEq)]
+pub struct RespStatus(u8);
+
+impl RespStatus {
     /// Ok.
-    Ok = 0,
+    pub const OK: RespStatus = RespStatus(0);
     /// IoErr.
-    IoErr = 1,
+    pub const IO_ERR: RespStatus = RespStatus(1);
     /// Unsupported yet.
-    Unsupported = 2,
+    pub const UNSUPPORTED: RespStatus = RespStatus(2);
     /// Not ready.
-    _NotReady = 3,
+    pub const NOT_READY: RespStatus = RespStatus(3);
 }
 
 impl Default for BlkResp {
     fn default() -> Self {
         BlkResp {
-            status: RespStatus::_NotReady,
+            status: RespStatus::NOT_READY,
         }
     }
 }
@@ -332,6 +339,3 @@ bitflags! {
         const NOTIFICATION_DATA     = 1 << 38;
     }
 }
-
-unsafe impl AsBuf for BlkReq {}
-unsafe impl AsBuf for BlkResp {}

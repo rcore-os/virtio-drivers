@@ -5,6 +5,7 @@ use alloc::boxed::Box;
 use bitflags::*;
 use core::ptr::NonNull;
 use log::*;
+use zerocopy::{AsBytes, FromBytes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
@@ -37,7 +38,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, QUEUE_SIZE as u16)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
-            let token = unsafe { event_queue.add(&[], &[event.as_buf_mut()])? };
+            let token = unsafe { event_queue.add(&[], &[event.as_bytes_mut()])? };
             assert_eq!(token, i as u16);
         }
 
@@ -63,7 +64,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             let event = &mut self.event_buf[token as usize];
             // requeue
             // Safe because buffer lasts as long as the queue.
-            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &[event.as_buf_mut()]) } {
+            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &[event.as_bytes_mut()]) } {
                 // This only works because nothing happen between `pop_used` and `add` that affects
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
                 // was just freed by `pop_used`.
@@ -161,7 +162,7 @@ struct DevIDs {
 /// Both queues use the same `virtio_input_event` struct. `type`, `code` and `value`
 /// are filled according to the Linux input layer (evdev) interface.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(AsBytes, Clone, Copy, Debug, Default, FromBytes)]
 pub struct InputEvent {
     /// Event type.
     pub event_type: u16,
@@ -170,8 +171,6 @@ pub struct InputEvent {
     /// Event value.
     pub value: u32,
 }
-
-unsafe impl AsBuf for InputEvent {}
 
 bitflags! {
     struct Feature: u64 {
