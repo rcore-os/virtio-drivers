@@ -39,6 +39,7 @@ clean:
 
 qemu: $(kernel_bin) $(img)
 	qemu-system-aarch64 \
+	  $(QEMU_ARGS) \
 		-machine virt \
 		-cpu max \
 		-serial mon:stdio \

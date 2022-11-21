@@ -5,7 +5,7 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "alloc", test))]
 extern crate alloc;
 
 mod blk;
