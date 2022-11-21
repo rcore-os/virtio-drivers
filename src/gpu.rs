@@ -3,7 +3,6 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
-use core::fmt;
 use log::*;
 
 /// A virtio based graphics adapter.
@@ -298,15 +297,6 @@ struct Config {
     ///
     /// Minimum value is 1, maximum value is 16.
     num_scanouts: Volatile<u32>,
-}
-
-impl fmt::Debug for Config {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Config")
-            .field("events_read", &self.events_read)
-            .field("num_scanouts", &self.num_scanouts)
-            .finish()
-    }
 }
 
 /// Display configuration has changed.
