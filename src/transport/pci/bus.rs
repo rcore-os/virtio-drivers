@@ -255,7 +255,9 @@ impl PciRoot {
         // Get the size of the BAR.
         self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, 0xffffffff);
         let size_mask = self.config_read_word(device_function, BAR0_OFFSET + 4 * bar_index);
-        let size = !(size_mask & 0xfffffff0) + 1;
+        // A wrapping add is necessary to correctly handle the case of unused BARs, which read back
+        // as 0, and should be treated as size 0.
+        let size = (!(size_mask & 0xfffffff0)).wrapping_add(1);
 
         // Restore the original value.
         self.config_write_word(device_function, BAR0_OFFSET + 4 * bar_index, bar_orig);
