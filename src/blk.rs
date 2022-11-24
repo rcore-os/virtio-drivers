@@ -13,7 +13,7 @@ use log::*;
 pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
     queue: VirtQueue<H>,
-    capacity: usize,
+    capacity: u64,
 }
 
 impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
@@ -40,8 +40,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(VirtIOBlk {
             transport,
             queue,
-            capacity: capacity as usize,
+            capacity,
         })
+    }
+
+    /// Gets the capacity of the block device, in 512 byte sectors.
+    pub fn capacity(&self) -> u64 {
+        self.capacity
     }
 
     /// Acknowledge interrupt.
