@@ -1,9 +1,7 @@
 use core::sync::atomic::*;
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{Hal, PhysAddr, VirtAddr};
-
-const PAGE_SIZE: usize = 0x1000;
+use virtio_drivers::{Hal, PhysAddr, VirtAddr, PAGE_SIZE};
 
 extern "C" {
     static dma_region: u8;

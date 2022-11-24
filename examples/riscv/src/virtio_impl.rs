@@ -1,7 +1,7 @@
 use core::sync::atomic::*;
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{Hal, PhysAddr, VirtAddr};
+use virtio_drivers::{Hal, PhysAddr, VirtAddr, PAGE_SIZE};
 
 extern "C" {
     fn end();
@@ -15,7 +15,7 @@ pub struct HalImpl;
 
 impl Hal for HalImpl {
     fn dma_alloc(pages: usize) -> PhysAddr {
-        let paddr = DMA_PADDR.fetch_add(0x1000 * pages, Ordering::SeqCst);
+        let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
         paddr
     }
