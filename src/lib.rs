@@ -33,7 +33,7 @@ use core::mem::size_of;
 use hal::*;
 
 /// The page size in bytes supported by the library (4 KiB).
-const PAGE_SIZE: usize = 0x1000;
+pub const PAGE_SIZE: usize = 0x1000;
 
 /// The type returned by driver methods.
 pub type Result<T = ()> = core::result::Result<T, Error>;
