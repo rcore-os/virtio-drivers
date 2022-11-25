@@ -173,6 +173,7 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
             region.starting_address,
             region.starting_address as usize + region.size.unwrap()
         );
+        assert_eq!(region.size.unwrap(), cam.size() as usize);
         // Safe because we know the pointer is to a valid MMIO region.
         let mut pci_root = unsafe { PciRoot::new(region.starting_address as *mut u8, cam) };
         for (device_function, info) in pci_root.enumerate_bus(0) {

@@ -8,10 +8,6 @@ use core::{
 use log::warn;
 
 const INVALID_READ: u32 = 0xffffffff;
-// PCI MMIO configuration region size.
-const AARCH64_PCI_CFG_SIZE: u32 = 0x1000000;
-// PCIe MMIO configuration region size.
-const AARCH64_PCIE_CFG_SIZE: u32 = 0x10000000;
 
 /// The maximum number of devices on a bus.
 const MAX_DEVICES: u8 = 32;
@@ -117,6 +113,16 @@ pub enum Cam {
     Ecam,
 }
 
+impl Cam {
+    /// Returns the total size in bytes of the memory-mapped region.
+    pub const fn size(self) -> u32 {
+        match self {
+            Self::MmioCam => 0x1000000,
+            Self::Ecam => 0x10000000,
+        }
+    }
+}
+
 impl PciRoot {
     /// Wraps the PCI root complex with the given MMIO base address.
     ///
@@ -155,19 +161,13 @@ impl PciRoot {
         let bdf = (device_function.bus as u32) << 8
             | (device_function.device as u32) << 3
             | device_function.function as u32;
-        let address;
-        match self.cam {
-            Cam::MmioCam => {
-                address = bdf << 8 | register_offset as u32;
-                // Ensure that address is within range.
-                assert!(address < AARCH64_PCI_CFG_SIZE);
-            }
-            Cam::Ecam => {
-                address = bdf << 12 | register_offset as u32;
-                // Ensure that address is within range.
-                assert!(address < AARCH64_PCIE_CFG_SIZE);
-            }
-        }
+        let address =
+            bdf << match self.cam {
+                Cam::MmioCam => 8,
+                Cam::Ecam => 12,
+            } | register_offset as u32;
+        // Ensure that address is within range.
+        assert!(address < self.cam.size());
         // Ensure that address is word-aligned.
         assert!(address & 0x3 == 0);
         address
