@@ -190,7 +190,6 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors
     capacity: Volatile<u64>,

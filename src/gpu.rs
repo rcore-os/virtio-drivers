@@ -1,7 +1,7 @@
 use super::*;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{ReadOnly, Volatile, WriteOnly};
+use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
@@ -44,8 +44,14 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
 
         // read configuration space
         let config_space = transport.config_space().cast::<Config>();
-        let config = unsafe { config_space.as_ref() };
-        info!("Config: {:?}", config);
+        unsafe {
+            let events_read = volread!(config_space, events_read);
+            let num_scanouts = volread!(config_space, num_scanouts);
+            info!(
+                "events_read: {:#x}, num_scanouts: {:#x}",
+                events_read, num_scanouts
+            );
+        }
 
         let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, 2)?;
         let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, 2)?;
@@ -165,7 +171,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         }
         self.control_queue
             .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
-        self.transport.notify(QUEUE_TRANSMIT as u32);
+        self.transport.notify(QUEUE_TRANSMIT);
         while !self.control_queue.can_pop() {
             spin_loop();
         }
@@ -179,7 +185,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
         self.cursor_queue.add(&[self.queue_buf_send], &[])?;
-        self.transport.notify(QUEUE_CURSOR as u32);
+        self.transport.notify(QUEUE_CURSOR);
         while !self.cursor_queue.can_pop() {
             spin_loop();
         }
@@ -483,8 +489,8 @@ struct UpdateCursor {
     _padding: u32,
 }
 
-const QUEUE_TRANSMIT: usize = 0;
-const QUEUE_CURSOR: usize = 1;
+const QUEUE_TRANSMIT: u16 = 0;
+const QUEUE_CURSOR: u16 = 1;
 
 const SCANOUT_ID: u32 = 0;
 const RESOURCE_ID_FB: u32 = 0xbabe;

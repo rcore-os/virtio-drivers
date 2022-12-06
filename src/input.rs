@@ -178,8 +178,8 @@ bitflags! {
     }
 }
 
-const QUEUE_EVENT: usize = 0;
-const QUEUE_STATUS: usize = 1;
+const QUEUE_EVENT: u16 = 0;
+const QUEUE_STATUS: u16 = 1;
 
 // a parameter that can change
 const QUEUE_SIZE: usize = 32;

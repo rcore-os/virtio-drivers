@@ -39,8 +39,8 @@ pub struct VirtQueue<H: Hal> {
 
 impl<H: Hal> VirtQueue<H> {
     /// Create a new VirtQueue.
-    pub fn new<T: Transport>(transport: &mut T, idx: usize, size: u16) -> Result<Self> {
-        if transport.queue_used(idx as u32) {
+    pub fn new<T: Transport>(transport: &mut T, idx: u16, size: u16) -> Result<Self> {
+        if transport.queue_used(idx) {
             return Err(Error::AlreadyUsed);
         }
         if !size.is_power_of_two() || transport.max_queue_size() < size as u32 {
@@ -51,7 +51,7 @@ impl<H: Hal> VirtQueue<H> {
         let dma = DMA::new(layout.size / PAGE_SIZE)?;
 
         transport.queue_set(
-            idx as u32,
+            idx,
             size as u32,
             dma.paddr(),
             dma.paddr() + layout.avail_offset,

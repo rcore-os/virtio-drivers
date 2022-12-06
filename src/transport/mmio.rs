@@ -311,10 +311,8 @@ impl MmioTransport {
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
         // Safe because self.header points to a valid VirtIO MMIO region.
-        match unsafe { volread!(self.header, device_id) } {
-            x @ 1..=13 | x @ 16..=24 => unsafe { core::mem::transmute(x as u8) },
-            _ => DeviceType::Invalid,
-        }
+        let device_id = unsafe { volread!(self.header, device_id) };
+        device_id.into()
     }
 
     fn read_device_features(&mut self) -> u64 {
@@ -343,10 +341,10 @@ impl Transport for MmioTransport {
         unsafe { volread!(self.header, queue_num_max) }
     }
 
-    fn notify(&mut self, queue: u32) {
+    fn notify(&mut self, queue: u16) {
         // Safe because self.header points to a valid VirtIO MMIO region.
         unsafe {
-            volwrite!(self.header, queue_notify, queue);
+            volwrite!(self.header, queue_notify, queue.into());
         }
     }
 
@@ -373,7 +371,7 @@ impl Transport for MmioTransport {
 
     fn queue_set(
         &mut self,
-        queue: u32,
+        queue: u16,
         size: u32,
         descriptors: PhysAddr,
         driver_area: PhysAddr,
@@ -397,7 +395,7 @@ impl Transport for MmioTransport {
                 assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
                 // Safe because self.header points to a valid VirtIO MMIO region.
                 unsafe {
-                    volwrite!(self.header, queue_sel, queue);
+                    volwrite!(self.header, queue_sel, queue.into());
                     volwrite!(self.header, queue_num, size);
                     volwrite!(self.header, legacy_queue_align, align);
                     volwrite!(self.header, legacy_queue_pfn, pfn);
@@ -406,7 +404,7 @@ impl Transport for MmioTransport {
             MmioVersion::Modern => {
                 // Safe because self.header points to a valid VirtIO MMIO region.
                 unsafe {
-                    volwrite!(self.header, queue_sel, queue);
+                    volwrite!(self.header, queue_sel, queue.into());
                     volwrite!(self.header, queue_num, size);
                     volwrite!(self.header, queue_desc_low, descriptors as u32);
                     volwrite!(self.header, queue_desc_high, (descriptors >> 32) as u32);
@@ -420,10 +418,10 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn queue_used(&mut self, queue: u32) -> bool {
+    fn queue_used(&mut self, queue: u16) -> bool {
         // Safe because self.header points to a valid VirtIO MMIO region.
         unsafe {
-            volwrite!(self.header, queue_sel, queue);
+            volwrite!(self.header, queue_sel, queue.into());
             match self.version {
                 MmioVersion::Legacy => volread!(self.header, legacy_queue_pfn) != 0,
                 MmioVersion::Modern => volread!(self.header, queue_ready) != 0,

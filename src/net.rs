@@ -78,7 +78,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
         let mut header = MaybeUninit::<Header>::uninit();
         let header_buf = unsafe { (*header.as_mut_ptr()).as_buf_mut() };
         self.recv_queue.add(&[], &[header_buf, buf])?;
-        self.transport.notify(QUEUE_RECEIVE as u32);
+        self.transport.notify(QUEUE_RECEIVE);
         while !self.recv_queue.can_pop() {
             spin_loop();
         }
@@ -92,7 +92,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     pub fn send(&mut self, buf: &[u8]) -> Result {
         let header = unsafe { MaybeUninit::<Header>::zeroed().assume_init() };
         self.send_queue.add(&[header.as_buf(), buf], &[])?;
-        self.transport.notify(QUEUE_TRANSMIT as u32);
+        self.transport.notify(QUEUE_TRANSMIT);
         while !self.send_queue.can_pop() {
             spin_loop();
         }
@@ -177,7 +177,6 @@ bitflags! {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 struct Config {
     mac: ReadOnly<EthernetAddress>,
     status: ReadOnly<Status>,
@@ -218,5 +217,5 @@ enum GsoType {
     ECN = 0x80,
 }
 
-const QUEUE_RECEIVE: usize = 0;
-const QUEUE_TRANSMIT: usize = 1;
+const QUEUE_RECEIVE: u16 = 0;
+const QUEUE_TRANSMIT: u16 = 1;
