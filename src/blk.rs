@@ -28,10 +28,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         });
 
         // read configuration space
-        let config = transport.config_space().cast::<BlkConfig>();
+        let config = transport.config_space::<BlkConfig>()?;
         info!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
-        let capacity = unsafe { volread!(config, capacity) };
+        let capacity = unsafe {
+            volread!(config, capacity_low) as u64 | (volread!(config, capacity_high) as u64) << 32
+        };
         info!("found a block device of size {}KB", capacity / 2);
 
         let queue = VirtQueue::new(&mut transport, 0, 16)?;
@@ -192,7 +194,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 #[repr(C)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors
-    capacity: Volatile<u64>,
+    capacity_low: Volatile<u32>,
+    capacity_high: Volatile<u32>,
     size_max: Volatile<u32>,
     seg_max: Volatile<u32>,
     cylinders: Volatile<u16>,

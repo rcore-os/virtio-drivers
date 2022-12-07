@@ -3,12 +3,12 @@ use crate::{
     align_up,
     queue::Descriptor,
     volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
-    PhysAddr, PAGE_SIZE,
+    Error, PhysAddr, PAGE_SIZE,
 };
 use core::{
     convert::{TryFrom, TryInto},
     fmt::{self, Display, Formatter},
-    mem::size_of,
+    mem::{align_of, size_of},
     ptr::NonNull,
 };
 
@@ -442,7 +442,14 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn config_space(&self) -> NonNull<u64> {
-        NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap()
+    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
+        if align_of::<T>() > 4 {
+            // Panic as this should only happen if the driver is written incorrectly.
+            panic!(
+                "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+                align_of::<T>()
+            );
+        }
+        Ok(NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap())
     }
 }

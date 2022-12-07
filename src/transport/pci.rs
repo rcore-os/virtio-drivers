@@ -9,6 +9,7 @@ use crate::{
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
+    Error,
 };
 use core::{
     fmt::{self, Display, Formatter},
@@ -91,7 +92,7 @@ pub struct PciTransport {
     /// The ISR status register within some BAR.
     isr_status: NonNull<Volatile<u8>>,
     /// The VirtIO device-specific configuration within some BAR.
-    config_space: Option<NonNull<[u64]>>,
+    config_space: Option<NonNull<[u32]>>,
 }
 
 impl PciTransport {
@@ -300,15 +301,24 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn config_space(&self) -> NonNull<u64> {
-        // TODO: Check config_space_size
-        // TODO: Use NonNull::as_non_null_ptr once it is stable.
-        NonNull::new(
-            self.config_space
-                .expect("No VIRTIO_PCI_CAP_DEVICE_CFG capability.")
-                .as_ptr() as *mut u64,
-        )
-        .unwrap()
+    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
+        if let Some(config_space) = self.config_space {
+            if size_of::<T>() > config_space.len() * size_of::<u32>() {
+                Err(Error::ConfigSpaceTooSmall)
+            } else if align_of::<T>() > 4 {
+                // Panic as this should only happen if the driver is written incorrectly.
+                panic!(
+                    "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+                    align_of::<T>()
+                );
+            } else {
+                // TODO: Use NonNull::as_non_null_ptr once it is stable.
+                let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
+                Ok(config_space_ptr.cast())
+            }
+        } else {
+            Err(Error::ConfigSpaceMissing)
+        }
     }
 }
 
