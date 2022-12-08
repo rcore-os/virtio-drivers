@@ -58,7 +58,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
     /// Read a block.
     pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
-        assert_eq!(buf.len(), BLK_SIZE);
+        assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
             reserved: 0,
@@ -111,7 +111,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         buf: &mut [u8],
         resp: &mut BlkResp,
     ) -> Result<u16> {
-        assert_eq!(buf.len(), BLK_SIZE);
+        assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
             type_: ReqType::In,
             reserved: 0,
@@ -124,7 +124,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
     /// Write a block.
     pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
-        assert_eq!(buf.len(), BLK_SIZE);
+        assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
             reserved: 0,
@@ -166,7 +166,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         buf: &[u8],
         resp: &mut BlkResp,
     ) -> Result<u16> {
-        assert_eq!(buf.len(), BLK_SIZE);
+        assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
             type_: ReqType::Out,
             reserved: 0,
@@ -263,7 +263,9 @@ impl Default for BlkResp {
     }
 }
 
-const BLK_SIZE: usize = 512;
+/// The standard sector size of a VirtIO block device. Data is read and written in multiples of this
+/// size.
+pub const SECTOR_SIZE: usize = 512;
 
 bitflags! {
     struct BlkFeature: u64 {
