@@ -14,14 +14,18 @@ pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
     queue: VirtQueue<H>,
     capacity: u64,
+    readonly: bool,
 }
 
 impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        let mut readonly = false;
+
         transport.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
             info!("device features: {:?}", features);
+            readonly = features.contains(BlkFeature::RO);
             // negotiate these flags only
             let supported_features = BlkFeature::empty();
             (features & supported_features).bits()
@@ -43,12 +47,18 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             transport,
             queue,
             capacity,
+            readonly,
         })
     }
 
     /// Gets the capacity of the block device, in 512 byte sectors.
     pub fn capacity(&self) -> u64 {
         self.capacity
+    }
+
+    /// Returns true if the block device is read-only, or false if it allows writes.
+    pub fn readonly(&self) -> bool {
+        self.readonly
     }
 
     /// Acknowledge interrupt.
