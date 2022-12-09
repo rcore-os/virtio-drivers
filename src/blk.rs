@@ -6,6 +6,8 @@ use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
 
+const QUEUE: u16 = 0;
+
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
@@ -40,7 +42,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         info!("found a block device of size {}KB", capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, 0, 16)?;
+        let queue = VirtQueue::new(&mut transport, QUEUE, 16)?;
         transport.finish_init();
 
         Ok(VirtIOBlk {
