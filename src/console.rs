@@ -109,6 +109,15 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     }
 }
 
+impl<H: Hal, T: Transport> Drop for VirtIOConsole<'_, H, T> {
+    fn drop(&mut self) {
+        // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
+        // after they have been freed.
+        self.transport.queue_unset(QUEUE_RECEIVEQ_PORT_0);
+        self.transport.queue_unset(QUEUE_TRANSMITQ_PORT_0);
+    }
+}
+
 #[repr(C)]
 struct Config {
     cols: ReadOnly<u16>,

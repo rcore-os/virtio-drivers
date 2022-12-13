@@ -101,6 +101,15 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     }
 }
 
+impl<H: Hal, T: Transport> Drop for VirtIONet<H, T> {
+    fn drop(&mut self) {
+        // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
+        // after they have been freed.
+        self.transport.queue_unset(QUEUE_RECEIVE);
+        self.transport.queue_unset(QUEUE_TRANSMIT);
+    }
+}
+
 bitflags! {
     struct Features: u64 {
         /// Device handles packets with partial checksum.

@@ -61,6 +61,14 @@ impl<C> Transport for FakeTransport<C> {
         state.queues[queue as usize].device_area = device_area;
     }
 
+    fn queue_unset(&mut self, queue: u16) {
+        let mut state = self.state.lock().unwrap();
+        state.queues[queue as usize].size = 0;
+        state.queues[queue as usize].descriptors = 0;
+        state.queues[queue as usize].driver_area = 0;
+        state.queues[queue as usize].device_area = 0;
+    }
+
     fn queue_used(&mut self, queue: u16) -> bool {
         self.state.lock().unwrap().queues[queue as usize].descriptors != 0
     }
