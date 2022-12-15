@@ -114,17 +114,15 @@ impl<H: Hal> VirtQueue<H> {
         // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
         // else reads or writes the free descriptors during this block.
         unsafe {
-            for input in inputs.iter() {
-                let mut desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(NonNull::new(*input as *mut [u8]).unwrap());
-                (*desc).flags = DescFlags::NEXT;
-                last = self.free_head;
-                self.free_head = (*desc).next;
-            }
-            for output in outputs.iter() {
+            for (buffer, is_output) in input_output_iter(inputs, outputs) {
                 let desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(NonNull::new(*output).unwrap());
-                (*desc).flags = DescFlags::NEXT | DescFlags::WRITE;
+                (*desc).set_buf::<H>(buffer);
+                (*desc).flags = DescFlags::NEXT
+                    | if is_output {
+                        DescFlags::WRITE
+                    } else {
+                        DescFlags::empty()
+                    };
                 last = self.free_head;
                 self.free_head = (*desc).next;
             }
@@ -525,4 +523,22 @@ mod tests {
             );
         }
     }
+}
+
+/// Returns an iterator over the buffers of first `inputs` and then `outputs`, paired with the
+/// corresponding `BufferDirection`.
+///
+/// Panics if any of the buffer pointers is null.
+fn input_output_iter<'a>(
+    inputs: &'a [*const [u8]],
+    outputs: &'a [*mut [u8]],
+) -> impl Iterator<Item = (NonNull<[u8]>, bool)> + 'a {
+    inputs
+        .iter()
+        .map(|input| (NonNull::new(*input as *mut [u8]).unwrap(), false))
+        .chain(
+            outputs
+                .iter()
+                .map(|output| (NonNull::new(*output).unwrap(), true)),
+        )
 }
