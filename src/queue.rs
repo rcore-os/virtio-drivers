@@ -30,7 +30,7 @@ pub struct VirtQueue<H: Hal> {
     /// This is both the number of descriptors, and the number of slots in the available and used
     /// rings.
     queue_size: u16,
-    /// The number of used queues.
+    /// The number of descriptors currently in use.
     num_used: u16,
     /// The head desc index of the free list.
     free_head: u16,
@@ -102,7 +102,7 @@ impl<H: Hal> VirtQueue<H> {
             return Err(Error::InvalidParam);
         }
         if inputs.len() + outputs.len() + self.num_used as usize > self.queue_size as usize {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::QueueFull);
         }
 
         // allocate descriptors from free list
@@ -449,14 +449,14 @@ mod tests {
     }
 
     #[test]
-    fn add_too_big() {
+    fn add_too_many() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         let mut queue = VirtQueue::<FakeHal>::new(&mut transport, 0, 4).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
             unsafe { queue.add(&[&[], &[], &[]], &[&mut [], &mut []]) }.unwrap_err(),
-            Error::BufferTooSmall
+            Error::QueueFull
         );
     }
 

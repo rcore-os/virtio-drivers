@@ -130,7 +130,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ///
     /// It will submit request to the VirtIO block device and return a token identifying
     /// the position of the first Descriptor in the chain. If there are not enough
-    /// Descriptors to allocate, then it returns [Error::BufferTooSmall].
+    /// Descriptors to allocate, then it returns [`Error::QueueFull`].
     ///
     /// The caller can then call `pop_used` to check whether the device has finished handling the
     /// request. Once it has, the caller can then read the response and dispose of the buffers.
