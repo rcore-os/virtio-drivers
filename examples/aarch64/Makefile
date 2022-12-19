@@ -21,9 +21,11 @@ env:
 	rustup target add $(target)
 
 kernel_qemu:
+	cargo clean
 	cargo build $(BUILD_ARGS) --config 'build.rustflags="--cfg platform=\"qemu\""'
 
 kernel_crosvm:
+	cargo clean
 	cargo build $(BUILD_ARGS) --config 'build.rustflags="--cfg platform=\"crosvm\""'
 
 $(kernel_qemu_bin): kernel_qemu
