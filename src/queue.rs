@@ -219,10 +219,9 @@ impl<H: Hal> VirtQueue<H> {
             // Safe because self.desc is properly aligned, dereferenceable and initialised, and
             // nothing else reads or writes the descriptor during this block.
             unsafe {
-                let flags = (*desc).flags;
                 self.num_used -= 1;
-                if flags.contains(DescFlags::NEXT) {
-                    head = (*desc).next;
+                if let Some(next) = (*desc).next() {
+                    head = next;
                 } else {
                     (*desc).next = original_free_head;
                     return;
@@ -325,6 +324,16 @@ impl Descriptor {
                 BufferDirection::DriverToDevice => DescFlags::empty(),
             };
     }
+
+    /// Returns the index of the next descriptor in the chain if the `NEXT` flag is set, or `None`
+    /// if it is not (and thus this descriptor is the end of the chain).
+    fn next(&self) -> Option<u16> {
+        if self.flags.contains(DescFlags::NEXT) {
+            Some(self.next)
+        } else {
+            None
+        }
+    }
 }
 
 bitflags! {
@@ -407,9 +416,8 @@ pub(crate) fn fake_write_to_queue(
             );
             remaining_data = &remaining_data[length_to_write..];
 
-            if flags.contains(DescFlags::NEXT) {
-                let next = descriptor.next as usize;
-                descriptor = &(*descriptors)[next];
+            if let Some(next) = descriptor.next() {
+                descriptor = &(*descriptors)[next as usize];
             } else {
                 assert_eq!(remaining_data.len(), 0);
                 break;
