@@ -171,7 +171,7 @@ impl<H: Hal> VirtQueue<H> {
             spin_loop();
         }
 
-        self.pop_used(token)
+        self.pop_used(token, inputs, outputs)
     }
 
     /// Returns a non-null pointer to the descriptor at the given index.
@@ -208,25 +208,38 @@ impl<H: Hal> VirtQueue<H> {
         (self.queue_size - self.num_used) as usize
     }
 
-    /// Recycle descriptors in the list specified by head.
+    /// Unshares buffers in the list starting at descriptor index `head` and adds them to the free
+    /// list. Unsharing may involve copying data back to the original buffers, so they must be
+    /// passed in too.
     ///
     /// This will push all linked descriptors at the front of the free list.
-    fn recycle_descriptors(&mut self, mut head: u16) {
+    fn recycle_descriptors(&mut self, head: u16, inputs: &[*const [u8]], outputs: &[*mut [u8]]) {
         let original_free_head = self.free_head;
         self.free_head = head;
-        loop {
-            let desc = self.desc_ptr(head);
+        let mut next = Some(head);
+
+        for (buffer, direction) in input_output_iter(inputs, outputs) {
+            let desc = self.desc_ptr(next.expect("Descriptor chain was shorter than expected."));
+
             // Safe because self.desc is properly aligned, dereferenceable and initialised, and
             // nothing else reads or writes the descriptor during this block.
-            unsafe {
+            let paddr = unsafe {
+                let paddr = (*desc).addr;
+                (*desc).unset_buf();
                 self.num_used -= 1;
-                if let Some(next) = (*desc).next() {
-                    head = next;
-                } else {
+                next = (*desc).next();
+                if next.is_none() {
                     (*desc).next = original_free_head;
-                    return;
                 }
-            }
+                paddr
+            };
+
+            // Unshare the buffer (and perhaps copy its contents back to the original buffer).
+            H::unshare(paddr as usize, buffer, direction);
+        }
+
+        if next.is_some() {
+            panic!("Descriptor chain was longer than expected.");
         }
     }
 
@@ -234,7 +247,12 @@ impl<H: Hal> VirtQueue<H> {
     /// length which was used (written) by the device.
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
-    pub fn pop_used(&mut self, token: u16) -> Result<u32> {
+    pub fn pop_used(
+        &mut self,
+        token: u16,
+        inputs: &[*const [u8]],
+        outputs: &[*mut [u8]],
+    ) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
         }
@@ -256,7 +274,7 @@ impl<H: Hal> VirtQueue<H> {
             return Err(Error::WrongToken);
         }
 
-        self.recycle_descriptors(index);
+        self.recycle_descriptors(index, inputs, outputs);
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok(len)
@@ -323,6 +341,14 @@ impl Descriptor {
                 BufferDirection::DeviceToDriver => DescFlags::WRITE,
                 BufferDirection::DriverToDevice => DescFlags::empty(),
             };
+    }
+
+    /// Sets the buffer address and length to 0.
+    ///
+    /// This must only be called once the device has finished using the descriptor.
+    fn unset_buf(&mut self) {
+        self.addr = 0;
+        self.len = 0;
     }
 
     /// Returns the index of the next descriptor in the chain if the `NEXT` flag is set, or `None`
