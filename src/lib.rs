@@ -68,6 +68,8 @@ pub enum Error {
     QueueFull,
     /// The device is not ready.
     NotReady,
+    /// The device used a different descriptor chain to the one we were expecting.
+    WrongToken,
     /// The queue is already in use.
     AlreadyUsed,
     /// Invalid parameter.

@@ -256,7 +256,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// ring and return it. If all completed requests have already been fetched, return
     /// Err(Error::NotReady).
     pub fn pop_used(&mut self) -> Result<u16> {
-        self.queue.pop_used().map(|p| p.0)
+        let token = self.queue.peek_used().ok_or(Error::NotReady)?;
+        self.queue.pop_used(token)?;
+        Ok(token)
     }
 
     /// Returns the size of the device's VirtQueue.

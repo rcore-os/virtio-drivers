@@ -166,13 +166,12 @@ impl<H: Hal> VirtQueue<H> {
         // Notify the queue.
         transport.notify(self.queue_idx);
 
+        // Wait until there is at least one element in the used ring.
         while !self.can_pop() {
             spin_loop();
         }
-        let (popped_token, length) = self.pop_used()?;
-        assert_eq!(popped_token, token);
 
-        Ok(length)
+        self.pop_used(token)
     }
 
     /// Returns a non-null pointer to the descriptor at the given index.
@@ -189,6 +188,19 @@ impl<H: Hal> VirtQueue<H> {
         // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
         // instance of UsedRing.
         self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
+    }
+
+    /// Returns the descriptor index (a.k.a. token) of the next used element without popping it, or
+    /// `None` if the used ring is empty.
+    pub fn peek_used(&self) -> Option<u16> {
+        if self.can_pop() {
+            let last_used_slot = self.last_used_idx & (self.queue_size - 1);
+            // Safe because self.used points to a valid, aligned, initialised, dereferenceable,
+            // readable instance of UsedRing.
+            Some(unsafe { (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16 })
+        } else {
+            None
+        }
     }
 
     /// Returns the number of free descriptors.
@@ -219,16 +231,17 @@ impl<H: Hal> VirtQueue<H> {
         }
     }
 
-    /// Get a token from device used buffers, return (token, len).
+    /// If the given token is next on the device used queue, pops it and returns the total buffer
+    /// length which was used (written) by the device.
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
-    pub fn pop_used(&mut self) -> Result<(u16, u32)> {
+    pub fn pop_used(&mut self, token: u16) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
         }
-        // read barrier
-        fence(Ordering::SeqCst);
+        // Read barrier not necessary, as can_pop already has one.
 
+        // Get the index of the start of the descriptor chain for the next element in the used ring.
         let last_used_slot = self.last_used_idx & (self.queue_size - 1);
         let index;
         let len;
@@ -239,10 +252,15 @@ impl<H: Hal> VirtQueue<H> {
             len = (*self.used.as_ptr()).ring[last_used_slot as usize].len;
         }
 
+        if index != token {
+            // The device used a different descriptor chain to the one we were expecting.
+            return Err(Error::WrongToken);
+        }
+
         self.recycle_descriptors(index);
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
-        Ok((index, len))
+        Ok(len)
     }
 
     /// Return size of the queue.

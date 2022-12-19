@@ -136,8 +136,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     fn finish_receive(&mut self) -> bool {
         let mut flag = false;
         if let Some(receive_token) = self.receive_token {
-            if let Ok((token, len)) = self.receiveq.pop_used() {
-                assert_eq!(token, receive_token);
+            if let Ok(len) = self.receiveq.pop_used(receive_token) {
                 flag = true;
                 assert_ne!(len, 0);
                 self.cursor = 0;

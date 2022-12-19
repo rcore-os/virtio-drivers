@@ -64,7 +64,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
     /// Pop the pending event.
     pub fn pop_pending_event(&mut self) -> Option<InputEvent> {
-        if let Ok((token, _)) = self.event_queue.pop_used() {
+        if let Some(token) = self.event_queue.peek_used() {
+            self.event_queue.pop_used(token).ok()?;
             let event = &mut self.event_buf[token as usize];
             // requeue
             // Safe because buffer lasts as long as the queue.
