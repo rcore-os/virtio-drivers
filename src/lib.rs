@@ -53,7 +53,7 @@ mod queue;
 pub mod transport;
 mod volatile;
 
-pub use self::hal::{Hal, PhysAddr, VirtAddr};
+pub use self::hal::{BufferDirection, Hal, PhysAddr, VirtAddr};
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;

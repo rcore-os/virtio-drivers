@@ -1,8 +1,8 @@
 //! Fake HAL implementation for tests.
 
-use crate::{Hal, PhysAddr, VirtAddr, PAGE_SIZE};
+use crate::{BufferDirection, Hal, PhysAddr, VirtAddr, PAGE_SIZE};
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
-use core::alloc::Layout;
+use core::{alloc::Layout, ptr::NonNull};
 
 #[derive(Debug)]
 pub struct FakeHal;
@@ -35,7 +35,18 @@ impl Hal for FakeHal {
         paddr
     }
 
-    fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
-        vaddr
+    fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
+        let vaddr = buffer.as_ptr() as *mut u8 as usize;
+        // Nothing to do, as the host already has access to all memory.
+        virt_to_phys(vaddr)
     }
+
+    fn unshare(_paddr: PhysAddr, _buffer: NonNull<[u8]>, _direction: BufferDirection) {
+        // Nothing to do, as the host already has access to all memory and we didn't copy the buffer
+        // anywhere else.
+    }
+}
+
+fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
+    vaddr
 }

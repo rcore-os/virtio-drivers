@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::hal::VirtAddr;
-use crate::hal::{Dma, Hal};
+use crate::hal::{BufferDirection, Dma, Hal};
 use crate::transport::Transport;
 use crate::{align_up, Error, Result, PAGE_SIZE};
 use bitflags::bitflags;
@@ -114,15 +114,9 @@ impl<H: Hal> VirtQueue<H> {
         // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
         // else reads or writes the free descriptors during this block.
         unsafe {
-            for (buffer, is_output) in input_output_iter(inputs, outputs) {
+            for (buffer, direction) in input_output_iter(inputs, outputs) {
                 let desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(buffer);
-                (*desc).flags = DescFlags::NEXT
-                    | if is_output {
-                        DescFlags::WRITE
-                    } else {
-                        DescFlags::empty()
-                    };
+                (*desc).set_buf::<H>(buffer, direction, DescFlags::NEXT);
                 last = self.free_head;
                 self.free_head = (*desc).next;
             }
@@ -294,12 +288,24 @@ pub(crate) struct Descriptor {
 }
 
 impl Descriptor {
+    /// Sets the buffer address, length and flags, and shares it with the device.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that the buffer lives at least as long as the descriptor is active.
-    unsafe fn set_buf<H: Hal>(&mut self, buf: NonNull<[u8]>) {
-        self.addr = H::virt_to_phys(buf.as_ptr() as *mut u8 as usize) as u64;
+    unsafe fn set_buf<H: Hal>(
+        &mut self,
+        buf: NonNull<[u8]>,
+        direction: BufferDirection,
+        extra_flags: DescFlags,
+    ) {
+        self.addr = H::share(buf, direction) as u64;
         self.len = buf.len() as u32;
+        self.flags = extra_flags
+            | match direction {
+                BufferDirection::DeviceToDriver => DescFlags::WRITE,
+                BufferDirection::DriverToDevice => DescFlags::empty(),
+            };
     }
 }
 
@@ -532,13 +538,19 @@ mod tests {
 fn input_output_iter<'a>(
     inputs: &'a [*const [u8]],
     outputs: &'a [*mut [u8]],
-) -> impl Iterator<Item = (NonNull<[u8]>, bool)> + 'a {
+) -> impl Iterator<Item = (NonNull<[u8]>, BufferDirection)> + 'a {
     inputs
         .iter()
-        .map(|input| (NonNull::new(*input as *mut [u8]).unwrap(), false))
-        .chain(
-            outputs
-                .iter()
-                .map(|output| (NonNull::new(*output).unwrap(), true)),
-        )
+        .map(|input| {
+            (
+                NonNull::new(*input as *mut [u8]).unwrap(),
+                BufferDirection::DriverToDevice,
+            )
+        })
+        .chain(outputs.iter().map(|output| {
+            (
+                NonNull::new(*output).unwrap(),
+                BufferDirection::DeviceToDriver,
+            )
+        }))
 }
