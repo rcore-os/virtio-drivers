@@ -3,6 +3,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use bitflags::*;
+use core::ptr::NonNull;
 use log::*;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
@@ -13,12 +14,21 @@ const QUEUE_SIZE: u16 = 2;
 /// Emergency and cols/rows unimplemented.
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
+    config_space: NonNull<Config>,
     receiveq: VirtQueue<H>,
     transmitq: VirtQueue<H>,
     queue_buf_dma: Dma<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
     pending_len: usize,
+}
+
+/// Information about a console device, read from its configuration space.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConsoleInfo {
+    pub rows: u16,
+    pub columns: u16,
+    pub max_ports: u32,
 }
 
 impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
@@ -31,15 +41,6 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        unsafe {
-            let columns = volread!(config_space, cols);
-            let rows = volread!(config_space, rows);
-            let max_ports = volread!(config_space, max_nr_ports);
-            info!(
-                "Columns: {} Rows: {} Max ports: {}",
-                columns, rows, max_ports,
-            );
-        }
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = Dma::new(1)?;
@@ -47,6 +48,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         transport.finish_init();
         let mut console = VirtIOConsole {
             transport,
+            config_space,
             receiveq,
             transmitq,
             queue_buf_dma,
@@ -56,6 +58,21 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         };
         console.poll_retrieve()?;
         Ok(console)
+    }
+
+    /// Returns a struct with information about the console device, such as the number of rows and columns.
+    pub fn info(&self) -> ConsoleInfo {
+        // Safe because config_space is a valid pointer to the device configuration space.
+        unsafe {
+            let columns = volread!(self.config_space, cols);
+            let rows = volread!(self.config_space, rows);
+            let max_ports = volread!(self.config_space, max_nr_ports);
+            ConsoleInfo {
+                rows,
+                columns,
+                max_ports,
+            }
+        }
     }
 
     fn poll_retrieve(&mut self) -> Result<()> {
