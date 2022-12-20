@@ -8,10 +8,30 @@ use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
 
-/// The virtio block device is a simple virtual block device (ie. disk).
+/// Driver for a VirtIO block device.
 ///
-/// Read and write requests (and other exotic requests) are placed in the queue,
-/// and serviced (probably out of order) by the device except where noted.
+/// This is a simple virtual block device, e.g. disk.
+///
+/// Read and write requests (and other exotic requests) are placed in the queue and serviced
+/// (probably out of order) by the device except where noted.
+///
+/// # Example
+///
+/// ```
+/// # use virtio_drivers::{Error, Hal, Transport};
+/// use virtio_drivers::{VirtIOBlk, SECTOR_SIZE};
+/// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
+/// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport)?;
+///
+/// println!("VirtIO block device: {} kB", disk.capacity() * SECTOR_SIZE as u64 / 2);
+///
+/// // Read sector 0 and then copy it to sector 1.
+/// let mut buf = [0; SECTOR_SIZE];
+/// disk.read_block(0, &mut buf)?;
+/// disk.write_block(1, &buf)?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
     queue: VirtQueue<H>,
@@ -53,7 +73,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         })
     }
 
-    /// Gets the capacity of the block device, in 512 byte sectors.
+    /// Gets the capacity of the block device, in 512 byte ([`SECTOR_SIZE`]) sectors.
     pub fn capacity(&self) -> u64 {
         self.capacity
     }
@@ -63,12 +83,16 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.readonly
     }
 
-    /// Acknowledge interrupt.
+    /// Acknowledges a pending interrupt, if any.
+    ///
+    /// Returns true if there was an interrupt to acknowledge.
     pub fn ack_interrupt(&mut self) -> bool {
         self.transport.ack_interrupt()
     }
 
-    /// Read a block.
+    /// Reads a block into the given buffer.
+    ///
+    /// Blocks until the read completes or there is an error.
     pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
         assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
@@ -156,7 +180,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(token)
     }
 
-    /// Write a block.
+    /// Writes the contents of the given buffer to a block.
+    ///
+    /// Blocks until the write is complete or there is an error.
     pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
         assert_eq!(buf.len(), SECTOR_SIZE);
         let req = BlkReq {
