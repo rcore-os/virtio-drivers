@@ -1,3 +1,5 @@
+//! Driver for VirtIO input devices.
+
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;

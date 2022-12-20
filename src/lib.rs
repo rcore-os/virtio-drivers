@@ -8,24 +8,19 @@
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
 
-mod blk;
-mod console;
-mod gpu;
+mod device;
 mod hal;
-#[cfg(feature = "alloc")]
-mod input;
-mod net;
 mod queue;
 mod transport;
 mod volatile;
 
-pub use self::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk, SECTOR_SIZE};
-pub use self::console::VirtIOConsole;
-pub use self::gpu::VirtIOGpu;
-pub use self::hal::{Hal, PhysAddr, VirtAddr};
+pub use self::device::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk, SECTOR_SIZE};
+pub use self::device::console::VirtIOConsole;
+pub use self::device::gpu::VirtIOGpu;
 #[cfg(feature = "alloc")]
-pub use self::input::{InputConfigSelect, InputEvent, VirtIOInput};
-pub use self::net::VirtIONet;
+pub use self::device::input::{InputConfigSelect, InputEvent, VirtIOInput};
+pub use self::device::net::VirtIONet;
+pub use self::hal::{Hal, PhysAddr, VirtAddr};
 pub use self::transport::mmio::{MmioError, MmioTransport, MmioVersion, VirtIOHeader};
 pub use self::transport::pci;
 pub use self::transport::{DeviceStatus, DeviceType, Transport};

@@ -1,3 +1,5 @@
+//! Driver for VirtIO GPU devices.
+
 use crate::hal::{Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;

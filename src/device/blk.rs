@@ -1,3 +1,5 @@
+//! Driver for VirtIO block devices.
+
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
