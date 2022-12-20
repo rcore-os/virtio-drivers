@@ -2,9 +2,10 @@ use core::mem::{size_of, MaybeUninit};
 
 use super::*;
 use crate::transport::Transport;
-use crate::volatile::{volread, ReadOnly, Volatile};
+use crate::volatile::{volread, ReadOnly};
 use bitflags::*;
 use log::*;
+use zerocopy::{AsBytes, FromBytes};
 
 /// The virtio network device is a virtual ethernet card.
 ///
@@ -75,7 +76,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     /// Receive a packet.
     pub fn recv(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut header = MaybeUninit::<Header>::uninit();
-        let header_buf = unsafe { (*header.as_mut_ptr()).as_buf_mut() };
+        let header_buf = unsafe { (*header.as_mut_ptr()).as_bytes_mut() };
         let len =
             self.recv_queue
                 .add_notify_wait_pop(&[], &[header_buf, buf], &mut self.transport)?;
@@ -87,7 +88,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     pub fn send(&mut self, buf: &[u8]) -> Result {
         let header = unsafe { MaybeUninit::<Header>::zeroed().assume_init() };
         self.send_queue
-            .add_notify_wait_pop(&[header.as_buf(), buf], &[], &mut self.transport)?;
+            .add_notify_wait_pop(&[header.as_bytes(), buf], &[], &mut self.transport)?;
         Ok(())
     }
 }
@@ -186,20 +187,20 @@ type EthernetAddress = [u8; 6];
 
 // virtio 5.1.6 Device Operation
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug, FromBytes)]
 struct Header {
-    flags: Volatile<Flags>,
-    gso_type: Volatile<GsoType>,
-    hdr_len: Volatile<u16>, // cannot rely on this
-    gso_size: Volatile<u16>,
-    csum_start: Volatile<u16>,
-    csum_offset: Volatile<u16>,
+    flags: Flags,
+    gso_type: GsoType,
+    hdr_len: u16, // cannot rely on this
+    gso_size: u16,
+    csum_start: u16,
+    csum_offset: u16,
     // payload starts from here
 }
 
-unsafe impl AsBuf for Header {}
-
 bitflags! {
+    #[repr(transparent)]
+    #[derive(AsBytes, FromBytes)]
     struct Flags: u8 {
         const NEEDS_CSUM = 1;
         const DATA_VALID = 2;
@@ -207,14 +208,16 @@ bitflags! {
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum GsoType {
-    None = 0,
-    TcpV4 = 1,
-    Udp = 3,
-    TcpV6 = 4,
-    Ecn = 0x80,
+#[repr(transparent)]
+#[derive(AsBytes, Debug, Copy, Clone, Eq, FromBytes, PartialEq)]
+struct GsoType(u8);
+
+impl GsoType {
+    const NONE: GsoType = GsoType(0);
+    const TCPV4: GsoType = GsoType(1);
+    const UDP: GsoType = GsoType(3);
+    const TCPV6: GsoType = GsoType(4);
+    const ECN: GsoType = GsoType(0x80);
 }
 
 const QUEUE_RECEIVE: u16 = 0;
