@@ -19,7 +19,7 @@ mod queue;
 mod transport;
 mod volatile;
 
-pub use self::blk::{BlkResp, RespStatus, VirtIOBlk};
+pub use self::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk};
 pub use self::console::VirtIOConsole;
 pub use self::gpu::VirtIOGpu;
 pub use self::hal::{Hal, PhysAddr, VirtAddr};
