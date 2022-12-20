@@ -210,11 +210,11 @@ bitflags! {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum GsoType {
-    NONE = 0,
-    TCPV4 = 1,
-    UDP = 3,
-    TCPV6 = 4,
-    ECN = 0x80,
+    None = 0,
+    TcpV4 = 1,
+    Udp = 3,
+    TcpV6 = 4,
+    Ecn = 0x80,
 }
 
 const QUEUE_RECEIVE: u16 = 0;
