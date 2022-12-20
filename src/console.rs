@@ -10,8 +10,31 @@ const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: u16 = 2;
 
-/// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
-/// Emergency and cols/rows unimplemented.
+/// Driver for a VirtIO console device.
+///
+/// Only a single port is allowed since `alloc` is disabled. Emergency write and cols/rows are not
+/// implemented.
+///
+/// # Example
+///
+/// ```
+/// # use virtio_drivers::{Error, Hal, Transport};
+/// use virtio_drivers::VirtIOConsole;
+/// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
+/// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
+///
+/// let info = console.info();
+/// println!("VirtIO console {}x{}", info.rows, info.columns);
+///
+/// for &c in b"Hello console!\n" {
+///   console.send(c)?;
+/// }
+///
+/// let c = console.recv(true)?;
+/// println!("Read {:?} from console.", c);
+/// # Ok(())
+/// # }
+/// ```
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
     config_space: NonNull<Config>,
@@ -34,7 +57,7 @@ pub struct ConsoleInfo {
 }
 
 impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
-    /// Create a new VirtIO-Console driver.
+    /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
@@ -89,7 +112,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         Ok(())
     }
 
-    /// Acknowledge interrupt.
+    /// Acknowledges a pending interrupt, if any, and completes the outstanding finished read
+    /// request if there is one.
     ///
     /// Returns true if new data has been received.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
@@ -100,7 +124,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         Ok(self.finish_receive())
     }
 
-    /// If there is an outstanding receive request and it has finished, complete it.
+    /// If there is an outstanding receive request and it has finished, completes it.
     ///
     /// Returns true if new data has been received.
     fn finish_receive(&mut self) -> bool {
