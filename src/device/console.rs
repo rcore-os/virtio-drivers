@@ -127,33 +127,33 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             return Ok(false);
         }
 
-        Ok(self.finish_receive())
+        self.finish_receive()
     }
 
     /// If there is an outstanding receive request and it has finished, completes it.
     ///
     /// Returns true if new data has been received.
-    fn finish_receive(&mut self) -> bool {
+    fn finish_receive(&mut self) -> Result<bool> {
         let mut flag = false;
         if let Some(receive_token) = self.receive_token {
-            if let Ok(len) = self
-                .receiveq
-                .pop_used(receive_token, &[], &[self.queue_buf_rx])
-            {
+            if self.receive_token == self.receiveq.peek_used() {
+                let len = self
+                    .receiveq
+                    .pop_used(receive_token, &[], &[self.queue_buf_rx])?;
                 flag = true;
                 assert_ne!(len, 0);
                 self.cursor = 0;
                 self.pending_len = len as usize;
             }
         }
-        flag
+        Ok(flag)
     }
 
     /// Returns the next available character from the console, if any.
     ///
     /// If no data has been received this will not block but immediately return `Ok<None>`.
     pub fn recv(&mut self, pop: bool) -> Result<Option<u8>> {
-        self.finish_receive();
+        self.finish_receive()?;
         if self.cursor == self.pending_len {
             return Ok(None);
         }
