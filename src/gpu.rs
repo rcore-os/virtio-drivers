@@ -3,7 +3,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use bitflags::*;
-use core::{fmt, hint::spin_loop};
+use core::fmt;
 use log::*;
 
 /// A virtio based graphics adapter.
@@ -169,13 +169,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         unsafe {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
-        self.control_queue
-            .add(&[self.queue_buf_send], &[self.queue_buf_recv])?;
-        self.transport.notify(QUEUE_TRANSMIT);
-        while !self.control_queue.can_pop() {
-            spin_loop();
-        }
-        self.control_queue.pop_used()?;
+        self.control_queue.add_notify_wait_pop(
+            &[self.queue_buf_send],
+            &[self.queue_buf_recv],
+            &mut self.transport,
+        )?;
         Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })
     }
 
@@ -184,12 +182,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         unsafe {
             (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
         }
-        self.cursor_queue.add(&[self.queue_buf_send], &[])?;
-        self.transport.notify(QUEUE_CURSOR);
-        while !self.cursor_queue.can_pop() {
-            spin_loop();
-        }
-        self.cursor_queue.pop_used()?;
+        self.cursor_queue
+            .add_notify_wait_pop(&[self.queue_buf_send], &[], &mut self.transport)?;
         Ok(())
     }
 
