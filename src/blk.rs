@@ -1,9 +1,10 @@
-use super::*;
+use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
-use bitflags::*;
-use log::*;
+use crate::{Error, Result};
+use bitflags::bitflags;
+use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;

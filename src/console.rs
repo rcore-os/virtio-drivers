@@ -1,10 +1,11 @@
-use super::*;
+use crate::hal::{Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
-use bitflags::*;
+use crate::Result;
+use bitflags::bitflags;
 use core::ptr::NonNull;
-use log::*;
+use log::info;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -213,7 +214,10 @@ mod tests {
     use super::*;
     use crate::{
         hal::fake::FakeHal,
-        transport::fake::{FakeTransport, QueueStatus, State},
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceStatus, DeviceType,
+        },
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;

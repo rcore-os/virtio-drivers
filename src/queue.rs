@@ -1,13 +1,15 @@
 #[cfg(test)]
+use crate::hal::VirtAddr;
+use crate::hal::{Dma, Hal};
+use crate::transport::Transport;
+use crate::{align_up, Error, Result, PAGE_SIZE};
+use bitflags::bitflags;
+#[cfg(test)]
 use core::cmp::min;
 use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::{self, addr_of_mut, NonNull};
 use core::sync::atomic::{fence, Ordering};
-
-use super::*;
-use crate::transport::Transport;
-use bitflags::*;
 
 /// The mechanism for bulk data transport on virtio devices.
 ///
@@ -402,7 +404,10 @@ pub(crate) fn fake_write_to_queue(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{hal::fake::FakeHal, transport::mmio::MODERN_VERSION};
+    use crate::{
+        hal::fake::FakeHal,
+        transport::mmio::{MmioTransport, VirtIOHeader, MODERN_VERSION},
+    };
     use core::ptr::NonNull;
 
     #[test]

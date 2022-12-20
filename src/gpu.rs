@@ -1,9 +1,10 @@
-use super::*;
+use crate::hal::{Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
-use bitflags::*;
-use log::*;
+use crate::{pages, Error, Result, PAGE_SIZE};
+use bitflags::bitflags;
+use log::info;
 
 /// A virtio based graphics adapter.
 ///

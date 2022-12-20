@@ -26,11 +26,9 @@ pub use self::hal::{Hal, PhysAddr, VirtAddr};
 #[cfg(feature = "alloc")]
 pub use self::input::{InputConfigSelect, InputEvent, VirtIOInput};
 pub use self::net::VirtIONet;
-use self::queue::VirtQueue;
 pub use self::transport::mmio::{MmioError, MmioTransport, MmioVersion, VirtIOHeader};
 pub use self::transport::pci;
 pub use self::transport::{DeviceStatus, DeviceType, Transport};
-use hal::*;
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;
