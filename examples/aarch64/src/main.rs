@@ -16,12 +16,15 @@ use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
-    pci::{
-        bus::{BarInfo, Cam, Command, DeviceFunction, MemoryBarType, PciRoot},
-        virtio_device_type, PciTransport,
+    device::{blk::VirtIOBlk, console::VirtIOConsole, gpu::VirtIOGpu, net::VirtIONet},
+    transport::{
+        mmio::{MmioTransport, VirtIOHeader},
+        pci::{
+            bus::{BarInfo, Cam, Command, DeviceFunction, MemoryBarType, PciRoot},
+            virtio_device_type, PciTransport,
+        },
+        DeviceType, Transport,
     },
-    DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOConsole, VirtIOGpu, VirtIOHeader,
-    VirtIONet,
 };
 
 #[no_mangle]

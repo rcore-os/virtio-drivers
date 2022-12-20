@@ -8,22 +8,13 @@
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
 
-mod device;
+pub mod device;
 mod hal;
 mod queue;
-mod transport;
+pub mod transport;
 mod volatile;
 
-pub use self::device::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk, SECTOR_SIZE};
-pub use self::device::console::VirtIOConsole;
-pub use self::device::gpu::VirtIOGpu;
-#[cfg(feature = "alloc")]
-pub use self::device::input::{InputConfigSelect, InputEvent, VirtIOInput};
-pub use self::device::net::VirtIONet;
 pub use self::hal::{Hal, PhysAddr, VirtAddr};
-pub use self::transport::mmio::{MmioError, MmioTransport, MmioVersion, VirtIOHeader};
-pub use self::transport::pci;
-pub use self::transport::{DeviceStatus, DeviceType, Transport};
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;

@@ -21,8 +21,8 @@ const QUEUE_SIZE: u16 = 2;
 /// # Example
 ///
 /// ```
-/// # use virtio_drivers::{Error, Hal, Transport};
-/// use virtio_drivers::VirtIOConsole;
+/// # use virtio_drivers::{Error, Hal, transport::Transport};
+/// use virtio_drivers::device::console::VirtIOConsole;
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
 ///
@@ -54,8 +54,11 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
 /// Information about a console device, read from its configuration space.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConsoleInfo {
+    /// The console height in characters.
     pub rows: u16,
+    /// The console width in characters.
     pub columns: u16,
+    /// The maxumum number of ports supported by the console device.
     pub max_ports: u32,
 }
 

@@ -21,8 +21,9 @@ const QUEUE: u16 = 0;
 /// # Example
 ///
 /// ```
-/// # use virtio_drivers::{Error, Hal, Transport};
-/// use virtio_drivers::{VirtIOBlk, SECTOR_SIZE};
+/// # use virtio_drivers::{Error, Hal};
+/// # use virtio_drivers::transport::Transport;
+/// use virtio_drivers::device::blk::{VirtIOBlk, SECTOR_SIZE};
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport)?;
 ///
@@ -139,7 +140,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// request. Once it has, the caller can then read the response and dispose of the buffers.
     ///
     /// ```
-    /// # use virtio_drivers::{BlkReq, BlkResp, Error, Hal, RespStatus, Transport, VirtIOBlk};
+    /// # use virtio_drivers::{Error, Hal};
+    /// # use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk};
+    /// # use virtio_drivers::transport::Transport;
     /// # fn example<H: Hal, T: Transport>(blk: &mut VirtIOBlk<H, T>) -> Result<(), Error> {
     /// let mut request = BlkReq::default();
     /// let mut buffer = [0; 512];
