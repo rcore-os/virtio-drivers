@@ -12,19 +12,19 @@ pub type PhysAddr = usize;
 
 /// A region of contiguous physical memory used for DMA.
 #[derive(Debug)]
-pub struct DMA<H: Hal> {
+pub struct Dma<H: Hal> {
     paddr: usize,
     pages: usize,
     _phantom: PhantomData<H>,
 }
 
-impl<H: Hal> DMA<H> {
+impl<H: Hal> Dma<H> {
     pub fn new(pages: usize) -> Result<Self> {
         let paddr = H::dma_alloc(pages);
         if paddr == 0 {
             return Err(Error::DmaError);
         }
-        Ok(DMA {
+        Ok(Self {
             paddr,
             pages,
             _phantom: PhantomData::default(),
@@ -41,13 +41,13 @@ impl<H: Hal> DMA<H> {
 
     /// Convert to a buffer
     pub unsafe fn as_buf(&self) -> &'static mut [u8] {
-        core::slice::from_raw_parts_mut(self.vaddr() as _, PAGE_SIZE * self.pages as usize)
+        core::slice::from_raw_parts_mut(self.vaddr() as _, PAGE_SIZE * self.pages)
     }
 }
 
-impl<H: Hal> Drop for DMA<H> {
+impl<H: Hal> Drop for Dma<H> {
     fn drop(&mut self) {
-        let err = H::dma_dealloc(self.paddr as usize, self.pages as usize);
+        let err = H::dma_dealloc(self.paddr, self.pages);
         assert_eq!(err, 0, "failed to deallocate DMA");
     }
 }

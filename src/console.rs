@@ -15,7 +15,7 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
     receiveq: VirtQueue<H>,
     transmitq: VirtQueue<H>,
-    queue_buf_dma: DMA<H>,
+    queue_buf_dma: Dma<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
     pending_len: usize,
@@ -42,7 +42,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         }
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
-        let queue_buf_dma = DMA::new(1)?;
+        let queue_buf_dma = Dma::new(1)?;
         let queue_buf_rx = unsafe { &mut queue_buf_dma.as_buf()[0..] };
         transport.finish_init();
         let mut console = VirtIOConsole {
@@ -72,7 +72,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         }
         let mut flag = false;
         while let Ok((_token, len)) = self.receiveq.pop_used() {
-            assert_eq!(flag, false);
+            assert!(!flag);
             flag = true;
             assert_ne!(len, 0);
             self.cursor = 0;

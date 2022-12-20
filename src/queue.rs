@@ -15,7 +15,7 @@ use bitflags::*;
 #[derive(Debug)]
 pub struct VirtQueue<H: Hal> {
     /// DMA guard
-    dma: DMA<H>,
+    dma: Dma<H>,
     /// Descriptor table
     desc: NonNull<[Descriptor]>,
     /// Available ring
@@ -49,7 +49,7 @@ impl<H: Hal> VirtQueue<H> {
         }
         let layout = VirtQueueLayout::new(size);
         // Allocate contiguous pages.
-        let dma = DMA::new(layout.size / PAGE_SIZE)?;
+        let dma = Dma::new(layout.size / PAGE_SIZE)?;
 
         transport.queue_set(
             idx,
