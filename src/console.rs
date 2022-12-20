@@ -21,6 +21,8 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
     pending_len: usize,
+    /// The token of the outstanding receive request, if there is one.
+    receive_token: Option<u16>,
 }
 
 /// Information about a console device, read from its configuration space.
@@ -55,6 +57,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             queue_buf_rx,
             cursor: 0,
             pending_len: 0,
+            receive_token: None,
         };
         console.poll_retrieve()?;
         Ok(console)
@@ -75,45 +78,62 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         }
     }
 
+    /// Makes a request to the device to receive data, if there is not already an outstanding
+    /// receive request or some data already received and not yet returned.
     fn poll_retrieve(&mut self) -> Result<()> {
-        // Safe because the buffer lasts at least as long as the queue.
-        unsafe { self.receiveq.add(&[], &[self.queue_buf_rx])? };
+        if self.receive_token.is_none() && self.cursor == self.pending_len {
+            // Safe because the buffer lasts at least as long as the queue, and there are no other
+            // outstanding requests using the buffer.
+            self.receive_token = Some(unsafe { self.receiveq.add(&[], &[self.queue_buf_rx]) }?);
+        }
         Ok(())
     }
 
     /// Acknowledge interrupt.
+    ///
+    /// Returns true if new data has been received.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
-        let ack = self.transport.ack_interrupt();
-        if !ack {
+        if !self.transport.ack_interrupt() {
             return Ok(false);
         }
-        let mut flag = false;
-        while let Ok((_token, len)) = self.receiveq.pop_used() {
-            assert!(!flag);
-            flag = true;
-            assert_ne!(len, 0);
-            self.cursor = 0;
-            self.pending_len = len as usize;
-        }
-        Ok(flag)
+
+        Ok(self.finish_receive())
     }
 
-    /// Try get char.
+    /// If there is an outstanding receive request and it has finished, complete it.
+    ///
+    /// Returns true if new data has been received.
+    fn finish_receive(&mut self) -> bool {
+        let mut flag = false;
+        if let Some(receive_token) = self.receive_token {
+            if let Ok((token, len)) = self.receiveq.pop_used() {
+                assert_eq!(token, receive_token);
+                flag = true;
+                assert_ne!(len, 0);
+                self.cursor = 0;
+                self.pending_len = len as usize;
+            }
+        }
+        flag
+    }
+
+    /// Returns the next available character from the console, if any.
+    ///
+    /// If no data has been received this will not block but immediately return `Ok<None>`.
     pub fn recv(&mut self, pop: bool) -> Result<Option<u8>> {
+        self.finish_receive();
         if self.cursor == self.pending_len {
             return Ok(None);
         }
         let ch = self.queue_buf_rx[self.cursor];
         if pop {
             self.cursor += 1;
-            if self.cursor == self.pending_len {
-                self.poll_retrieve()?;
-            }
+            self.poll_retrieve()?;
         }
         Ok(Some(ch))
     }
 
-    /// Put a char onto the device.
+    /// Sends a character to the console.
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         // Safe because the buffer is valid until we pop_used below.
