@@ -24,6 +24,7 @@ const QUEUE: u16 = 0;
 /// # use virtio_drivers::{Error, Hal};
 /// # use virtio_drivers::transport::Transport;
 /// use virtio_drivers::device::blk::{VirtIOBlk, SECTOR_SIZE};
+///
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport)?;
 ///
@@ -141,8 +142,10 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ///
     /// ```
     /// # use virtio_drivers::{Error, Hal};
-    /// # use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus, VirtIOBlk};
+    /// # use virtio_drivers::device::blk::VirtIOBlk;
     /// # use virtio_drivers::transport::Transport;
+    /// use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus};
+    ///
     /// # fn example<H: Hal, T: Transport>(blk: &mut VirtIOBlk<H, T>) -> Result<(), Error> {
     /// let mut request = BlkReq::default();
     /// let mut buffer = [0; 512];
