@@ -290,7 +290,6 @@ impl Transport for PciTransport {
         // Safe because the common config pointer is valid and we checked in get_bar_region that it
         // was aligned.
         unsafe {
-            volwrite!(self.common_cfg, queue_enable, 0);
             volwrite!(self.common_cfg, queue_select, queue);
             volwrite!(self.common_cfg, queue_size, 0);
             volwrite!(self.common_cfg, queue_desc, 0);
