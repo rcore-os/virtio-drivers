@@ -259,8 +259,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.queue.pop_used().map(|p| p.0)
     }
 
-    /// Return size of its VirtQueue.
-    /// It can be used to tell the caller how many channels he should monitor on.
+    /// Returns the size of the device's VirtQueue.
+    ///
+    /// This can be used to tell the caller how many channels to monitor on.
     pub fn virt_queue_size(&self) -> u16 {
         self.queue.size()
     }
