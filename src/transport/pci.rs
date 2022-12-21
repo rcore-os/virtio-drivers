@@ -85,7 +85,6 @@ pub struct PciTransport {
     device_function: DeviceFunction,
     /// The common configuration structure within some BAR.
     common_cfg: NonNull<CommonCfg>,
-    // TODO: Use a raw slice, once they are supported by our MSRV.
     /// The start of the queue notification region within some BAR.
     notify_region: NonNull<[WriteOnly<u16>]>,
     notify_off_multiplier: u32,
