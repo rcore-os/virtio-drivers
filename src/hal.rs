@@ -60,6 +60,9 @@ pub trait Hal {
     fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32;
     /// Converts a physical address used for virtio to a virtual address which the program can
     /// access.
+    ///
+    /// This is used both for DMA regions allocated by `dma_alloc`, and for MMIO addresses within
+    /// BARs read from the device (for the PCI transport).
     fn phys_to_virt(paddr: PhysAddr) -> VirtAddr;
     /// Shares the given memory range with the device, and returns the physical address that the
     /// device can use to access it.
