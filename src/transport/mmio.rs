@@ -1,3 +1,5 @@
+//! MMIO transport for VirtIO.
+
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     align_up,

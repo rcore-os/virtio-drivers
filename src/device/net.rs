@@ -1,10 +1,13 @@
-use core::mem::{size_of, MaybeUninit};
+//! Driver for VirtIO network devices.
 
-use super::*;
+use crate::hal::Hal;
+use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly};
-use bitflags::*;
-use log::*;
+use crate::Result;
+use bitflags::bitflags;
+use core::mem::{size_of, MaybeUninit};
+use log::{debug, info};
 use zerocopy::{AsBytes, FromBytes};
 
 /// The virtio network device is a virtual ethernet card.

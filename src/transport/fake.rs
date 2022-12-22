@@ -1,7 +1,7 @@
-use super::{DeviceStatus, Transport};
+use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     queue::{fake_write_to_queue, Descriptor},
-    DeviceType, PhysAddr, Result,
+    PhysAddr, Result,
 };
 use alloc::{sync::Arc, vec::Vec};
 use core::{any::TypeId, ptr::NonNull};

@@ -9,7 +9,13 @@ use alloc::vec;
 use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::{info, warn, LevelFilter};
-use virtio_drivers::*;
+use virtio_drivers::{
+    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput, net::VirtIONet},
+    transport::{
+        mmio::{MmioTransport, VirtIOHeader},
+        DeviceType, Transport,
+    },
+};
 use virtio_impl::HalImpl;
 
 mod virtio_impl;

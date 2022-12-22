@@ -1,10 +1,14 @@
-use super::*;
+//! Driver for VirtIO input devices.
+
+use crate::hal::Hal;
+use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
+use crate::Result;
 use alloc::boxed::Box;
-use bitflags::*;
+use bitflags::bitflags;
 use core::ptr::NonNull;
-use log::*;
+use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.

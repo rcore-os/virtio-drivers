@@ -1,10 +1,13 @@
-use super::*;
+//! Driver for VirtIO console devices.
+
+use crate::hal::{Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
-use bitflags::*;
+use crate::Result;
+use bitflags::bitflags;
 use core::ptr::NonNull;
-use log::*;
+use log::info;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -18,8 +21,8 @@ const QUEUE_SIZE: u16 = 2;
 /// # Example
 ///
 /// ```
-/// # use virtio_drivers::{Error, Hal, Transport};
-/// use virtio_drivers::VirtIOConsole;
+/// # use virtio_drivers::{Error, Hal, transport::Transport};
+/// use virtio_drivers::device::console::VirtIOConsole;
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
 ///
@@ -51,8 +54,11 @@ pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
 /// Information about a console device, read from its configuration space.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConsoleInfo {
+    /// The console height in characters.
     pub rows: u16,
+    /// The console width in characters.
     pub columns: u16,
+    /// The maxumum number of ports supported by the console device.
     pub max_ports: u32,
 }
 
@@ -213,7 +219,10 @@ mod tests {
     use super::*;
     use crate::{
         hal::fake::FakeHal,
-        transport::fake::{FakeTransport, QueueStatus, State},
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceStatus, DeviceType,
+        },
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;

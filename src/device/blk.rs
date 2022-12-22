@@ -1,9 +1,12 @@
-use super::*;
+//! Driver for VirtIO block devices.
+
+use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
-use bitflags::*;
-use log::*;
+use crate::{Error, Result};
+use bitflags::bitflags;
+use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
@@ -18,8 +21,10 @@ const QUEUE: u16 = 0;
 /// # Example
 ///
 /// ```
-/// # use virtio_drivers::{Error, Hal, Transport};
-/// use virtio_drivers::{VirtIOBlk, SECTOR_SIZE};
+/// # use virtio_drivers::{Error, Hal};
+/// # use virtio_drivers::transport::Transport;
+/// use virtio_drivers::device::blk::{VirtIOBlk, SECTOR_SIZE};
+///
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport)?;
 ///
@@ -136,7 +141,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// request. Once it has, the caller can then read the response and dispose of the buffers.
     ///
     /// ```
-    /// # use virtio_drivers::{BlkReq, BlkResp, Error, Hal, RespStatus, Transport, VirtIOBlk};
+    /// # use virtio_drivers::{Error, Hal};
+    /// # use virtio_drivers::device::blk::VirtIOBlk;
+    /// # use virtio_drivers::transport::Transport;
+    /// use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus};
+    ///
     /// # fn example<H: Hal, T: Transport>(blk: &mut VirtIOBlk<H, T>) -> Result<(), Error> {
     /// let mut request = BlkReq::default();
     /// let mut buffer = [0; 512];
@@ -250,8 +259,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.queue.pop_used().map(|p| p.0)
     }
 
-    /// Return size of its VirtQueue.
-    /// It can be used to tell the caller how many channels he should monitor on.
+    /// Returns the size of the device's VirtQueue.
+    ///
+    /// This can be used to tell the caller how many channels to monitor on.
     pub fn virt_queue_size(&self) -> u16 {
         self.queue.size()
     }

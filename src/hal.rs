@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod fake;
 
-use super::*;
+use crate::{Error, Result, PAGE_SIZE};
 use core::marker::PhantomData;
 
 /// A virtual memory address in the address space of the program.
