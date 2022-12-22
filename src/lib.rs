@@ -41,8 +41,8 @@ pub type Result<T = ()> = core::result::Result<T, Error>;
 /// The error type of VirtIO drivers.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-    /// The buffer is too small.
-    BufferTooSmall,
+    /// There are not enough descriptors available in the virtqueue, try again later.
+    QueueFull,
     /// The device is not ready.
     NotReady,
     /// The queue is already in use.
