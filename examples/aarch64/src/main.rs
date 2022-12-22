@@ -20,7 +20,8 @@ use virtio_drivers::{
         bus::{BarInfo, Cam, Command, DeviceFunction, MemoryBarType, PciRoot},
         virtio_device_type, PciTransport,
     },
-    DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOGpu, VirtIOHeader, VirtIONet,
+    DeviceType, MmioTransport, Transport, VirtIOBlk, VirtIOConsole, VirtIOGpu, VirtIOHeader,
+    VirtIONet,
 };
 
 #[no_mangle]
@@ -96,6 +97,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::Block => virtio_blk(transport),
         DeviceType::GPU => virtio_gpu(transport),
         DeviceType::Network => virtio_net(transport),
+        DeviceType::Console => virtio_console(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -142,6 +144,19 @@ fn virtio_net<T: Transport>(transport: T) {
     info!("recv: {:?}", &buf[..len]);
     net.send(&buf[..len]).expect("failed to send");
     info!("virtio-net test finished");
+}
+
+fn virtio_console<T: Transport>(transport: T) {
+    let mut console =
+        VirtIOConsole::<HalImpl, T>::new(transport).expect("Failed to create console driver");
+    let info = console.info();
+    info!("VirtIO console {}x{}", info.rows, info.columns);
+    for &c in b"Hello world on console!\n" {
+        console.send(c).expect("Failed to send character");
+    }
+    let c = console.recv(true).expect("Failed to read from console");
+    info!("Read {:?}", c);
+    info!("virtio-console test finished");
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

@@ -3,26 +3,61 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use bitflags::*;
+use core::ptr::NonNull;
 use log::*;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: u16 = 2;
 
-/// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
-/// Emergency and cols/rows unimplemented.
+/// Driver for a VirtIO console device.
+///
+/// Only a single port is allowed since `alloc` is disabled. Emergency write and cols/rows are not
+/// implemented.
+///
+/// # Example
+///
+/// ```
+/// # use virtio_drivers::{Error, Hal, Transport};
+/// use virtio_drivers::VirtIOConsole;
+/// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
+/// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
+///
+/// let info = console.info();
+/// println!("VirtIO console {}x{}", info.rows, info.columns);
+///
+/// for &c in b"Hello console!\n" {
+///   console.send(c)?;
+/// }
+///
+/// let c = console.recv(true)?;
+/// println!("Read {:?} from console.", c);
+/// # Ok(())
+/// # }
+/// ```
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
+    config_space: NonNull<Config>,
     receiveq: VirtQueue<H>,
     transmitq: VirtQueue<H>,
     queue_buf_dma: Dma<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
     pending_len: usize,
+    /// The token of the outstanding receive request, if there is one.
+    receive_token: Option<u16>,
+}
+
+/// Information about a console device, read from its configuration space.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConsoleInfo {
+    pub rows: u16,
+    pub columns: u16,
+    pub max_ports: u32,
 }
 
 impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
-    /// Create a new VirtIO-Console driver.
+    /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
@@ -31,15 +66,6 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        unsafe {
-            let columns = volread!(config_space, cols);
-            let rows = volread!(config_space, rows);
-            let max_ports = volread!(config_space, max_nr_ports);
-            info!(
-                "Columns: {} Rows: {} Max ports: {}",
-                columns, rows, max_ports,
-            );
-        }
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = Dma::new(1)?;
@@ -47,56 +73,91 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         transport.finish_init();
         let mut console = VirtIOConsole {
             transport,
+            config_space,
             receiveq,
             transmitq,
             queue_buf_dma,
             queue_buf_rx,
             cursor: 0,
             pending_len: 0,
+            receive_token: None,
         };
         console.poll_retrieve()?;
         Ok(console)
     }
 
+    /// Returns a struct with information about the console device, such as the number of rows and columns.
+    pub fn info(&self) -> ConsoleInfo {
+        // Safe because config_space is a valid pointer to the device configuration space.
+        unsafe {
+            let columns = volread!(self.config_space, cols);
+            let rows = volread!(self.config_space, rows);
+            let max_ports = volread!(self.config_space, max_nr_ports);
+            ConsoleInfo {
+                rows,
+                columns,
+                max_ports,
+            }
+        }
+    }
+
+    /// Makes a request to the device to receive data, if there is not already an outstanding
+    /// receive request or some data already received and not yet returned.
     fn poll_retrieve(&mut self) -> Result<()> {
-        // Safe because the buffer lasts at least as long as the queue.
-        unsafe { self.receiveq.add(&[], &[self.queue_buf_rx])? };
+        if self.receive_token.is_none() && self.cursor == self.pending_len {
+            // Safe because the buffer lasts at least as long as the queue, and there are no other
+            // outstanding requests using the buffer.
+            self.receive_token = Some(unsafe { self.receiveq.add(&[], &[self.queue_buf_rx]) }?);
+        }
         Ok(())
     }
 
-    /// Acknowledge interrupt.
+    /// Acknowledges a pending interrupt, if any, and completes the outstanding finished read
+    /// request if there is one.
+    ///
+    /// Returns true if new data has been received.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
-        let ack = self.transport.ack_interrupt();
-        if !ack {
+        if !self.transport.ack_interrupt() {
             return Ok(false);
         }
-        let mut flag = false;
-        while let Ok((_token, len)) = self.receiveq.pop_used() {
-            assert!(!flag);
-            flag = true;
-            assert_ne!(len, 0);
-            self.cursor = 0;
-            self.pending_len = len as usize;
-        }
-        Ok(flag)
+
+        Ok(self.finish_receive())
     }
 
-    /// Try get char.
+    /// If there is an outstanding receive request and it has finished, completes it.
+    ///
+    /// Returns true if new data has been received.
+    fn finish_receive(&mut self) -> bool {
+        let mut flag = false;
+        if let Some(receive_token) = self.receive_token {
+            if let Ok((token, len)) = self.receiveq.pop_used() {
+                assert_eq!(token, receive_token);
+                flag = true;
+                assert_ne!(len, 0);
+                self.cursor = 0;
+                self.pending_len = len as usize;
+            }
+        }
+        flag
+    }
+
+    /// Returns the next available character from the console, if any.
+    ///
+    /// If no data has been received this will not block but immediately return `Ok<None>`.
     pub fn recv(&mut self, pop: bool) -> Result<Option<u8>> {
+        self.finish_receive();
         if self.cursor == self.pending_len {
             return Ok(None);
         }
         let ch = self.queue_buf_rx[self.cursor];
         if pop {
             self.cursor += 1;
-            if self.cursor == self.pending_len {
-                self.poll_retrieve()?;
-            }
+            self.poll_retrieve()?;
         }
         Ok(Some(ch))
     }
 
-    /// Put a char onto the device.
+    /// Sends a character to the console.
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         // Safe because the buffer is valid until we pop_used below.
