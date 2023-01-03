@@ -1,12 +1,9 @@
 //! Log implementation using the UART.
 
-use crate::pl011::Uart;
+use crate::{uart::Uart, UART_BASE_ADDRESS};
 use core::fmt::Write;
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 use spin::mutex::SpinMutex;
-
-/// Base memory-mapped address of the primary PL011 UART device.
-pub const BASE_ADDRESS: usize = 0x900_0000;
 
 static LOGGER: Logger = Logger {
     uart: SpinMutex::new(None),
@@ -20,7 +17,7 @@ struct Logger {
 pub fn init(max_level: LevelFilter) -> Result<(), SetLoggerError> {
     // Safe because BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as device
     // memory.
-    let uart = unsafe { Uart::new(BASE_ADDRESS) };
+    let uart = unsafe { Uart::new(UART_BASE_ADDRESS) };
     LOGGER.uart.lock().replace(uart);
 
     log::set_logger(&LOGGER)?;

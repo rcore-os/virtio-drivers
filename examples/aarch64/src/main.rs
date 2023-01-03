@@ -4,7 +4,14 @@
 mod exceptions;
 mod hal;
 mod logger;
+#[cfg(platform = "qemu")]
 mod pl011;
+#[cfg(platform = "qemu")]
+use pl011 as uart;
+#[cfg(platform = "crosvm")]
+mod uart8250;
+#[cfg(platform = "crosvm")]
+use uart8250 as uart;
 
 use core::{
     mem::size_of,
@@ -26,6 +33,14 @@ use virtio_drivers::{
         DeviceType, Transport,
     },
 };
+
+/// Base memory-mapped address of the primary PL011 UART device.
+#[cfg(platform = "qemu")]
+pub const UART_BASE_ADDRESS: usize = 0x900_0000;
+
+/// The base address of the first 8250 UART.
+#[cfg(platform = "crosvm")]
+pub const UART_BASE_ADDRESS: usize = 0x3f8;
 
 #[no_mangle]
 extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
@@ -247,7 +262,14 @@ impl PciMemory32Allocator {
                 cpu_physical,
                 size,
             );
-            if range_type == PciRangeType::Memory32 && size > memory_32_size.into() {
+            // Use the largest range within the 32-bit address space for 32-bit memory, even if it
+            // is marked as a 64-bit range. This is necessary because crosvm doesn't currently
+            // provide any 32-bit ranges.
+            if !prefetchable
+                && matches!(range_type, PciRangeType::Memory32 | PciRangeType::Memory64)
+                && size > memory_32_size.into()
+                && bus_address + size < u32::MAX.into()
+            {
                 assert_eq!(bus_address, cpu_physical);
                 memory_32_address = u32::try_from(cpu_physical).unwrap();
                 memory_32_size = u32::try_from(size).unwrap();
