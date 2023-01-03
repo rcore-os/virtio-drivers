@@ -37,6 +37,8 @@ clean:
 	cargo clean
 
 qemu-legacy: kernel $(img)
+# Wait a few seconds, then try to open a connection to the VM so it can test its networking.
+	( sleep 4 && nc localhost 5555 -v < /dev/null) &
 	qemu-system-$(arch) \
 	  $(QEMU_ARGS) \
 		-machine virt \
@@ -47,10 +49,12 @@ qemu-legacy: kernel $(img)
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-mouse-device \
-		# -netdev type=tap,id=net0,script=no,downscript=no \
-		# -device virtio-net-device,netdev=net0
+		-device virtio-net-device,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::5555-:5555
 
 qemu: kernel $(img)
+# Wait a few seconds, then try to open a connection to the VM so it can test its networking.
+	( sleep 4 && nc localhost 5555 -v < /dev/null) &
 	qemu-system-$(arch) \
 	  $(QEMU_ARGS) \
 		-machine virt \
@@ -62,7 +66,9 @@ qemu: kernel $(img)
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-mouse-device \
-		-device virtio-net-device
+		-device virtio-net-device,netdev=net0 \
+		-netdev user,id=net0,hostfwd=tcp::5555-:5555
+
 
 $(img):
 	dd if=/dev/zero of=$@ bs=512 count=32
