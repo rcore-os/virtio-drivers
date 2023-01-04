@@ -125,7 +125,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// * `block_id` - The identifier of the block to read.
     /// * `req` - A buffer which the driver can use for the request to send to the device. The
     ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `pop_used` call.
+    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
+    ///   call.
     /// * `buf` - The buffer in memory into which the block should be read.
     /// * `resp` - A mutable reference to a variable provided by the caller
     ///   to contain the status of the request. The caller can safely
@@ -137,8 +138,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// the position of the first Descriptor in the chain. If there are not enough
     /// Descriptors to allocate, then it returns [`Error::QueueFull`].
     ///
-    /// The caller can then call `pop_used` to check whether the device has finished handling the
-    /// request. Once it has, the caller can then read the response and dispose of the buffers.
+    /// The caller can then call `peek_used` with the returned token to check whether the device has
+    /// finished handling the request. Once it has, the caller must call `complete_read_block` with
+    /// the same buffers before reading the response.
     ///
     /// ```
     /// # use virtio_drivers::{Error, Hal};
@@ -153,8 +155,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// let token = unsafe { blk.read_block_nb(42, &mut request, &mut buffer, &mut response) }?;
     ///
     /// // Wait for an interrupt to tell us that the request completed...
+    /// assert_eq!(blk.peek_used(), Some(token));
     ///
-    /// assert_eq!(blk.pop_used()?, token);
+    /// unsafe {
+    ///   blk.complete_read_block(token, &request, &mut buffer, &mut response)?;
+    /// }
     /// if response.status() == RespStatus::OK {
     ///   println!("Successfully read block.");
     /// } else {
@@ -189,6 +194,24 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(token)
     }
 
+    /// Completes a read operation which was started by `read_block_nb`.
+    ///
+    /// # Safety
+    ///
+    /// The same buffers must be passed in again as were passed to `read_block_nb` when it returned
+    /// the token.
+    pub unsafe fn complete_read_block(
+        &mut self,
+        token: u16,
+        req: &BlkReq,
+        buf: &mut [u8],
+        resp: &mut BlkResp,
+    ) -> Result<()> {
+        self.queue
+            .pop_used(token, &[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
+        Ok(())
+    }
+
     /// Writes the contents of the given buffer to a block.
     ///
     /// Blocks until the write is complete or there is an error.
@@ -219,7 +242,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// * `block_id` - The identifier of the block to write.
     /// * `req` - A buffer which the driver can use for the request to send to the device. The
     ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `pop_used` call.
+    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
+    ///   call.
     /// * `buf` - The buffer in memory containing the data to write to the block.
     /// * `resp` - A mutable reference to a variable provided by the caller
     ///   to contain the status of the request. The caller can safely
@@ -252,11 +276,28 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(token)
     }
 
-    /// During an interrupt, it fetches a token of a completed request from the used
-    /// ring and return it. If all completed requests have already been fetched, return
-    /// Err(Error::NotReady).
-    pub fn pop_used(&mut self) -> Result<u16> {
-        self.queue.pop_used().map(|p| p.0)
+    /// Completes a write operation which was started by `write_block_nb`.
+    ///
+    /// # Safety
+    ///
+    /// The same buffers must be passed in again as were passed to `write_block_nb` when it returned
+    /// the token.
+    pub unsafe fn complete_write_block(
+        &mut self,
+        token: u16,
+        req: &BlkReq,
+        buf: &[u8],
+        resp: &mut BlkResp,
+    ) -> Result<()> {
+        self.queue
+            .pop_used(token, &[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
+        Ok(())
+    }
+
+    /// Fetches the token of the next completed request from the used ring and returns it, without
+    /// removing it from the used ring. If there are no pending completed requests returns `None`.
+    pub fn peek_used(&mut self) -> Option<u16> {
+        self.queue.peek_used()
     }
 
     /// Returns the size of the device's VirtQueue.

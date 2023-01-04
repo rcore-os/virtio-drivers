@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::hal::VirtAddr;
-use crate::hal::{Dma, Hal};
+use crate::hal::{BufferDirection, Dma, Hal};
 use crate::transport::Transport;
 use crate::{align_up, Error, Result, PAGE_SIZE};
 use bitflags::bitflags;
@@ -114,17 +114,9 @@ impl<H: Hal> VirtQueue<H> {
         // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
         // else reads or writes the free descriptors during this block.
         unsafe {
-            for input in inputs.iter() {
-                let mut desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(NonNull::new(*input as *mut [u8]).unwrap());
-                (*desc).flags = DescFlags::NEXT;
-                last = self.free_head;
-                self.free_head = (*desc).next;
-            }
-            for output in outputs.iter() {
+            for (buffer, direction) in input_output_iter(inputs, outputs) {
                 let desc = self.desc_ptr(self.free_head);
-                (*desc).set_buf::<H>(NonNull::new(*output).unwrap());
-                (*desc).flags = DescFlags::NEXT | DescFlags::WRITE;
+                (*desc).set_buf::<H>(buffer, direction, DescFlags::NEXT);
                 last = self.free_head;
                 self.free_head = (*desc).next;
             }
@@ -174,13 +166,12 @@ impl<H: Hal> VirtQueue<H> {
         // Notify the queue.
         transport.notify(self.queue_idx);
 
+        // Wait until there is at least one element in the used ring.
         while !self.can_pop() {
             spin_loop();
         }
-        let (popped_token, length) = self.pop_used()?;
-        assert_eq!(popped_token, token);
 
-        Ok(length)
+        self.pop_used(token, inputs, outputs)
     }
 
     /// Returns a non-null pointer to the descriptor at the given index.
@@ -199,44 +190,75 @@ impl<H: Hal> VirtQueue<H> {
         self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
     }
 
+    /// Returns the descriptor index (a.k.a. token) of the next used element without popping it, or
+    /// `None` if the used ring is empty.
+    pub fn peek_used(&self) -> Option<u16> {
+        if self.can_pop() {
+            let last_used_slot = self.last_used_idx & (self.queue_size - 1);
+            // Safe because self.used points to a valid, aligned, initialised, dereferenceable,
+            // readable instance of UsedRing.
+            Some(unsafe { (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16 })
+        } else {
+            None
+        }
+    }
+
     /// Returns the number of free descriptors.
     pub fn available_desc(&self) -> usize {
         (self.queue_size - self.num_used) as usize
     }
 
-    /// Recycle descriptors in the list specified by head.
+    /// Unshares buffers in the list starting at descriptor index `head` and adds them to the free
+    /// list. Unsharing may involve copying data back to the original buffers, so they must be
+    /// passed in too.
     ///
     /// This will push all linked descriptors at the front of the free list.
-    fn recycle_descriptors(&mut self, mut head: u16) {
+    fn recycle_descriptors(&mut self, head: u16, inputs: &[*const [u8]], outputs: &[*mut [u8]]) {
         let original_free_head = self.free_head;
         self.free_head = head;
-        loop {
-            let desc = self.desc_ptr(head);
+        let mut next = Some(head);
+
+        for (buffer, direction) in input_output_iter(inputs, outputs) {
+            let desc = self.desc_ptr(next.expect("Descriptor chain was shorter than expected."));
+
             // Safe because self.desc is properly aligned, dereferenceable and initialised, and
             // nothing else reads or writes the descriptor during this block.
-            unsafe {
-                let flags = (*desc).flags;
+            let paddr = unsafe {
+                let paddr = (*desc).addr;
+                (*desc).unset_buf();
                 self.num_used -= 1;
-                if flags.contains(DescFlags::NEXT) {
-                    head = (*desc).next;
-                } else {
+                next = (*desc).next();
+                if next.is_none() {
                     (*desc).next = original_free_head;
-                    return;
                 }
-            }
+                paddr
+            };
+
+            // Unshare the buffer (and perhaps copy its contents back to the original buffer).
+            H::unshare(paddr as usize, buffer, direction);
+        }
+
+        if next.is_some() {
+            panic!("Descriptor chain was longer than expected.");
         }
     }
 
-    /// Get a token from device used buffers, return (token, len).
+    /// If the given token is next on the device used queue, pops it and returns the total buffer
+    /// length which was used (written) by the device.
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
-    pub fn pop_used(&mut self) -> Result<(u16, u32)> {
+    pub fn pop_used(
+        &mut self,
+        token: u16,
+        inputs: &[*const [u8]],
+        outputs: &[*mut [u8]],
+    ) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
         }
-        // read barrier
-        fence(Ordering::SeqCst);
+        // Read barrier not necessary, as can_pop already has one.
 
+        // Get the index of the start of the descriptor chain for the next element in the used ring.
         let last_used_slot = self.last_used_idx & (self.queue_size - 1);
         let index;
         let len;
@@ -247,10 +269,15 @@ impl<H: Hal> VirtQueue<H> {
             len = (*self.used.as_ptr()).ring[last_used_slot as usize].len;
         }
 
-        self.recycle_descriptors(index);
+        if index != token {
+            // The device used a different descriptor chain to the one we were expecting.
+            return Err(Error::WrongToken);
+        }
+
+        self.recycle_descriptors(index, inputs, outputs);
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
-        Ok((index, len))
+        Ok(len)
     }
 
     /// Return size of the queue.
@@ -296,12 +323,42 @@ pub(crate) struct Descriptor {
 }
 
 impl Descriptor {
+    /// Sets the buffer address, length and flags, and shares it with the device.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that the buffer lives at least as long as the descriptor is active.
-    unsafe fn set_buf<H: Hal>(&mut self, buf: NonNull<[u8]>) {
-        self.addr = H::virt_to_phys(buf.as_ptr() as *mut u8 as usize) as u64;
+    unsafe fn set_buf<H: Hal>(
+        &mut self,
+        buf: NonNull<[u8]>,
+        direction: BufferDirection,
+        extra_flags: DescFlags,
+    ) {
+        self.addr = H::share(buf, direction) as u64;
         self.len = buf.len() as u32;
+        self.flags = extra_flags
+            | match direction {
+                BufferDirection::DeviceToDriver => DescFlags::WRITE,
+                BufferDirection::DriverToDevice => DescFlags::empty(),
+            };
+    }
+
+    /// Sets the buffer address and length to 0.
+    ///
+    /// This must only be called once the device has finished using the descriptor.
+    fn unset_buf(&mut self) {
+        self.addr = 0;
+        self.len = 0;
+    }
+
+    /// Returns the index of the next descriptor in the chain if the `NEXT` flag is set, or `None`
+    /// if it is not (and thus this descriptor is the end of the chain).
+    fn next(&self) -> Option<u16> {
+        if self.flags.contains(DescFlags::NEXT) {
+            Some(self.next)
+        } else {
+            None
+        }
     }
 }
 
@@ -385,9 +442,8 @@ pub(crate) fn fake_write_to_queue(
             );
             remaining_data = &remaining_data[length_to_write..];
 
-            if flags.contains(DescFlags::NEXT) {
-                let next = descriptor.next as usize;
-                descriptor = &(*descriptors)[next];
+            if let Some(next) = descriptor.next() {
+                descriptor = &(*descriptors)[next as usize];
             } else {
                 assert_eq!(remaining_data.len(), 0);
                 break;
@@ -525,4 +581,28 @@ mod tests {
             );
         }
     }
+}
+
+/// Returns an iterator over the buffers of first `inputs` and then `outputs`, paired with the
+/// corresponding `BufferDirection`.
+///
+/// Panics if any of the buffer pointers is null.
+fn input_output_iter<'a>(
+    inputs: &'a [*const [u8]],
+    outputs: &'a [*mut [u8]],
+) -> impl Iterator<Item = (NonNull<[u8]>, BufferDirection)> + 'a {
+    inputs
+        .iter()
+        .map(|input| {
+            (
+                NonNull::new(*input as *mut [u8]).unwrap(),
+                BufferDirection::DriverToDevice,
+            )
+        })
+        .chain(outputs.iter().map(|output| {
+            (
+                NonNull::new(*output).unwrap(),
+                BufferDirection::DeviceToDriver,
+            )
+        }))
 }

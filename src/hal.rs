@@ -2,7 +2,7 @@
 pub mod fake;
 
 use crate::{Error, Result, PAGE_SIZE};
-use core::marker::PhantomData;
+use core::{marker::PhantomData, ptr::NonNull};
 
 /// A virtual memory address in the address space of the program.
 pub type VirtAddr = usize;
@@ -61,7 +61,22 @@ pub trait Hal {
     /// Converts a physical address used for virtio to a virtual address which the program can
     /// access.
     fn phys_to_virt(paddr: PhysAddr) -> VirtAddr;
-    /// Converts a virtual address which the program can access to the corresponding physical
-    /// address to use for virtio.
-    fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr;
+    /// Shares the given memory range with the device, and returns the physical address that the
+    /// device can use to access it.
+    ///
+    /// This may involve mapping the buffer into an IOMMU, giving the host permission to access the
+    /// memory, or copying it to a special region where it can be accessed.
+    fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr;
+    /// Unshares the given memory range from the device and (if necessary) copies it back to the
+    /// original buffer.
+    fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection);
+}
+
+/// The direction in which a buffer is passed.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BufferDirection {
+    /// The buffer is written by the driver and read by the device.
+    DriverToDevice,
+    /// The buffer is written by the device and read by the driver.
+    DeviceToDriver,
 }

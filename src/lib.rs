@@ -53,7 +53,7 @@ mod queue;
 pub mod transport;
 mod volatile;
 
-pub use self::hal::{Hal, PhysAddr, VirtAddr};
+pub use self::hal::{BufferDirection, Hal, PhysAddr, VirtAddr};
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;
@@ -68,6 +68,8 @@ pub enum Error {
     QueueFull,
     /// The device is not ready.
     NotReady,
+    /// The device used a different descriptor chain to the one we were expecting.
+    WrongToken,
     /// The queue is already in use.
     AlreadyUsed,
     /// Invalid parameter.

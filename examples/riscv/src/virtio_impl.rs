@@ -1,7 +1,10 @@
-use core::sync::atomic::*;
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{Hal, PhysAddr, VirtAddr, PAGE_SIZE};
+use virtio_drivers::{BufferDirection, Hal, PhysAddr, VirtAddr, PAGE_SIZE};
 
 extern "C" {
     fn end();
@@ -29,7 +32,18 @@ impl Hal for HalImpl {
         paddr
     }
 
-    fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
-        vaddr
+    fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
+        let vaddr = buffer.as_ptr() as *mut u8 as usize;
+        // Nothing to do, as the host already has access to all memory.
+        virt_to_phys(vaddr)
     }
+
+    fn unshare(_paddr: PhysAddr, _buffer: NonNull<[u8]>, _direction: BufferDirection) {
+        // Nothing to do, as the host already has access to all memory and we didn't copy the buffer
+        // anywhere else.
+    }
+}
+
+fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
+    vaddr
 }
