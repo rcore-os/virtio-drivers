@@ -43,5 +43,18 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 
 - x86_64 (TODO)
 
-- [aarch64](./examples/aarch64)
-- [RISCV](./examples/riscv)
+### [aarch64](./examples/aarch64)
+```bash
+cd examples/aarch64
+make qemu
+```
+###  [RISCV](./examples/riscv)
+
+```bash
+cd examples/riscv
+make qemu
+```
+You will see device info & GUI Window in qemu.
+
+![gui](./examples/riscv/virtio-gpu.png)
+
