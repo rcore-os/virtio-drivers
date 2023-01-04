@@ -56,5 +56,4 @@ make qemu
 ```
 You will see device info & GUI Window in qemu.
 
-![gui](./examples/riscv/virtio-test-gpu.png)
-
+<img decoding="async" src="https://github.com/rcore-os/virtio-drivers/raw/master/examples/riscv/virtio-test-gpu.png" width="50%">
