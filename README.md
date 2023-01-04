@@ -56,5 +56,5 @@ make qemu
 ```
 You will see device info & GUI Window in qemu.
 
-![gui](./examples/riscv/virtio-gpu.png)
+![gui](./examples/riscv/virtio-test-gpu.png)
 
