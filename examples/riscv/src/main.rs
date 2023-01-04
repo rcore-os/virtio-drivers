@@ -112,7 +112,6 @@ fn virtio_gpu<T: Transport>(transport: T) {
         }
     }
     gpu.flush().expect("failed to flush");
-    
     //delay some time
     info!("virtio-gpu show graphics....");
     for _ in 0..100000 {
@@ -139,9 +138,7 @@ fn virtio_input<T: Transport>(transport: T) {
 
 fn virtio_net<T: Transport>(transport: T) {
     let mut _net = VirtIONet::<HalImpl, T>::new(transport).expect("failed to create net driver");
-    
     // TODO: add tests for CI
-
     //let mut buf = [0u8; 0x100];
     //let len = net.recv(&mut buf).expect("failed to recv");
     //info!("recv: {:?}", &buf[..len]);
