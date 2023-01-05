@@ -1,5 +1,7 @@
 # VirtIO-drivers-rs
 
+[![crates.io page](https://img.shields.io/crates/v/aarch64-paging.svg)](https://crates.io/crates/aarch64-paging)
+[![docs.rs page](https://docs.rs/aarch64-paging/badge.svg)](https://docs.rs/aarch64-paging)
 [![CI](https://github.com/rcore-os/virtio-drivers/workflows/CI/badge.svg?branch=master)](https://github.com/rcore-os/virtio-drivers/actions)
 
 VirtIO guest drivers in Rust. For **no_std** environment.
@@ -44,16 +46,19 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 - x86_64 (TODO)
 
 ### [aarch64](./examples/aarch64)
+
 ```bash
 cd examples/aarch64
 make qemu
 ```
-###  [RISCV](./examples/riscv)
+
+### [RISCV](./examples/riscv)
 
 ```bash
 cd examples/riscv
 make qemu
 ```
+
 You will see device info & GUI Window in qemu.
 
 <img decoding="async" src="https://github.com/rcore-os/virtio-drivers/raw/master/examples/riscv/virtio-test-gpu.png" width="50%">
