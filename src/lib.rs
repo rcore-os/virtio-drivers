@@ -95,3 +95,9 @@ fn align_up(size: usize) -> usize {
 fn pages(size: usize) -> usize {
     (size + PAGE_SIZE - 1) / PAGE_SIZE
 }
+
+// TODO: Use NonNull::slice_from_raw_parts once it is stable.
+/// Creates a non-null raw slice from a non-null thin pointer and length.
+fn nonnull_slice_from_raw_parts<T>(data: NonNull<T>, len: usize) -> NonNull<[T]> {
+    NonNull::new(ptr::slice_from_raw_parts_mut(data.as_ptr(), len)).unwrap()
+}
