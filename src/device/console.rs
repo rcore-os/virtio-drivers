@@ -75,7 +75,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = Dma::new(1, BufferDirection::DeviceToDriver)?;
-        let queue_buf_rx = unsafe { &mut queue_buf_dma.as_buf()[0..] };
+        let queue_buf_rx = unsafe { queue_buf_dma.as_buf() };
         transport.finish_init();
         let mut console = VirtIOConsole {
             transport,
