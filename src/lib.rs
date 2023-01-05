@@ -53,6 +53,8 @@ mod queue;
 pub mod transport;
 mod volatile;
 
+use core::ptr::{self, NonNull};
+
 pub use self::hal::{BufferDirection, Hal, PhysAddr, VirtAddr};
 
 /// The page size in bytes supported by the library (4 KiB).

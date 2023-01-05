@@ -1,12 +1,16 @@
-use crate::hal::{BufferDirection, Dma, Hal, PhysAddr, VirtAddr};
+#[cfg(test)]
+use crate::hal::VirtAddr;
+use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
-use crate::{align_up, pages, Error, Result, PAGE_SIZE};
+use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
 use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
 use core::hint::spin_loop;
 use core::mem::size_of;
-use core::ptr::{self, addr_of_mut, NonNull};
+#[cfg(test)]
+use core::ptr;
+use core::ptr::{addr_of_mut, NonNull};
 use core::sync::atomic::{fence, Ordering};
 
 /// The mechanism for bulk data transport on virtio devices.
@@ -62,13 +66,12 @@ impl<H: Hal> VirtQueue<H> {
             layout.device_area_paddr(),
         );
 
-        let desc = NonNull::new(ptr::slice_from_raw_parts_mut(
-            layout.descriptors_vaddr() as *mut Descriptor,
+        let desc = nonnull_slice_from_raw_parts(
+            layout.descriptors_vaddr().cast::<Descriptor>(),
             size as usize,
-        ))
-        .unwrap();
-        let avail = NonNull::new(layout.avail_vaddr() as *mut AvailRing).unwrap();
-        let used = NonNull::new(layout.used_vaddr() as *mut UsedRing).unwrap();
+        );
+        let avail = layout.avail_vaddr().cast();
+        let used = layout.used_vaddr().cast();
 
         // Link descriptors together.
         for i in 0..(size - 1) {
@@ -352,14 +355,14 @@ impl<H: Hal> VirtQueueLayout<H> {
         }
     }
 
-    /// Returns the virtual address of the descriptor table (in the descriptor area).
-    fn descriptors_vaddr(&self) -> VirtAddr {
+    /// Returns a pointer to the descriptor table (in the descriptor area).
+    fn descriptors_vaddr(&self) -> NonNull<u8> {
         match self {
-            Self::Legacy { dma, .. } => dma.vaddr(),
+            Self::Legacy { dma, .. } => dma.vaddr(0),
             Self::Modern {
                 driver_to_device_dma,
                 ..
-            } => driver_to_device_dma.vaddr(),
+            } => driver_to_device_dma.vaddr(0),
         }
     }
 
@@ -377,17 +380,17 @@ impl<H: Hal> VirtQueueLayout<H> {
         }
     }
 
-    /// Returns the virtual address of the available ring (in the driver area).
-    fn avail_vaddr(&self) -> VirtAddr {
+    /// Returns a pointer to the available ring (in the driver area).
+    fn avail_vaddr(&self) -> NonNull<u8> {
         match self {
             Self::Legacy {
                 dma, avail_offset, ..
-            } => dma.vaddr() + avail_offset,
+            } => dma.vaddr(*avail_offset),
             Self::Modern {
                 driver_to_device_dma,
                 avail_offset,
                 ..
-            } => driver_to_device_dma.vaddr() + avail_offset,
+            } => driver_to_device_dma.vaddr(*avail_offset),
         }
     }
 
@@ -404,16 +407,16 @@ impl<H: Hal> VirtQueueLayout<H> {
         }
     }
 
-    /// Returns the virtual address of the used ring (in the driver area).
-    fn used_vaddr(&self) -> VirtAddr {
+    /// Returns a pointer to the used ring (in the driver area).
+    fn used_vaddr(&self) -> NonNull<u8> {
         match self {
             Self::Legacy {
                 dma, used_offset, ..
-            } => dma.vaddr() + used_offset,
+            } => dma.vaddr(*used_offset),
             Self::Modern {
                 device_to_driver_dma,
                 ..
-            } => device_to_driver_dma.vaddr(),
+            } => device_to_driver_dma.vaddr(0),
         }
     }
 }

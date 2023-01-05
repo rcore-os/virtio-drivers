@@ -35,13 +35,13 @@ impl<H: Hal> Dma<H> {
         self.paddr
     }
 
-    pub fn vaddr(&self) -> usize {
-        H::phys_to_virt(self.paddr)
+    pub fn vaddr(&self, offset: usize) -> NonNull<u8> {
+        NonNull::new((H::phys_to_virt(self.paddr) + offset) as _).unwrap()
     }
 
     pub fn raw_slice(&self) -> NonNull<[u8]> {
         let raw_slice =
-            core::ptr::slice_from_raw_parts_mut(self.vaddr() as *mut u8, self.pages * PAGE_SIZE);
+            core::ptr::slice_from_raw_parts_mut(self.vaddr(0).as_ptr(), self.pages * PAGE_SIZE);
         NonNull::new(raw_slice).unwrap()
     }
 }
