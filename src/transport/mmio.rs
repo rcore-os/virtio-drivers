@@ -371,6 +371,13 @@ impl Transport for MmioTransport {
         }
     }
 
+    fn requires_legacy_layout(&self) -> bool {
+        match self.version {
+            MmioVersion::Legacy => true,
+            MmioVersion::Modern => false,
+        }
+    }
+
     fn queue_set(
         &mut self,
         queue: u16,

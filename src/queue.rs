@@ -1,8 +1,6 @@
-#[cfg(test)]
-use crate::hal::VirtAddr;
-use crate::hal::{BufferDirection, Dma, Hal};
+use crate::hal::{BufferDirection, Dma, Hal, PhysAddr, VirtAddr};
 use crate::transport::Transport;
-use crate::{align_up, Error, Result, PAGE_SIZE};
+use crate::{align_up, pages, Error, Result, PAGE_SIZE};
 use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
@@ -17,7 +15,7 @@ use core::sync::atomic::{fence, Ordering};
 #[derive(Debug)]
 pub struct VirtQueue<H: Hal> {
     /// DMA guard
-    dma: Dma<H>,
+    layout: VirtQueueLayout<H>,
     /// Descriptor table
     desc: NonNull<[Descriptor]>,
     /// Available ring
@@ -49,25 +47,28 @@ impl<H: Hal> VirtQueue<H> {
         if !size.is_power_of_two() || transport.max_queue_size() < size as u32 {
             return Err(Error::InvalidParam);
         }
-        let layout = VirtQueueLayout::new(size);
-        // Allocate contiguous pages.
-        let dma = Dma::new(layout.size / PAGE_SIZE)?;
+
+        let layout = if transport.requires_legacy_layout() {
+            VirtQueueLayout::allocate_legacy(size)?
+        } else {
+            VirtQueueLayout::allocate_flexible(size)?
+        };
 
         transport.queue_set(
             idx,
             size as u32,
-            dma.paddr(),
-            dma.paddr() + layout.avail_offset,
-            dma.paddr() + layout.used_offset,
+            layout.descriptors_paddr(),
+            layout.driver_area_paddr(),
+            layout.device_area_paddr(),
         );
 
         let desc = NonNull::new(ptr::slice_from_raw_parts_mut(
-            dma.vaddr() as *mut Descriptor,
+            layout.descriptors_vaddr() as *mut Descriptor,
             size as usize,
         ))
         .unwrap();
-        let avail = NonNull::new((dma.vaddr() + layout.avail_offset) as *mut AvailRing).unwrap();
-        let used = NonNull::new((dma.vaddr() + layout.used_offset) as *mut UsedRing).unwrap();
+        let avail = NonNull::new(layout.avail_vaddr() as *mut AvailRing).unwrap();
+        let used = NonNull::new(layout.used_vaddr() as *mut UsedRing).unwrap();
 
         // Link descriptors together.
         for i in 0..(size - 1) {
@@ -79,7 +80,7 @@ impl<H: Hal> VirtQueue<H> {
         }
 
         Ok(VirtQueue {
-            dma,
+            layout,
             desc,
             avail,
             used,
@@ -288,29 +289,149 @@ impl<H: Hal> VirtQueue<H> {
 
 /// The inner layout of a VirtQueue.
 ///
-/// Ref: 2.6.2 Legacy Interfaces: A Note on Virtqueue Layout
-struct VirtQueueLayout {
-    avail_offset: usize,
-    used_offset: usize,
-    size: usize,
+/// Ref: 2.6 Split Virtqueues
+#[derive(Debug)]
+enum VirtQueueLayout<H: Hal> {
+    Legacy {
+        dma: Dma<H>,
+        avail_offset: usize,
+        used_offset: usize,
+    },
+    Modern {
+        /// The region used for the descriptor area and driver area.
+        driver_to_device_dma: Dma<H>,
+        /// The region used for the device area.
+        device_to_driver_dma: Dma<H>,
+        /// The offset from the start of the `driver_to_device_dma` region to the driver area
+        /// (available ring).
+        avail_offset: usize,
+    },
 }
 
-impl VirtQueueLayout {
-    fn new(queue_size: u16) -> Self {
-        assert!(
-            queue_size.is_power_of_two(),
-            "queue size should be a power of 2"
-        );
-        let queue_size = queue_size as usize;
-        let desc = size_of::<Descriptor>() * queue_size;
-        let avail = size_of::<u16>() * (3 + queue_size);
-        let used = size_of::<u16>() * 3 + size_of::<UsedElem>() * queue_size;
-        VirtQueueLayout {
+impl<H: Hal> VirtQueueLayout<H> {
+    /// Allocates a single DMA region containing all parts of the virtqueue, following the layout
+    /// required by legacy interfaces.
+    ///
+    /// Ref: 2.6.2 Legacy Interfaces: A Note on Virtqueue Layout
+    fn allocate_legacy(queue_size: u16) -> Result<Self> {
+        let (desc, avail, used) = queue_part_sizes(queue_size);
+        let size = align_up(desc + avail) + align_up(used);
+        // Allocate contiguous pages.
+        let dma = Dma::new(size / PAGE_SIZE)?;
+        Ok(Self::Legacy {
+            dma,
             avail_offset: desc,
             used_offset: align_up(desc + avail),
-            size: align_up(desc + avail) + align_up(used),
+        })
+    }
+
+    /// Allocates separate DMA regions for the the different parts of the virtqueue, as supported by
+    /// non-legacy interfaces.
+    ///
+    /// This is preferred over `allocate_legacy` where possible as it reduces memory fragmentation
+    /// and allows the HAL to know which DMA regions are used in which direction.
+    fn allocate_flexible(queue_size: u16) -> Result<Self> {
+        let (desc, avail, used) = queue_part_sizes(queue_size);
+        let driver_to_device_dma = Dma::new(pages(desc + avail))?;
+        let device_to_driver_dma = Dma::new(pages(used))?;
+        Ok(Self::Modern {
+            driver_to_device_dma,
+            device_to_driver_dma,
+            avail_offset: desc,
+        })
+    }
+
+    /// Returns the physical address of the descriptor area.
+    fn descriptors_paddr(&self) -> PhysAddr {
+        match self {
+            Self::Legacy { dma, .. } => dma.paddr(),
+            Self::Modern {
+                driver_to_device_dma,
+                ..
+            } => driver_to_device_dma.paddr(),
         }
     }
+
+    /// Returns the virtual address of the descriptor table (in the descriptor area).
+    fn descriptors_vaddr(&self) -> VirtAddr {
+        match self {
+            Self::Legacy { dma, .. } => dma.vaddr(),
+            Self::Modern {
+                driver_to_device_dma,
+                ..
+            } => driver_to_device_dma.vaddr(),
+        }
+    }
+
+    /// Returns the physical address of the driver area.
+    fn driver_area_paddr(&self) -> PhysAddr {
+        match self {
+            Self::Legacy {
+                dma, avail_offset, ..
+            } => dma.paddr() + avail_offset,
+            Self::Modern {
+                driver_to_device_dma,
+                avail_offset,
+                ..
+            } => driver_to_device_dma.paddr() + avail_offset,
+        }
+    }
+
+    /// Returns the virtual address of the available ring (in the driver area).
+    fn avail_vaddr(&self) -> VirtAddr {
+        match self {
+            Self::Legacy {
+                dma, avail_offset, ..
+            } => dma.vaddr() + avail_offset,
+            Self::Modern {
+                driver_to_device_dma,
+                avail_offset,
+                ..
+            } => driver_to_device_dma.vaddr() + avail_offset,
+        }
+    }
+
+    /// Returns the physical address of the device area.
+    fn device_area_paddr(&self) -> PhysAddr {
+        match self {
+            Self::Legacy {
+                used_offset, dma, ..
+            } => dma.paddr() + used_offset,
+            Self::Modern {
+                device_to_driver_dma,
+                ..
+            } => device_to_driver_dma.paddr(),
+        }
+    }
+
+    /// Returns the virtual address of the used ring (in the driver area).
+    fn used_vaddr(&self) -> VirtAddr {
+        match self {
+            Self::Legacy {
+                dma, used_offset, ..
+            } => dma.vaddr() + used_offset,
+            Self::Modern {
+                device_to_driver_dma,
+                ..
+            } => device_to_driver_dma.vaddr(),
+        }
+    }
+}
+
+/// Returns the size in bytes of the descriptor table, available ring and used ring for a given
+/// queue size.
+///
+/// Ref: 2.6 Split Virtqueues
+fn queue_part_sizes(queue_size: u16) -> (usize, usize, usize) {
+    assert!(
+        queue_size.is_power_of_two(),
+        "queue size should be a power of 2"
+    );
+    let queue_size = queue_size as usize;
+    let desc = size_of::<Descriptor>() * queue_size;
+    let avail = size_of::<u16>() * (3 + queue_size);
+    let used = size_of::<u16>() * 3 + size_of::<UsedElem>() * queue_size;
+    (desc, avail, used)
 }
 
 #[repr(C, align(16))]
