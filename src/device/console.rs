@@ -75,7 +75,12 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
         let queue_buf_dma = Dma::new(1, BufferDirection::DeviceToDriver)?;
-        let queue_buf_rx = unsafe { queue_buf_dma.as_buf() };
+
+        // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
+        // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer
+        // (which we don't otherwise access).
+        let queue_buf_rx = unsafe { queue_buf_dma.raw_slice().as_mut() };
+
         transport.finish_init();
         let mut console = VirtIOConsole {
             transport,

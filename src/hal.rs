@@ -39,9 +39,10 @@ impl<H: Hal> Dma<H> {
         H::phys_to_virt(self.paddr)
     }
 
-    /// Convert to a buffer
-    pub unsafe fn as_buf(&self) -> &'static mut [u8] {
-        core::slice::from_raw_parts_mut(self.vaddr() as _, PAGE_SIZE * self.pages)
+    pub fn raw_slice(&self) -> NonNull<[u8]> {
+        let raw_slice =
+            core::ptr::slice_from_raw_parts_mut(self.vaddr() as *mut u8, self.pages * PAGE_SIZE);
+        NonNull::new(raw_slice).unwrap()
     }
 }
 
