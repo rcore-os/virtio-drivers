@@ -11,7 +11,7 @@ use log::info;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
-const QUEUE_SIZE: u16 = 2;
+const QUEUE_SIZE: usize = 2;
 
 /// Driver for a VirtIO console device.
 ///
@@ -41,8 +41,8 @@ const QUEUE_SIZE: u16 = 2;
 pub struct VirtIOConsole<'a, H: Hal, T: Transport> {
     transport: T,
     config_space: NonNull<Config>,
-    receiveq: VirtQueue<H>,
-    transmitq: VirtQueue<H>,
+    receiveq: VirtQueue<H, QUEUE_SIZE>,
+    transmitq: VirtQueue<H, QUEUE_SIZE>,
     queue_buf_dma: Dma<H>,
     queue_buf_rx: &'a mut [u8],
     cursor: usize,
@@ -72,8 +72,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
-        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
+        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0)?;
+        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0)?;
         let queue_buf_dma = Dma::new(1, BufferDirection::DeviceToDriver)?;
 
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
@@ -270,7 +270,7 @@ mod tests {
         // Make a character available, and simulate an interrupt.
         {
             let mut state = state.lock().unwrap();
-            state.write_to_queue(QUEUE_SIZE, QUEUE_RECEIVEQ_PORT_0, &[42]);
+            state.write_to_queue::<QUEUE_SIZE>(QUEUE_RECEIVEQ_PORT_0, &[42]);
 
             state.interrupt_pending = true;
         }

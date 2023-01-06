@@ -10,6 +10,8 @@ use core::mem::{size_of, MaybeUninit};
 use log::{debug, info};
 use zerocopy::{AsBytes, FromBytes};
 
+const QUEUE_SIZE: u16 = 2;
+
 /// The virtio network device is a virtual ethernet card.
 ///
 /// It has enhanced rapidly and demonstrates clearly how support for new
@@ -20,8 +22,8 @@ use zerocopy::{AsBytes, FromBytes};
 pub struct VirtIONet<H: Hal, T: Transport> {
     transport: T,
     mac: EthernetAddress,
-    recv_queue: VirtQueue<H>,
-    send_queue: VirtQueue<H>,
+    recv_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    send_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
 }
 
 impl<H: Hal, T: Transport> VirtIONet<H, T> {
@@ -42,9 +44,8 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
             debug!("Got MAC={:?}, status={:?}", mac, volread!(config, status));
         }
 
-        let queue_num = 2; // for simplicity
-        let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, queue_num)?;
-        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, queue_num)?;
+        let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
+        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
 
         transport.finish_init();
 

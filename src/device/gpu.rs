@@ -8,6 +8,8 @@ use crate::{pages, Error, Result};
 use bitflags::bitflags;
 use log::info;
 
+const QUEUE_SIZE: u16 = 2;
+
 /// A virtio based graphics adapter.
 ///
 /// It can operate in 2D mode and in 3D (virgl) mode.
@@ -23,9 +25,9 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     /// DMA area of cursor image buffer.
     cursor_buffer_dma: Option<Dma<H>>,
     /// Queue for sending control commands.
-    control_queue: VirtQueue<H>,
+    control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<H>,
+    cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     /// DMA region for sending data to the device.
     dma_send: Dma<H>,
     /// DMA region for receiving data from the device.
@@ -57,8 +59,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             );
         }
 
-        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, 2)?;
-        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, 2)?;
+        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
+        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR)?;
 
         let dma_send = Dma::new(1, BufferDirection::DriverToDevice)?;
         let dma_recv = Dma::new(1, BufferDirection::DeviceToDriver)?;
