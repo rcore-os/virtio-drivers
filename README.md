@@ -1,7 +1,7 @@
 # VirtIO-drivers-rs
 
-[![crates.io page](https://img.shields.io/crates/v/aarch64-paging.svg)](https://crates.io/crates/aarch64-paging)
-[![docs.rs page](https://docs.rs/aarch64-paging/badge.svg)](https://docs.rs/aarch64-paging)
+[![crates.io page](https://img.shields.io/crates/v/virtio-drivers.svg)](https://crates.io/crates/virtio-drivers)
+[![docs.rs page](https://docs.rs/virtio-drivers/badge.svg)](https://docs.rs/virtio-drivers)
 [![CI](https://github.com/rcore-os/virtio-drivers/workflows/CI/badge.svg?branch=master)](https://github.com/rcore-os/virtio-drivers/actions)
 
 VirtIO guest drivers in Rust. For **no_std** environment.
