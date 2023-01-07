@@ -51,7 +51,7 @@ impl<'a, H: Hal> VirtIOInput<'a, H> {
     }
 
     /// Pop the pending event.
-    pub fn pop_pending_event(&mut self) -> Option<(u16，InputEvent)> {
+    pub fn pop_pending_event(&mut self) -> Option<(u16, InputEvent)> {
         if let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             // requeue
