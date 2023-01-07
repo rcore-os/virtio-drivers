@@ -51,12 +51,12 @@ impl<'a, H: Hal> VirtIOInput<'a, H> {
     }
 
     /// Pop the pending event.
-    pub fn pop_pending_event(&mut self) -> Option<InputEvent> {
+    pub fn pop_pending_event(&mut self) -> Option<(u16，InputEvent)> {
         if let Ok((token, _)) = self.event_queue.pop_used() {
             let event = &mut self.event_buf[token as usize];
             // requeue
             if self.event_queue.add(&[], &[event.as_buf_mut()]).is_ok() {
-                return Some(*event);
+                return Some((token, *event));
             }
         }
         None
@@ -77,6 +77,11 @@ impl<'a, H: Hal> VirtIOInput<'a, H> {
         let data = config.data.read();
         out[..size as usize].copy_from_slice(&data[..size as usize]);
         size
+    }
+
+    /// It can be used to tell the caller how many channels he should monitor on.
+    pub fn virt_queue_size(&self) -> u16 {
+        QUEUE_SIZE as u16
     }
 }
 
