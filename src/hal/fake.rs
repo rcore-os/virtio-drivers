@@ -9,7 +9,7 @@ pub struct FakeHal;
 
 /// Fake HAL implementation for use in unit tests.
 impl Hal for FakeHal {
-    fn dma_alloc(pages: usize) -> PhysAddr {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> PhysAddr {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
         // Safe because the size and alignment of the layout are non-zero.

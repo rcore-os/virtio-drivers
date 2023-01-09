@@ -17,7 +17,7 @@ lazy_static! {
 pub struct HalImpl;
 
 impl Hal for HalImpl {
-    fn dma_alloc(pages: usize) -> PhysAddr {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> PhysAddr {
         let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
         paddr

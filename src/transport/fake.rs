@@ -46,6 +46,10 @@ impl<C> Transport for FakeTransport<C> {
         self.state.lock().unwrap().guest_page_size = guest_page_size;
     }
 
+    fn requires_legacy_layout(&self) -> bool {
+        false
+    }
+
     fn queue_set(
         &mut self,
         queue: u16,

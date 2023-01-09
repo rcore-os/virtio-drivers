@@ -1,6 +1,6 @@
 //! Driver for VirtIO console devices.
 
-use crate::hal::{Dma, Hal};
+use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
@@ -74,7 +74,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         let config_space = transport.config_space::<Config>()?;
         let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE)?;
         let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, QUEUE_SIZE)?;
-        let queue_buf_dma = Dma::new(1)?;
+        let queue_buf_dma = Dma::new(1, BufferDirection::DeviceToDriver)?;
         let queue_buf_rx = unsafe { &mut queue_buf_dma.as_buf()[0..] };
         transport.finish_init();
         let mut console = VirtIOConsole {

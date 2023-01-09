@@ -262,6 +262,10 @@ impl Transport for PciTransport {
         // No-op, the PCI transport doesn't care.
     }
 
+    fn requires_legacy_layout(&self) -> bool {
+        false
+    }
+
     fn queue_set(
         &mut self,
         queue: u16,

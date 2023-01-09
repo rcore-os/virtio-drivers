@@ -19,8 +19,8 @@ pub struct Dma<H: Hal> {
 }
 
 impl<H: Hal> Dma<H> {
-    pub fn new(pages: usize) -> Result<Self> {
-        let paddr = H::dma_alloc(pages);
+    pub fn new(pages: usize, direction: BufferDirection) -> Result<Self> {
+        let paddr = H::dma_alloc(pages, direction);
         if paddr == 0 {
             return Err(Error::DmaError);
         }
@@ -55,11 +55,14 @@ impl<H: Hal> Drop for Dma<H> {
 /// The interface which a particular hardware implementation must implement.
 pub trait Hal {
     /// Allocates the given number of contiguous physical pages of DMA memory for virtio use.
-    fn dma_alloc(pages: usize) -> PhysAddr;
+    fn dma_alloc(pages: usize, direction: BufferDirection) -> PhysAddr;
     /// Deallocates the given contiguous physical DMA memory pages.
     fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32;
     /// Converts a physical address used for virtio to a virtual address which the program can
     /// access.
+    ///
+    /// This is used both for DMA regions allocated by `dma_alloc`, and for MMIO addresses within
+    /// BARs read from the device (for the PCI transport).
     fn phys_to_virt(paddr: PhysAddr) -> VirtAddr;
     /// Shares the given memory range with the device, and returns the physical address that the
     /// device can use to access it.
@@ -75,8 +78,10 @@ pub trait Hal {
 /// The direction in which a buffer is passed.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BufferDirection {
-    /// The buffer is written by the driver and read by the device.
+    /// The buffer may be read or written by the driver, but only read by the device.
     DriverToDevice,
-    /// The buffer is written by the device and read by the driver.
+    /// The buffer may be read or written by the device, but only read by the driver.
     DeviceToDriver,
+    /// The buffer may be read or written by both the device and the driver.
+    Both,
 }
