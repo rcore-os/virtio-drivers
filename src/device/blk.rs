@@ -188,7 +188,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let token = self
             .queue
             .add(&[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
-        self.transport.notify(QUEUE);
+        if self.queue.should_notify() {
+            self.transport.notify(QUEUE);
+        }
         Ok(token)
     }
 
@@ -267,7 +269,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let token = self
             .queue
             .add(&[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
-        self.transport.notify(QUEUE);
+        if self.queue.should_notify() {
+            self.transport.notify(QUEUE);
+        }
         Ok(token)
     }
 

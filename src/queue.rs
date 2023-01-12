@@ -167,7 +167,9 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let token = unsafe { self.add(inputs, outputs) }?;
 
         // Notify the queue.
-        transport.notify(self.queue_idx);
+        if self.should_notify() {
+            transport.notify(self.queue_idx);
+        }
 
         // Wait until there is at least one element in the used ring.
         while !self.can_pop() {
@@ -175,6 +177,19 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         }
 
         self.pop_used(token, inputs, outputs)
+    }
+
+    /// Returns whether the driver should notify the device after adding a new buffer to the
+    /// virtqueue.
+    ///
+    /// This will be false if the device has supressed notifications.
+    pub fn should_notify(&self) -> bool {
+        // Read barrier, so we read a fresh value from the device.
+        fence(Ordering::SeqCst);
+
+        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of UsedRing.
+        unsafe { (*self.used.as_ptr()).flags & 0x0001 == 0 }
     }
 
     /// Returns a non-null pointer to the descriptor at the given index.
