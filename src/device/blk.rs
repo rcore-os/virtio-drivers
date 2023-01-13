@@ -111,10 +111,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             &[buf, resp.as_bytes_mut()],
             &mut self.transport,
         )?;
-        match resp.status {
-            RespStatus::OK => Ok(()),
-            _ => Err(Error::IoError),
-        }
+        resp.status.into()
     }
 
     /// Submits a request to read a block, but returns immediately without waiting for the read to
@@ -209,10 +206,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ) -> Result<()> {
         self.queue
             .pop_used(token, &[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
-        match resp.status {
-            RespStatus::OK => Ok(()),
-            _ => Err(Error::IoError),
-        }
+        resp.status.into()
     }
 
     /// Writes the contents of the given buffer to a block.
@@ -231,10 +225,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             &[resp.as_bytes_mut()],
             &mut self.transport,
         )?;
-        match resp.status {
-            RespStatus::OK => Ok(()),
-            _ => Err(Error::IoError),
-        }
+        resp.status.into()
     }
 
     /// Submits a request to write a block, but returns immediately without waiting for the write to
@@ -294,10 +285,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ) -> Result<()> {
         self.queue
             .pop_used(token, &[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
-        match resp.status {
-            RespStatus::OK => Ok(()),
-            _ => Err(Error::IoError),
-        }
+        resp.status.into()
     }
 
     /// Fetches the token of the next completed request from the used ring and returns it, without
@@ -397,6 +385,18 @@ impl RespStatus {
     pub const UNSUPPORTED: RespStatus = RespStatus(2);
     /// Not ready.
     pub const NOT_READY: RespStatus = RespStatus(3);
+}
+
+impl From<RespStatus> for Result {
+    fn from(status: RespStatus) -> Self {
+        match status {
+            RespStatus::OK => Ok(()),
+            RespStatus::IO_ERR => Err(Error::IoError),
+            RespStatus::UNSUPPORTED => Err(Error::Unsupported),
+            RespStatus::NOT_READY => Err(Error::NotReady),
+            _ => Err(Error::IoError),
+        }
+    }
 }
 
 impl Default for BlkResp {
