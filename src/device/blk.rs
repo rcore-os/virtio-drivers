@@ -209,7 +209,10 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ) -> Result<()> {
         self.queue
             .pop_used(token, &[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
-        Ok(())
+        match resp.status {
+            RespStatus::OK => Ok(()),
+            _ => Err(Error::IoError),
+        }
     }
 
     /// Writes the contents of the given buffer to a block.
@@ -291,7 +294,10 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ) -> Result<()> {
         self.queue
             .pop_used(token, &[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
-        Ok(())
+        match resp.status {
+            RespStatus::OK => Ok(()),
+            _ => Err(Error::IoError),
+        }
     }
 
     /// Fetches the token of the next completed request from the used ring and returns it, without
