@@ -314,15 +314,12 @@ mod tests {
                 thread::sleep(Duration::from_millis(10));
             }
             println!("Transmit queue was notified.");
-            // Allocate a bigger buffer than we expect to use, so we can check how much was actually
-            // used.
-            let mut data = [0; 2];
-            let length_read = state
+
+            let data = state
                 .lock()
                 .unwrap()
-                .read_from_queue::<QUEUE_SIZE>(QUEUE_TRANSMITQ_PORT_0, &mut data);
-            assert_eq!(length_read, 1);
-            assert_eq!(data, [b'Q', 0]);
+                .read_from_queue::<QUEUE_SIZE>(QUEUE_TRANSMITQ_PORT_0);
+            assert_eq!(data, b"Q");
         });
 
         assert_eq!(console.send(b'Q'), Ok(()));

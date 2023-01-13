@@ -124,18 +124,13 @@ impl State {
     /// Data is read into the `data` buffer passed in. Returns the number of bytes actually read.
     ///
     /// The fake device always uses descriptors in order.
-    pub fn read_from_queue<const QUEUE_SIZE: usize>(
-        &mut self,
-        queue_index: u16,
-        data: &mut [u8],
-    ) -> usize {
+    pub fn read_from_queue<const QUEUE_SIZE: usize>(&mut self, queue_index: u16) -> Vec<u8> {
         let queue = &self.queues[queue_index as usize];
         assert_ne!(queue.descriptors, 0);
         fake_read_from_queue::<QUEUE_SIZE>(
             queue.descriptors as *const Descriptor,
             queue.driver_area,
             queue.device_area,
-            data,
         )
     }
 }

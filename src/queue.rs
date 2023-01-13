@@ -579,16 +579,15 @@ pub(crate) fn fake_write_to_queue<const QUEUE_SIZE: usize>(
 
 /// Simulates the device reading from a VirtIO queue, for use in tests.
 ///
-/// Data is read into the `data` buffer passed in. Returns the number of bytes actually read.
-///
 /// The fake device always uses descriptors in order.
 #[cfg(test)]
 pub(crate) fn fake_read_from_queue<const QUEUE_SIZE: usize>(
     queue_descriptors: *const Descriptor,
     queue_driver_area: VirtAddr,
     queue_device_area: VirtAddr,
-    data: &mut [u8],
-) -> usize {
+) -> Vec<u8> {
+    use core::slice;
+
     let descriptors = ptr::slice_from_raw_parts(queue_descriptors, QUEUE_SIZE);
     let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
     let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
@@ -605,21 +604,16 @@ pub(crate) fn fake_read_from_queue<const QUEUE_SIZE: usize>(
         let mut descriptor = &(*descriptors)[head_descriptor_index as usize];
 
         // Loop through all descriptors in the chain, reading data from them.
-        let mut remaining_data = data;
-        let mut total_length_read = 0;
+        let mut input = Vec::new();
         loop {
             // Check the buffer and read from it.
             let flags = descriptor.flags;
             assert!(!flags.contains(DescFlags::WRITE));
             let buffer_length = descriptor.len as usize;
-            let length_to_read = min(remaining_data.len(), buffer_length);
-            ptr::copy(
+            input.extend_from_slice(slice::from_raw_parts(
                 descriptor.addr as *const u8,
-                remaining_data.as_mut_ptr(),
-                length_to_read,
-            );
-            remaining_data = &mut remaining_data[length_to_read..];
-            total_length_read += length_to_read;
+                buffer_length,
+            ));
 
             if let Some(next) = descriptor.next() {
                 descriptor = &(*descriptors)[next as usize];
@@ -630,10 +624,10 @@ pub(crate) fn fake_read_from_queue<const QUEUE_SIZE: usize>(
 
         // Mark the buffer as used.
         (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
-        (*used_ring).ring[next_slot as usize].len = total_length_read as u32;
+        (*used_ring).ring[next_slot as usize].len = input.len() as u32;
         (*used_ring).idx += 1;
 
-        total_length_read
+        input
     }
 }
 
