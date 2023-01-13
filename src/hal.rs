@@ -73,8 +73,9 @@ pub trait Hal {
     /// Converts a physical address used for MMIO to a virtual address which the driver can access.
     ///
     /// This is only used for MMIO addresses within BARs read from the device, for the PCI
-    /// transport.
-    fn phys_to_virt(paddr: PhysAddr) -> VirtAddr;
+    /// transport. It may check that the address range up to the given size is within the region
+    /// expected for MMIO.
+    fn phys_to_virt(paddr: PhysAddr, size: usize) -> VirtAddr;
     /// Shares the given memory range with the device, and returns the physical address that the
     /// device can use to access it.
     ///

@@ -29,7 +29,7 @@ impl Hal for HalImpl {
         0
     }
 
-    fn phys_to_virt(paddr: PhysAddr) -> VirtAddr {
+    fn phys_to_virt(paddr: PhysAddr, _size: usize) -> VirtAddr {
         paddr
     }
 
