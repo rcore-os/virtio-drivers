@@ -6,6 +6,7 @@ use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_I
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr, VirtAddr},
+    nonnull_slice_from_raw_parts,
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
@@ -14,7 +15,7 @@ use crate::{
 use core::{
     fmt::{self, Display, Formatter},
     mem::{align_of, size_of},
-    ptr::{self, addr_of_mut, NonNull},
+    ptr::{addr_of_mut, NonNull},
 };
 
 /// The PCI vendor ID for VirtIO devices.
@@ -403,9 +404,10 @@ fn get_bar_region_slice<H: Hal, T>(
     struct_info: &VirtioCapabilityInfo,
 ) -> Result<NonNull<[T]>, VirtioPciError> {
     let ptr = get_bar_region::<H, T>(root, device_function, struct_info)?;
-    let raw_slice =
-        ptr::slice_from_raw_parts_mut(ptr.as_ptr(), struct_info.length as usize / size_of::<T>());
-    Ok(NonNull::new(raw_slice).unwrap())
+    Ok(nonnull_slice_from_raw_parts(
+        ptr,
+        struct_info.length as usize / size_of::<T>(),
+    ))
 }
 
 /// An error encountered initialising a VirtIO PCI transport.

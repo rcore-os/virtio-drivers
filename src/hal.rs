@@ -19,6 +19,8 @@ pub struct Dma<H: Hal> {
 }
 
 impl<H: Hal> Dma<H> {
+    /// Allocates the given number of pages of physically contiguous memory to be used for DMA in
+    /// the given direction.
     pub fn new(pages: usize, direction: BufferDirection) -> Result<Self> {
         let paddr = H::dma_alloc(pages, direction);
         if paddr == 0 {
@@ -31,17 +33,22 @@ impl<H: Hal> Dma<H> {
         })
     }
 
+    /// Returns the physical address of the start of the DMA region, as seen by devices.
     pub fn paddr(&self) -> usize {
         self.paddr
     }
 
-    pub fn vaddr(&self) -> usize {
-        H::phys_to_virt(self.paddr)
+    /// Returns a pointer to the given offset within the DMA region.
+    pub fn vaddr(&self, offset: usize) -> NonNull<u8> {
+        assert!(offset < self.pages * PAGE_SIZE);
+        NonNull::new((H::phys_to_virt(self.paddr) + offset) as _).unwrap()
     }
 
-    /// Convert to a buffer
-    pub unsafe fn as_buf(&self) -> &'static mut [u8] {
-        core::slice::from_raw_parts_mut(self.vaddr() as _, PAGE_SIZE * self.pages)
+    /// Returns a pointer to the entire DMA region as a slice.
+    pub fn raw_slice(&self) -> NonNull<[u8]> {
+        let raw_slice =
+            core::ptr::slice_from_raw_parts_mut(self.vaddr(0).as_ptr(), self.pages * PAGE_SIZE);
+        NonNull::new(raw_slice).unwrap()
     }
 }
 

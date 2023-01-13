@@ -62,8 +62,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
 
         let dma_send = Dma::new(1, BufferDirection::DriverToDevice)?;
         let dma_recv = Dma::new(1, BufferDirection::DeviceToDriver)?;
-        let queue_buf_send = unsafe { dma_send.as_buf() };
-        let queue_buf_recv = unsafe { dma_recv.as_buf() };
+        let queue_buf_send = unsafe { dma_send.raw_slice().as_mut() };
+        let queue_buf_recv = unsafe { dma_recv.raw_slice().as_mut() };
 
         transport.finish_init();
 
@@ -116,7 +116,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         // map frame buffer to screen
         self.set_scanout(display_info.rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
-        let buf = unsafe { frame_buffer_dma.as_buf() };
+        let buf = unsafe { frame_buffer_dma.raw_slice().as_mut() };
         self.frame_buffer_dma = Some(frame_buffer_dma);
         Ok(buf)
     }
@@ -145,7 +145,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             return Err(Error::InvalidParam);
         }
         let cursor_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
-        let buf = unsafe { cursor_buffer_dma.as_buf() };
+        let buf = unsafe { cursor_buffer_dma.raw_slice().as_mut() };
         buf.copy_from_slice(cursor_image);
 
         self.resource_create_2d(RESOURCE_ID_CURSOR, CURSOR_RECT.width, CURSOR_RECT.height)?;
