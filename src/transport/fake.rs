@@ -1,6 +1,6 @@
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
-    queue::{fake_write_to_queue, Descriptor},
+    queue::{fake_read_from_queue, fake_write_to_queue, Descriptor},
     PhysAddr, Result,
 };
 use alloc::{sync::Arc, vec::Vec};
@@ -109,14 +109,34 @@ impl State {
     ///
     /// The fake device always uses descriptors in order.
     pub fn write_to_queue<const QUEUE_SIZE: usize>(&mut self, queue_index: u16, data: &[u8]) {
-        let receive_queue = &self.queues[queue_index as usize];
-        assert_ne!(receive_queue.descriptors, 0);
+        let queue = &self.queues[queue_index as usize];
+        assert_ne!(queue.descriptors, 0);
         fake_write_to_queue::<QUEUE_SIZE>(
-            receive_queue.descriptors as *const Descriptor,
-            receive_queue.driver_area,
-            receive_queue.device_area,
+            queue.descriptors as *const Descriptor,
+            queue.driver_area,
+            queue.device_area,
             data,
         );
+    }
+
+    /// Simulates the device reading from the given queue.
+    ///
+    /// Data is read into the `data` buffer passed in. Returns the number of bytes actually read.
+    ///
+    /// The fake device always uses descriptors in order.
+    pub fn read_from_queue<const QUEUE_SIZE: usize>(
+        &mut self,
+        queue_index: u16,
+        data: &mut [u8],
+    ) -> usize {
+        let queue = &self.queues[queue_index as usize];
+        assert_ne!(queue.descriptors, 0);
+        fake_read_from_queue::<QUEUE_SIZE>(
+            queue.descriptors as *const Descriptor,
+            queue.driver_area,
+            queue.device_area,
+            data,
+        )
     }
 }
 

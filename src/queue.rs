@@ -528,14 +528,14 @@ struct UsedElem {
 /// The fake device always uses descriptors in order.
 #[cfg(test)]
 pub(crate) fn fake_write_to_queue<const QUEUE_SIZE: usize>(
-    receive_queue_descriptors: *const Descriptor,
-    receive_queue_driver_area: VirtAddr,
-    receive_queue_device_area: VirtAddr,
+    queue_descriptors: *const Descriptor,
+    queue_driver_area: VirtAddr,
+    queue_device_area: VirtAddr,
     data: &[u8],
 ) {
-    let descriptors = ptr::slice_from_raw_parts(receive_queue_descriptors, QUEUE_SIZE);
-    let available_ring = receive_queue_driver_area as *const AvailRing<QUEUE_SIZE>;
-    let used_ring = receive_queue_device_area as *mut UsedRing<QUEUE_SIZE>;
+    let descriptors = ptr::slice_from_raw_parts(queue_descriptors, QUEUE_SIZE);
+    let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
+    let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
     // Safe because the various pointers are properly aligned, dereferenceable, initialised, and
     // nothing else accesses them during this block.
     unsafe {
@@ -574,6 +574,66 @@ pub(crate) fn fake_write_to_queue<const QUEUE_SIZE: usize>(
         (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
         (*used_ring).ring[next_slot as usize].len = data.len() as u32;
         (*used_ring).idx += 1;
+    }
+}
+
+/// Simulates the device reading from a VirtIO queue, for use in tests.
+///
+/// Data is read into the `data` buffer passed in. Returns the number of bytes actually read.
+///
+/// The fake device always uses descriptors in order.
+#[cfg(test)]
+pub(crate) fn fake_read_from_queue<const QUEUE_SIZE: usize>(
+    queue_descriptors: *const Descriptor,
+    queue_driver_area: VirtAddr,
+    queue_device_area: VirtAddr,
+    data: &mut [u8],
+) -> usize {
+    let descriptors = ptr::slice_from_raw_parts(queue_descriptors, QUEUE_SIZE);
+    let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
+    let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
+
+    // Safe because the various pointers are properly aligned, dereferenceable, initialised, and
+    // nothing else accesses them during this block.
+    unsafe {
+        // Make sure there is actually at least one descriptor available to read from.
+        assert_ne!((*available_ring).idx, (*used_ring).idx);
+        // The fake device always uses descriptors in order, like VIRTIO_F_IN_ORDER, so
+        // `used_ring.idx` marks the next descriptor we should take from the available ring.
+        let next_slot = (*used_ring).idx & (QUEUE_SIZE as u16 - 1);
+        let head_descriptor_index = (*available_ring).ring[next_slot as usize];
+        let mut descriptor = &(*descriptors)[head_descriptor_index as usize];
+
+        // Loop through all descriptors in the chain, reading data from them.
+        let mut remaining_data = data;
+        let mut total_length_read = 0;
+        loop {
+            // Check the buffer and read from it.
+            let flags = descriptor.flags;
+            assert!(!flags.contains(DescFlags::WRITE));
+            let buffer_length = descriptor.len as usize;
+            let length_to_read = min(remaining_data.len(), buffer_length);
+            ptr::copy(
+                descriptor.addr as *const u8,
+                remaining_data.as_mut_ptr(),
+                length_to_read,
+            );
+            remaining_data = &mut remaining_data[length_to_read..];
+            total_length_read += length_to_read;
+
+            if let Some(next) = descriptor.next() {
+                descriptor = &(*descriptors)[next as usize];
+            } else {
+                break;
+            }
+        }
+
+        // Mark the buffer as used.
+        (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
+        (*used_ring).ring[next_slot as usize].len = total_length_read as u32;
+        (*used_ring).idx += 1;
+
+        total_length_read
     }
 }
 
