@@ -9,24 +9,25 @@ pub struct FakeHal;
 
 /// Fake HAL implementation for use in unit tests.
 impl Hal for FakeHal {
-    fn dma_alloc(pages: usize, _direction: BufferDirection) -> PhysAddr {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
         // Safe because the size and alignment of the layout are non-zero.
         let ptr = unsafe { alloc_zeroed(layout) };
-        if ptr.is_null() {
+        if let Some(ptr) = NonNull::new(ptr) {
+            (ptr.as_ptr() as PhysAddr, ptr)
+        } else {
             handle_alloc_error(layout);
         }
-        ptr as PhysAddr
     }
 
-    fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32 {
+    fn dma_dealloc(_paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
         // Safe because the layout is the same as was used when the memory was allocated by
         // `dma_alloc` above.
         unsafe {
-            dealloc(paddr as *mut u8, layout);
+            dealloc(vaddr.as_ptr(), layout);
         }
         0
     }

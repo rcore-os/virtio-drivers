@@ -18,13 +18,14 @@ lazy_static! {
 pub struct HalImpl;
 
 impl Hal for HalImpl {
-    fn dma_alloc(pages: usize, _direction: BufferDirection) -> PhysAddr {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
         let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
-        paddr
+        let vaddr = NonNull::new(paddr as _).unwrap();
+        (paddr, vaddr)
     }
 
-    fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32 {
+    fn dma_dealloc(paddr: PhysAddr, _vaddr: NonNull<u8>, pages: usize) -> i32 {
         trace!("dealloc DMA: paddr={:#x}, pages={}", paddr, pages);
         0
     }
