@@ -32,8 +32,8 @@ impl Hal for FakeHal {
         0
     }
 
-    fn phys_to_virt(paddr: PhysAddr, _size: usize) -> VirtAddr {
-        paddr
+    fn phys_to_virt(paddr: PhysAddr, _size: usize) -> NonNull<u8> {
+        NonNull::new(paddr as _).unwrap()
     }
 
     fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
