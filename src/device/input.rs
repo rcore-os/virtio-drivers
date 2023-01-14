@@ -18,8 +18,8 @@ use zerocopy::{AsBytes, FromBytes};
 /// making pass-through implementations on top of evdev easy.
 pub struct VirtIOInput<H: Hal, T: Transport> {
     transport: T,
-    event_queue: VirtQueue<H>,
-    status_queue: VirtQueue<H>,
+    event_queue: VirtQueue<H, QUEUE_SIZE>,
+    status_queue: VirtQueue<H, QUEUE_SIZE>,
     event_buf: Box<[InputEvent; 32]>,
     config: NonNull<Config>,
 }
@@ -38,8 +38,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
         let config = transport.config_space::<Config>()?;
 
-        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT, QUEUE_SIZE as u16)?;
-        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, QUEUE_SIZE as u16)?;
+        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT)?;
+        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &[event.as_bytes_mut()])? };

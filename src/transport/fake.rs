@@ -108,11 +108,10 @@ impl State {
     /// Simulates the device writing to the given queue.
     ///
     /// The fake device always uses descriptors in order.
-    pub fn write_to_queue(&mut self, queue_size: u16, queue_index: u16, data: &[u8]) {
+    pub fn write_to_queue<const QUEUE_SIZE: usize>(&mut self, queue_index: u16, data: &[u8]) {
         let receive_queue = &self.queues[queue_index as usize];
         assert_ne!(receive_queue.descriptors, 0);
-        fake_write_to_queue(
-            queue_size,
+        fake_write_to_queue::<QUEUE_SIZE>(
             receive_queue.descriptors as *const Descriptor,
             receive_queue.driver_area,
             receive_queue.device_area,

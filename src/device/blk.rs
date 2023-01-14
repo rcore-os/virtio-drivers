@@ -10,6 +10,7 @@ use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
+const QUEUE_SIZE: u16 = 16;
 
 /// Driver for a VirtIO block device.
 ///
@@ -39,7 +40,7 @@ const QUEUE: u16 = 0;
 /// ```
 pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
-    queue: VirtQueue<H>,
+    queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     capacity: u64,
     readonly: bool,
 }
@@ -67,7 +68,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         info!("found a block device of size {}KB", capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, QUEUE, 16)?;
+        let queue = VirtQueue::new(&mut transport, QUEUE)?;
         transport.finish_init();
 
         Ok(VirtIOBlk {
@@ -298,7 +299,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ///
     /// This can be used to tell the caller how many channels to monitor on.
     pub fn virt_queue_size(&self) -> u16 {
-        self.queue.size()
+        QUEUE_SIZE
     }
 }
 
