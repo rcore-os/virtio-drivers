@@ -233,7 +233,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;
-    use std::sync::Mutex;
+    use std::{sync::Mutex, thread, time::Duration};
 
     #[test]
     fn receive() {
@@ -281,5 +281,49 @@ mod tests {
         assert_eq!(console.recv(false).unwrap(), Some(42));
         assert_eq!(console.recv(true).unwrap(), Some(42));
         assert_eq!(console.recv(true).unwrap(), None);
+    }
+
+    #[test]
+    fn send() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(0),
+            rows: ReadOnly::new(0),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::default(),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default(); 2],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        // Start a thread to simulate the device waiting for characters.
+        let handle = thread::spawn(move || {
+            println!("Device waiting for a character.");
+            while !state.lock().unwrap().queues[usize::from(QUEUE_TRANSMITQ_PORT_0)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
+            println!("Transmit queue was notified.");
+
+            let data = state
+                .lock()
+                .unwrap()
+                .read_from_queue::<QUEUE_SIZE>(QUEUE_TRANSMITQ_PORT_0);
+            assert_eq!(data, b"Q");
+        });
+
+        assert_eq!(console.send(b'Q'), Ok(()));
+
+        handle.join().unwrap();
     }
 }

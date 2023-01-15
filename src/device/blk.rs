@@ -460,3 +460,206 @@ bitflags! {
         const NOTIFICATION_DATA     = 1 << 38;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        hal::fake::FakeHal,
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceStatus, DeviceType,
+        },
+    };
+    use alloc::{sync::Arc, vec};
+    use core::{mem::size_of, ptr::NonNull};
+    use std::{sync::Mutex, thread, time::Duration};
+
+    #[test]
+    fn config() {
+        let mut config_space = BlkConfig {
+            capacity_low: Volatile::new(0x42),
+            capacity_high: Volatile::new(0x02),
+            size_max: Volatile::new(0),
+            seg_max: Volatile::new(0),
+            cylinders: Volatile::new(0),
+            heads: Volatile::new(0),
+            sectors: Volatile::new(0),
+            blk_size: Volatile::new(0),
+            physical_block_exp: Volatile::new(0),
+            alignment_offset: Volatile::new(0),
+            min_io_size: Volatile::new(0),
+            opt_io_size: Volatile::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default(); 1],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: QUEUE_SIZE.into(),
+            device_features: BlkFeature::RO.bits(),
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+        assert_eq!(blk.capacity(), 0x02_0000_0042);
+        assert_eq!(blk.readonly(), true);
+    }
+
+    #[test]
+    fn read() {
+        let mut config_space = BlkConfig {
+            capacity_low: Volatile::new(66),
+            capacity_high: Volatile::new(0),
+            size_max: Volatile::new(0),
+            seg_max: Volatile::new(0),
+            cylinders: Volatile::new(0),
+            heads: Volatile::new(0),
+            sectors: Volatile::new(0),
+            blk_size: Volatile::new(0),
+            physical_block_exp: Volatile::new(0),
+            alignment_offset: Volatile::new(0),
+            min_io_size: Volatile::new(0),
+            opt_io_size: Volatile::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default(); 1],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: QUEUE_SIZE.into(),
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+        // Start a thread to simulate the device waiting for a read request.
+        let handle = thread::spawn(move || {
+            println!("Device waiting for a request.");
+            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
+            println!("Transmit queue was notified.");
+
+            state
+                .lock()
+                .unwrap()
+                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                    assert_eq!(
+                        request,
+                        BlkReq {
+                            type_: ReqType::In,
+                            reserved: 0,
+                            sector: 42
+                        }
+                        .as_bytes()
+                    );
+
+                    let mut response = vec![0; SECTOR_SIZE];
+                    response[0..9].copy_from_slice(b"Test data");
+                    response.extend_from_slice(
+                        BlkResp {
+                            status: RespStatus::OK,
+                        }
+                        .as_bytes(),
+                    );
+
+                    response
+                });
+        });
+
+        // Read a block from the device.
+        let mut buffer = [0; 512];
+        blk.read_block(42, &mut buffer).unwrap();
+        assert_eq!(&buffer[0..9], b"Test data");
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn write() {
+        let mut config_space = BlkConfig {
+            capacity_low: Volatile::new(66),
+            capacity_high: Volatile::new(0),
+            size_max: Volatile::new(0),
+            seg_max: Volatile::new(0),
+            cylinders: Volatile::new(0),
+            heads: Volatile::new(0),
+            sectors: Volatile::new(0),
+            blk_size: Volatile::new(0),
+            physical_block_exp: Volatile::new(0),
+            alignment_offset: Volatile::new(0),
+            min_io_size: Volatile::new(0),
+            opt_io_size: Volatile::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default(); 1],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: QUEUE_SIZE.into(),
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+        // Start a thread to simulate the device waiting for a write request.
+        let handle = thread::spawn(move || {
+            println!("Device waiting for a request.");
+            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
+            println!("Transmit queue was notified.");
+
+            state
+                .lock()
+                .unwrap()
+                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                    assert_eq!(
+                        &request[0..size_of::<BlkReq>()],
+                        BlkReq {
+                            type_: ReqType::Out,
+                            reserved: 0,
+                            sector: 42
+                        }
+                        .as_bytes()
+                    );
+                    let data = &request[size_of::<BlkReq>()..];
+                    assert_eq!(data.len(), SECTOR_SIZE);
+                    assert_eq!(&data[0..9], b"Test data");
+
+                    let mut response = Vec::new();
+                    response.extend_from_slice(
+                        BlkResp {
+                            status: RespStatus::OK,
+                        }
+                        .as_bytes(),
+                    );
+
+                    response
+                });
+        });
+
+        // Write a block to the device.
+        let mut buffer = [0; 512];
+        buffer[0..9].copy_from_slice(b"Test data");
+        blk.write_block(42, &mut buffer).unwrap();
+
+        handle.join().unwrap();
+    }
+}
