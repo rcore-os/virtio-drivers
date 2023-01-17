@@ -119,6 +119,9 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
             // Safe because the buffer lasts at least as long as the queue, and there are no other
             // outstanding requests using the buffer.
             self.receive_token = Some(unsafe { self.receiveq.add(&[], &[self.queue_buf_rx]) }?);
+            if self.receiveq.should_notify() {
+                self.transport.notify(QUEUE_RECEIVEQ_PORT_0);
+            }
         }
         Ok(())
     }

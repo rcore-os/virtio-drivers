@@ -45,6 +45,9 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             let token = unsafe { event_queue.add(&[], &[event.as_bytes_mut()])? };
             assert_eq!(token, i as u16);
         }
+        if event_queue.should_notify() {
+            transport.notify(QUEUE_EVENT);
+        }
 
         transport.finish_init();
 
@@ -76,6 +79,9 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
                 // was just freed by `pop_used`.
                 assert_eq!(new_token, token);
+                if self.event_queue.should_notify() {
+                    self.transport.notify(QUEUE_EVENT);
+                }
                 return Some(*event);
             }
         }
