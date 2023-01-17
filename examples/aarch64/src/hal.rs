@@ -4,7 +4,7 @@ use core::{
 };
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{BufferDirection, Hal, PhysAddr, VirtAddr, PAGE_SIZE};
+use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 
 extern "C" {
     static dma_region: u8;
@@ -46,6 +46,6 @@ impl Hal for HalImpl {
     }
 }
 
-fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
+fn virt_to_phys(vaddr: usize) -> PhysAddr {
     vaddr
 }

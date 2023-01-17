@@ -4,9 +4,6 @@ pub mod fake;
 use crate::{Error, Result, PAGE_SIZE};
 use core::{marker::PhantomData, ptr::NonNull};
 
-/// A virtual memory address in the address space of the program.
-pub type VirtAddr = usize;
-
 /// A physical address as used for virtio.
 pub type PhysAddr = usize;
 

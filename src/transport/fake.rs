@@ -113,8 +113,8 @@ impl State {
         assert_ne!(queue.descriptors, 0);
         fake_read_write_queue::<QUEUE_SIZE>(
             queue.descriptors as *const Descriptor,
-            queue.driver_area,
-            queue.device_area,
+            queue.driver_area as *const u8,
+            queue.device_area as *mut u8,
             |input| {
                 assert_eq!(input, Vec::new());
                 data.to_owned()
@@ -136,8 +136,8 @@ impl State {
         // Read data from the queue but don't write any response.
         fake_read_write_queue::<QUEUE_SIZE>(
             queue.descriptors as *const Descriptor,
-            queue.driver_area,
-            queue.device_area,
+            queue.driver_area as *const u8,
+            queue.device_area as *mut u8,
             |input| {
                 ret = Some(input);
                 Vec::new()
@@ -159,8 +159,8 @@ impl State {
         assert_ne!(queue.descriptors, 0);
         fake_read_write_queue::<QUEUE_SIZE>(
             queue.descriptors as *const Descriptor,
-            queue.driver_area,
-            queue.device_area,
+            queue.driver_area as *const u8,
+            queue.device_area as *mut u8,
             handler,
         )
     }

@@ -1,6 +1,6 @@
 //! Fake HAL implementation for tests.
 
-use crate::{BufferDirection, Hal, PhysAddr, VirtAddr, PAGE_SIZE};
+use crate::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
 use core::{alloc::Layout, ptr::NonNull};
 
@@ -48,6 +48,6 @@ impl Hal for FakeHal {
     }
 }
 
-fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
+fn virt_to_phys(vaddr: usize) -> PhysAddr {
     vaddr
 }
