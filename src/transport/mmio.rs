@@ -490,3 +490,10 @@ impl Transport for MmioTransport {
         Ok(NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap())
     }
 }
+
+impl Drop for MmioTransport {
+    fn drop(&mut self) {
+        // Reset the device when the transport is dropped.
+        self.set_status(DeviceStatus::empty())
+    }
+}
