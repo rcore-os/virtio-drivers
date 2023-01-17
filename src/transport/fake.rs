@@ -111,8 +111,8 @@ impl State {
     pub fn write_to_queue<const QUEUE_SIZE: usize>(&mut self, queue_index: u16, data: &[u8]) {
         let queue = &self.queues[queue_index as usize];
         assert_ne!(queue.descriptors, 0);
-        fake_read_write_queue::<QUEUE_SIZE>(
-            queue.descriptors as *const Descriptor,
+        fake_read_write_queue(
+            queue.descriptors as *const [Descriptor; QUEUE_SIZE],
             queue.driver_area as *const u8,
             queue.device_area as *mut u8,
             |input| {
@@ -134,8 +134,8 @@ impl State {
         let mut ret = None;
 
         // Read data from the queue but don't write any response.
-        fake_read_write_queue::<QUEUE_SIZE>(
-            queue.descriptors as *const Descriptor,
+        fake_read_write_queue(
+            queue.descriptors as *const [Descriptor; QUEUE_SIZE],
             queue.driver_area as *const u8,
             queue.device_area as *mut u8,
             |input| {
@@ -157,8 +157,8 @@ impl State {
     ) {
         let queue = &self.queues[queue_index as usize];
         assert_ne!(queue.descriptors, 0);
-        fake_read_write_queue::<QUEUE_SIZE>(
-            queue.descriptors as *const Descriptor,
+        fake_read_write_queue(
+            queue.descriptors as *const [Descriptor; QUEUE_SIZE],
             queue.driver_area as *const u8,
             queue.device_area as *mut u8,
             handler,
