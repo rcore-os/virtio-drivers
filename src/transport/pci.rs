@@ -338,6 +338,13 @@ impl Transport for PciTransport {
     }
 }
 
+impl Drop for PciTransport {
+    fn drop(&mut self) {
+        // Reset the device when the transport is dropped.
+        self.set_status(DeviceStatus::empty())
+    }
+}
+
 /// `virtio_pci_common_cfg`, see 4.1.4.3 "Common configuration structure layout".
 #[repr(C)]
 struct CommonCfg {
