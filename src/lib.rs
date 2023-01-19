@@ -53,7 +53,10 @@ mod queue;
 pub mod transport;
 mod volatile;
 
-use core::ptr::{self, NonNull};
+use core::{
+    fmt::{self, Display, Formatter},
+    ptr::{self, NonNull},
+};
 
 pub use self::hal::{BufferDirection, Hal, PhysAddr, VirtAddr};
 
@@ -86,6 +89,34 @@ pub enum Error {
     ConfigSpaceTooSmall,
     /// The device doesn't have any config space, but the driver expects some.
     ConfigSpaceMissing,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::QueueFull => write!(f, "Virtqueue is full"),
+            Self::NotReady => write!(f, "Device not ready"),
+            Self::WrongToken => write!(
+                f,
+                "Device used a different descriptor chain to the one we were expecting"
+            ),
+            Self::AlreadyUsed => write!(f, "Virtqueue is already in use"),
+            Self::InvalidParam => write!(f, "Invalid parameter"),
+            Self::DmaError => write!(f, "Failed to allocate DMA memory"),
+            Self::IoError => write!(f, "I/O Error"),
+            Self::Unsupported => write!(f, "Request not supported by device"),
+            Self::ConfigSpaceTooSmall => write!(
+                f,
+                "Config space advertised by the device is smaller than expected"
+            ),
+            Self::ConfigSpaceMissing => {
+                write!(
+                    f,
+                    "The device doesn't have any config space, but the driver expects some"
+                )
+            }
+        }
+    }
 }
 
 /// Align `size` up to a page.
