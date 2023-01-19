@@ -4,7 +4,7 @@ use core::{
 };
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{BufferDirection, Hal, PhysAddr, VirtAddr, PAGE_SIZE};
+use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 
 extern "C" {
     static dma_region: u8;
@@ -18,19 +18,20 @@ lazy_static! {
 pub struct HalImpl;
 
 impl Hal for HalImpl {
-    fn dma_alloc(pages: usize, _direction: BufferDirection) -> PhysAddr {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
         let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
-        paddr
+        let vaddr = NonNull::new(paddr as _).unwrap();
+        (paddr, vaddr)
     }
 
-    fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32 {
+    fn dma_dealloc(paddr: PhysAddr, _vaddr: NonNull<u8>, pages: usize) -> i32 {
         trace!("dealloc DMA: paddr={:#x}, pages={}", paddr, pages);
         0
     }
 
-    fn phys_to_virt(paddr: PhysAddr) -> VirtAddr {
-        paddr
+    fn mmio_phys_to_virt(paddr: PhysAddr, _size: usize) -> NonNull<u8> {
+        NonNull::new(paddr as _).unwrap()
     }
 
     fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
@@ -45,6 +46,6 @@ impl Hal for HalImpl {
     }
 }
 
-fn virt_to_phys(vaddr: VirtAddr) -> PhysAddr {
+fn virt_to_phys(vaddr: usize) -> PhysAddr {
     vaddr
 }

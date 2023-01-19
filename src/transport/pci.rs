@@ -5,7 +5,7 @@ pub mod bus;
 use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR};
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
-    hal::{Hal, PhysAddr, VirtAddr},
+    hal::{Hal, PhysAddr},
     nonnull_slice_from_raw_parts,
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
@@ -388,14 +388,14 @@ fn get_bar_region<H: Hal, T>(
         return Err(VirtioPciError::BarOffsetOutOfRange);
     }
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
-    let vaddr = H::phys_to_virt(paddr);
-    if vaddr % align_of::<T>() != 0 {
+    let vaddr = H::mmio_phys_to_virt(paddr, struct_info.length as usize);
+    if vaddr.as_ptr() as usize % align_of::<T>() != 0 {
         return Err(VirtioPciError::Misaligned {
             vaddr,
             alignment: align_of::<T>(),
         });
     }
-    Ok(NonNull::new(vaddr as _).unwrap())
+    Ok(vaddr.cast())
 }
 
 fn get_bar_region_slice<H: Hal, T>(
@@ -433,7 +433,7 @@ pub enum VirtioPciError {
     /// The virtual address was not aligned as expected.
     Misaligned {
         /// The virtual address in question.
-        vaddr: VirtAddr,
+        vaddr: NonNull<u8>,
         /// The expected alignment in bytes.
         alignment: usize,
     },
@@ -472,7 +472,7 @@ impl Display for VirtioPciError {
             Self::BarOffsetOutOfRange => write!(f, "Capability offset greater than BAR length."),
             Self::Misaligned { vaddr, alignment } => write!(
                 f,
-                "Virtual address {:#018x} was not aligned to a {} byte boundary as expected.",
+                "Virtual address {:#018?} was not aligned to a {} byte boundary as expected.",
                 vaddr, alignment
             ),
             Self::Pci(pci_error) => pci_error.fmt(f),

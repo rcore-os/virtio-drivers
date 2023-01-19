@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::hal::VirtAddr;
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
@@ -565,14 +563,13 @@ struct UsedElem {
 /// The fake device always uses descriptors in order.
 #[cfg(test)]
 pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
-    queue_descriptors: *const Descriptor,
-    queue_driver_area: VirtAddr,
-    queue_device_area: VirtAddr,
+    descriptors: *const [Descriptor; QUEUE_SIZE],
+    queue_driver_area: *const u8,
+    queue_device_area: *mut u8,
     handler: impl FnOnce(Vec<u8>) -> Vec<u8>,
 ) {
     use core::{ops::Deref, slice};
 
-    let descriptors = ptr::slice_from_raw_parts(queue_descriptors, QUEUE_SIZE);
     let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
     let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
 
