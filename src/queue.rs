@@ -252,7 +252,18 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// passed in too.
     ///
     /// This will push all linked descriptors at the front of the free list.
-    fn recycle_descriptors(&mut self, head: u16, inputs: &[*const [u8]], outputs: &[*mut [u8]]) {
+    ///
+    /// # Safety
+    ///
+    /// The buffers in `inputs` and `outputs` must be valid pointers to memory which is not accessed
+    /// by any other thread for the duration of this method call, and must match the set of buffers
+    /// originally added to the queue by `add`.
+    unsafe fn recycle_descriptors(
+        &mut self,
+        head: u16,
+        inputs: &[*const [u8]],
+        outputs: &[*mut [u8]],
+    ) {
         let original_free_head = self.free_head;
         self.free_head = head;
         let mut next = Some(head);
@@ -271,8 +282,12 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
             self.write_desc(desc_index);
 
-            // Unshare the buffer (and perhaps copy its contents back to the original buffer).
-            H::unshare(paddr as usize, buffer, direction);
+            // Safe because the caller ensures that the buffer is valid and matches the descriptor
+            // from which we got `paddr`.
+            unsafe {
+                // Unshare the buffer (and perhaps copy its contents back to the original buffer).
+                H::unshare(paddr as usize, buffer, direction);
+            }
         }
 
         if next.is_some() {
@@ -311,7 +326,10 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             return Err(Error::WrongToken);
         }
 
-        self.recycle_descriptors(index, inputs, outputs);
+        // Safe because the caller ensures the buffers are valid and match the descriptor.
+        unsafe {
+            self.recycle_descriptors(index, inputs, outputs);
+        }
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok(len)
