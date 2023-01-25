@@ -145,9 +145,12 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         let mut flag = false;
         if let Some(receive_token) = self.receive_token {
             if self.receive_token == self.receiveq.peek_used() {
-                let len = self
-                    .receiveq
-                    .pop_used(receive_token, &[], &[self.queue_buf_rx])?;
+                // Safe because we are passing the same buffer as we passed to `VirtQueue::add` in
+                // `poll_retrieve` and it is still valid.
+                let len = unsafe {
+                    self.receiveq
+                        .pop_used(receive_token, &[], &[self.queue_buf_rx])?
+                };
                 flag = true;
                 assert_ne!(len, 0);
                 self.cursor = 0;

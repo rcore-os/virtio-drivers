@@ -114,7 +114,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// # Safety
     ///
-    /// The input and output buffers must remain valid until the token is returned by `pop_used`.
+    /// The input and output buffers must remain valid and not be accessed until a call to
+    /// `pop_used` with the returned token succeeds.
     pub unsafe fn add(&mut self, inputs: &[*const [u8]], outputs: &[*mut [u8]]) -> Result<u16> {
         if inputs.is_empty() && outputs.is_empty() {
             return Err(Error::InvalidParam);
@@ -192,7 +193,9 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             spin_loop();
         }
 
-        self.pop_used(token, inputs, outputs)
+        // Safe because these are the same buffers as we passed to `add` above and they are still
+        // valid.
+        unsafe { self.pop_used(token, inputs, outputs) }
     }
 
     /// Returns whether the driver should notify the device after adding a new buffer to the
@@ -299,7 +302,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// length which was used (written) by the device.
     ///
     /// Ref: linux virtio_ring.c virtqueue_get_buf_ctx
-    pub fn pop_used(
+    ///
+    /// # Safety
+    ///
+    /// The buffers in `inputs` and `outputs` must be valid pointers to memory which is not accessed
+    /// by any other thread for the duration of this method call, and must match the set of buffers
+    /// originally added to the queue by `add`.
+    pub unsafe fn pop_used(
         &mut self,
         token: u16,
         inputs: &[*const [u8]],
