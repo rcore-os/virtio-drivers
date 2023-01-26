@@ -81,9 +81,11 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     pub fn recv(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut header = MaybeUninit::<Header>::uninit();
         let header_buf = unsafe { (*header.as_mut_ptr()).as_bytes_mut() };
-        let len =
-            self.recv_queue
-                .add_notify_wait_pop(&[], &[header_buf, buf], &mut self.transport)?;
+        let len = self.recv_queue.add_notify_wait_pop(
+            &[],
+            &mut [header_buf, buf],
+            &mut self.transport,
+        )?;
         // let header = unsafe { header.assume_init() };
         Ok(len as usize - size_of::<Header>())
     }
@@ -91,8 +93,11 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     /// Send a packet.
     pub fn send(&mut self, buf: &[u8]) -> Result {
         let header = unsafe { MaybeUninit::<Header>::zeroed().assume_init() };
-        self.send_queue
-            .add_notify_wait_pop(&[header.as_bytes(), buf], &[], &mut self.transport)?;
+        self.send_queue.add_notify_wait_pop(
+            &[header.as_bytes(), buf],
+            &mut [],
+            &mut self.transport,
+        )?;
         Ok(())
     }
 }

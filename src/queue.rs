@@ -5,7 +5,7 @@ use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
 use core::hint::spin_loop;
-use core::mem::size_of;
+use core::mem::{size_of, take};
 #[cfg(test)]
 use core::ptr;
 use core::ptr::NonNull;
@@ -116,7 +116,11 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// The input and output buffers must remain valid and not be accessed until a call to
     /// `pop_used` with the returned token succeeds.
-    pub unsafe fn add(&mut self, inputs: &[*const [u8]], outputs: &[*mut [u8]]) -> Result<u16> {
+    pub unsafe fn add<'a, 'b>(
+        &mut self,
+        inputs: &'a [&'b [u8]],
+        outputs: &'a mut [&'b mut [u8]],
+    ) -> Result<u16> {
         if inputs.is_empty() && outputs.is_empty() {
             return Err(Error::InvalidParam);
         }
@@ -128,7 +132,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let head = self.free_head;
         let mut last = self.free_head;
 
-        for (buffer, direction) in input_output_iter(inputs, outputs) {
+        for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
             // Write to desc_shadow then copy.
             let desc = &mut self.desc_shadow[usize::from(self.free_head)];
             desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
@@ -173,14 +177,14 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// them, then pops them.
     ///
     /// This assumes that the device isn't processing any other buffers at the same time.
-    pub fn add_notify_wait_pop(
+    pub fn add_notify_wait_pop<'a>(
         &mut self,
-        inputs: &[*const [u8]],
-        outputs: &[*mut [u8]],
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
         transport: &mut impl Transport,
     ) -> Result<u32> {
-        // Safe because we don't return until the same token has been popped, so they remain valid
-        // until then.
+        // Safe because we don't return until the same token has been popped, so the buffers remain
+        // valid and are not otherwise accessed until then.
         let token = unsafe { self.add(inputs, outputs) }?;
 
         // Notify the queue.
@@ -258,20 +262,19 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// # Safety
     ///
-    /// The buffers in `inputs` and `outputs` must be valid pointers to memory which is not accessed
-    /// by any other thread for the duration of this method call, and must match the set of buffers
-    /// originally added to the queue by `add`.
-    unsafe fn recycle_descriptors(
+    /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
+    /// queue by `add`.
+    unsafe fn recycle_descriptors<'a>(
         &mut self,
         head: u16,
-        inputs: &[*const [u8]],
-        outputs: &[*mut [u8]],
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
     ) {
         let original_free_head = self.free_head;
         self.free_head = head;
         let mut next = Some(head);
 
-        for (buffer, direction) in input_output_iter(inputs, outputs) {
+        for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
             let desc_index = next.expect("Descriptor chain was shorter than expected.");
             let desc = &mut self.desc_shadow[usize::from(desc_index)];
 
@@ -305,14 +308,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// # Safety
     ///
-    /// The buffers in `inputs` and `outputs` must be valid pointers to memory which is not accessed
-    /// by any other thread for the duration of this method call, and must match the set of buffers
-    /// originally added to the queue by `add`.
-    pub unsafe fn pop_used(
+    /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
+    /// queue by `add` when it returned the token being passed in here.
+    pub unsafe fn pop_used<'a>(
         &mut self,
         token: u16,
-        inputs: &[*const [u8]],
-        outputs: &[*mut [u8]],
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
     ) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
@@ -585,6 +587,46 @@ struct UsedElem {
     len: u32,
 }
 
+struct InputOutputIter<'a, 'b> {
+    inputs: &'a [&'b [u8]],
+    outputs: &'a mut [&'b mut [u8]],
+}
+
+impl<'a, 'b> InputOutputIter<'a, 'b> {
+    fn new(inputs: &'a [&'b [u8]], outputs: &'a mut [&'b mut [u8]]) -> Self {
+        Self { inputs, outputs }
+    }
+}
+
+impl<'a, 'b> Iterator for InputOutputIter<'a, 'b> {
+    type Item = (NonNull<[u8]>, BufferDirection);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(input) = take_first(&mut self.inputs) {
+            Some(((*input).into(), BufferDirection::DriverToDevice))
+        } else {
+            let output = take_first_mut(&mut self.outputs)?;
+            Some(((*output).into(), BufferDirection::DeviceToDriver))
+        }
+    }
+}
+
+// TODO: Use `slice::take_first` once it is stable
+// (https://github.com/rust-lang/rust/issues/62280).
+fn take_first<'a, T>(slice: &mut &'a [T]) -> Option<&'a T> {
+    let (first, rem) = slice.split_first()?;
+    *slice = rem;
+    Some(first)
+}
+
+// TODO: Use `slice::take_first_mut` once it is stable
+// (https://github.com/rust-lang/rust/issues/62280).
+fn take_first_mut<'a, T>(slice: &mut &'a mut [T]) -> Option<&'a mut T> {
+    let (first, rem) = take(slice).split_first_mut()?;
+    *slice = rem;
+    Some(first)
+}
+
 /// Simulates the device reading from a VirtIO queue and writing a response back, for use in tests.
 ///
 /// The fake device always uses descriptors in order.
@@ -707,7 +749,7 @@ mod tests {
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0).unwrap();
         assert_eq!(
-            unsafe { queue.add(&[], &[]) }.unwrap_err(),
+            unsafe { queue.add(&[], &mut []) }.unwrap_err(),
             Error::InvalidParam
         );
     }
@@ -719,7 +761,7 @@ mod tests {
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
-            unsafe { queue.add(&[&[], &[], &[]], &[&mut [], &mut []]) }.unwrap_err(),
+            unsafe { queue.add(&[&[], &[], &[]], &mut [&mut [], &mut []]) }.unwrap_err(),
             Error::QueueFull
         );
     }
@@ -733,7 +775,7 @@ mod tests {
 
         // Add a buffer chain consisting of two device-readable parts followed by two
         // device-writable parts.
-        let token = unsafe { queue.add(&[&[1, 2], &[3]], &[&mut [0, 0], &mut [0]]) }.unwrap();
+        let token = unsafe { queue.add(&[&[1, 2], &[3]], &mut [&mut [0, 0], &mut [0]]) }.unwrap();
 
         assert_eq!(queue.available_desc(), 0);
         assert!(!queue.can_pop());
@@ -783,28 +825,4 @@ mod tests {
             );
         }
     }
-}
-
-/// Returns an iterator over the buffers of first `inputs` and then `outputs`, paired with the
-/// corresponding `BufferDirection`.
-///
-/// Panics if any of the buffer pointers is null.
-fn input_output_iter<'a>(
-    inputs: &'a [*const [u8]],
-    outputs: &'a [*mut [u8]],
-) -> impl Iterator<Item = (NonNull<[u8]>, BufferDirection)> + 'a {
-    inputs
-        .iter()
-        .map(|input| {
-            (
-                NonNull::new(*input as *mut [u8]).unwrap(),
-                BufferDirection::DriverToDevice,
-            )
-        })
-        .chain(outputs.iter().map(|output| {
-            (
-                NonNull::new(*output).unwrap(),
-                BufferDirection::DeviceToDriver,
-            )
-        }))
 }
