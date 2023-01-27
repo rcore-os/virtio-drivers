@@ -7,7 +7,7 @@ use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result};
 use bitflags::bitflags;
 use log::info;
-use zerocopy::AsBytes;
+use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE_SIZE: u16 = 2;
 
@@ -174,14 +174,14 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 
     /// Send a request to the device and block for a response.
-    fn request<Req: AsBytes, Rsp>(&mut self, req: Req) -> Result<Rsp> {
+    fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
             &[self.queue_buf_send],
             &[self.queue_buf_recv],
             &mut self.transport,
         )?;
-        Ok(unsafe { (self.queue_buf_recv.as_ptr() as *const Rsp).read() })
+        Ok(Rsp::read_from_prefix(&*self.queue_buf_recv).unwrap())
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
@@ -196,63 +196,64 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 
     fn get_display_info(&mut self) -> Result<RespDisplayInfo> {
-        let info: RespDisplayInfo = self.request(CtrlHeader::with_type(Command::GetDisplayInfo))?;
-        info.header.check_type(Command::OkDisplayInfo)?;
+        let info: RespDisplayInfo =
+            self.request(CtrlHeader::with_type(Command::GET_DISPLAY_INFO))?;
+        info.header.check_type(Command::OK_DISPLAY_INFO)?;
         Ok(info)
     }
 
     fn resource_create_2d(&mut self, resource_id: u32, width: u32, height: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceCreate2D {
-            header: CtrlHeader::with_type(Command::ResourceCreate2d),
+            header: CtrlHeader::with_type(Command::RESOURCE_CREATE_2D),
             resource_id,
             format: Format::B8G8R8A8UNORM,
             width,
             height,
         })?;
-        rsp.check_type(Command::OkNodata)
+        rsp.check_type(Command::OK_NODATA)
     }
 
     fn set_scanout(&mut self, rect: Rect, scanout_id: u32, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(SetScanout {
-            header: CtrlHeader::with_type(Command::SetScanout),
+            header: CtrlHeader::with_type(Command::SET_SCANOUT),
             rect,
             scanout_id,
             resource_id,
         })?;
-        rsp.check_type(Command::OkNodata)
+        rsp.check_type(Command::OK_NODATA)
     }
 
     fn resource_flush(&mut self, rect: Rect, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceFlush {
-            header: CtrlHeader::with_type(Command::ResourceFlush),
+            header: CtrlHeader::with_type(Command::RESOURCE_FLUSH),
             rect,
             resource_id,
             _padding: 0,
         })?;
-        rsp.check_type(Command::OkNodata)
+        rsp.check_type(Command::OK_NODATA)
     }
 
     fn transfer_to_host_2d(&mut self, rect: Rect, offset: u64, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(TransferToHost2D {
-            header: CtrlHeader::with_type(Command::TransferToHost2d),
+            header: CtrlHeader::with_type(Command::TRANSFER_TO_HOST_2D),
             rect,
             offset,
             resource_id,
             _padding: 0,
         })?;
-        rsp.check_type(Command::OkNodata)
+        rsp.check_type(Command::OK_NODATA)
     }
 
     fn resource_attach_backing(&mut self, resource_id: u32, paddr: u64, length: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceAttachBacking {
-            header: CtrlHeader::with_type(Command::ResourceAttachBacking),
+            header: CtrlHeader::with_type(Command::RESOURCE_ATTACH_BACKING),
             resource_id,
             nr_entries: 1,
             addr: paddr,
             length,
             _padding: 0,
         })?;
-        rsp.check_type(Command::OkNodata)
+        rsp.check_type(Command::OK_NODATA)
     }
 
     fn update_cursor(
@@ -267,9 +268,9 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     ) -> Result {
         self.cursor_request(UpdateCursor {
             header: if is_move {
-                CtrlHeader::with_type(Command::MoveCursor)
+                CtrlHeader::with_type(Command::MOVE_CURSOR)
             } else {
-                CtrlHeader::with_type(Command::UpdateCursor)
+                CtrlHeader::with_type(Command::UPDATE_CURSOR)
             },
             pos: CursorPos {
                 scanout_id,
@@ -336,39 +337,41 @@ bitflags! {
     }
 }
 
-#[repr(u32)]
-#[derive(AsBytes, Debug, Clone, Copy, PartialEq, Eq)]
-enum Command {
-    GetDisplayInfo = 0x100,
-    ResourceCreate2d = 0x101,
-    ResourceUnref = 0x102,
-    SetScanout = 0x103,
-    ResourceFlush = 0x104,
-    TransferToHost2d = 0x105,
-    ResourceAttachBacking = 0x106,
-    ResourceDetachBacking = 0x107,
-    GetCapsetInfo = 0x108,
-    GetCapset = 0x109,
-    GetEdid = 0x10a,
+#[repr(transparent)]
+#[derive(AsBytes, Clone, Copy, Debug, Eq, PartialEq, FromBytes)]
+struct Command(u32);
 
-    UpdateCursor = 0x300,
-    MoveCursor = 0x301,
+impl Command {
+    const GET_DISPLAY_INFO: Command = Command(0x100);
+    const RESOURCE_CREATE_2D: Command = Command(0x101);
+    const RESOURCE_UNREF: Command = Command(0x102);
+    const SET_SCANOUT: Command = Command(0x103);
+    const RESOURCE_FLUSH: Command = Command(0x104);
+    const TRANSFER_TO_HOST_2D: Command = Command(0x105);
+    const RESOURCE_ATTACH_BACKING: Command = Command(0x106);
+    const RESOURCE_DETACH_BACKING: Command = Command(0x107);
+    const GET_CAPSET_INFO: Command = Command(0x108);
+    const GET_CAPSET: Command = Command(0x109);
+    const GET_EDID: Command = Command(0x10a);
 
-    OkNodata = 0x1100,
-    OkDisplayInfo = 0x1101,
-    OkCapsetInfo = 0x1102,
-    OkCapset = 0x1103,
-    OkEdid = 0x1104,
+    const UPDATE_CURSOR: Command = Command(0x300);
+    const MOVE_CURSOR: Command = Command(0x301);
 
-    ErrUnspec = 0x1200,
-    ErrOutOfMemory = 0x1201,
-    ErrInvalidScanoutId = 0x1202,
+    const OK_NODATA: Command = Command(0x1100);
+    const OK_DISPLAY_INFO: Command = Command(0x1101);
+    const OK_CAPSET_INFO: Command = Command(0x1102);
+    const OK_CAPSET: Command = Command(0x1103);
+    const OK_EDID: Command = Command(0x1104);
+
+    const ERR_UNSPEC: Command = Command(0x1200);
+    const ERR_OUT_OF_MEMORY: Command = Command(0x1201);
+    const ERR_INVALID_SCANOUT_ID: Command = Command(0x1202);
 }
 
 const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Clone, Copy)]
+#[derive(AsBytes, Debug, Clone, Copy, FromBytes)]
 struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
@@ -399,7 +402,7 @@ impl CtrlHeader {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Copy, Clone, Default)]
+#[derive(AsBytes, Debug, Copy, Clone, Default, FromBytes)]
 struct Rect {
     x: u32,
     y: u32,
@@ -408,7 +411,7 @@ struct Rect {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, FromBytes)]
 struct RespDisplayInfo {
     header: CtrlHeader,
     rect: Rect,
