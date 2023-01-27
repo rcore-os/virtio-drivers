@@ -7,6 +7,7 @@ use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result};
 use bitflags::bitflags;
 use log::info;
+use zerocopy::AsBytes;
 
 const QUEUE_SIZE: u16 = 2;
 
@@ -173,10 +174,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 
     /// Send a request to the device and block for a response.
-    fn request<Req, Rsp>(&mut self, req: Req) -> Result<Rsp> {
-        unsafe {
-            (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
-        }
+    fn request<Req: AsBytes, Rsp>(&mut self, req: Req) -> Result<Rsp> {
+        req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
             &[self.queue_buf_send],
             &[self.queue_buf_recv],
@@ -186,12 +185,13 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
-    fn cursor_request<Req>(&mut self, req: Req) -> Result {
-        unsafe {
-            (self.queue_buf_send.as_mut_ptr() as *mut Req).write(req);
-        }
-        self.cursor_queue
-            .add_notify_wait_pop(&[self.queue_buf_send], &[], &mut self.transport)?;
+    fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
+        req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
+        self.cursor_queue.add_notify_wait_pop(
+            &[self.queue_buf_send],
+            &mut [],
+            &mut self.transport,
+        )?;
         Ok(())
     }
 
@@ -337,7 +337,7 @@ bitflags! {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(AsBytes, Debug, Clone, Copy, PartialEq, Eq)]
 enum Command {
     GetDisplayInfo = 0x100,
     ResourceCreate2d = 0x101,
@@ -368,7 +368,7 @@ enum Command {
 const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(AsBytes, Debug, Clone, Copy)]
 struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
@@ -399,7 +399,7 @@ impl CtrlHeader {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(AsBytes, Debug, Copy, Clone, Default)]
 struct Rect {
     x: u32,
     y: u32,
@@ -417,7 +417,7 @@ struct RespDisplayInfo {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct ResourceCreate2D {
     header: CtrlHeader,
     resource_id: u32,
@@ -427,13 +427,13 @@ struct ResourceCreate2D {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 enum Format {
     B8G8R8A8UNORM = 1,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct ResourceAttachBacking {
     header: CtrlHeader,
     resource_id: u32,
@@ -444,7 +444,7 @@ struct ResourceAttachBacking {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct SetScanout {
     header: CtrlHeader,
     rect: Rect,
@@ -453,7 +453,7 @@ struct SetScanout {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct TransferToHost2D {
     header: CtrlHeader,
     rect: Rect,
@@ -463,7 +463,7 @@ struct TransferToHost2D {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug)]
 struct ResourceFlush {
     header: CtrlHeader,
     rect: Rect,
@@ -472,7 +472,7 @@ struct ResourceFlush {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(AsBytes, Debug, Clone, Copy)]
 struct CursorPos {
     scanout_id: u32,
     x: u32,
@@ -481,7 +481,7 @@ struct CursorPos {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(AsBytes, Debug, Clone, Copy)]
 struct UpdateCursor {
     header: CtrlHeader,
     pos: CursorPos,
