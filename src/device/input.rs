@@ -42,7 +42,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
-            let token = unsafe { event_queue.add(&[], &[event.as_bytes_mut()])? };
+            let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };
             assert_eq!(token, i as u16);
         }
         if event_queue.should_notify() {
@@ -69,12 +69,17 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     pub fn pop_pending_event(&mut self) -> Option<InputEvent> {
         if let Some(token) = self.event_queue.peek_used() {
             let event = &mut self.event_buf[token as usize];
-            self.event_queue
-                .pop_used(token, &[], &[event.as_bytes_mut()])
-                .ok()?;
+            // Safe because we are passing the same buffer as we passed to `VirtQueue::add` and it
+            // is still valid.
+            unsafe {
+                self.event_queue
+                    .pop_used(token, &[], &mut [event.as_bytes_mut()])
+                    .ok()?;
+            }
             // requeue
             // Safe because buffer lasts as long as the queue.
-            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &[event.as_bytes_mut()]) } {
+            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &mut [event.as_bytes_mut()]) }
+            {
                 // This only works because nothing happen between `pop_used` and `add` that affects
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
                 // was just freed by `pop_used`.

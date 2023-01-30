@@ -178,7 +178,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
             &[self.queue_buf_send],
-            &[self.queue_buf_recv],
+            &mut [self.queue_buf_recv],
             &mut self.transport,
         )?;
         Ok(Rsp::read_from_prefix(&*self.queue_buf_recv).unwrap())

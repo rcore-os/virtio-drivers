@@ -118,7 +118,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         if self.receive_token.is_none() && self.cursor == self.pending_len {
             // Safe because the buffer lasts at least as long as the queue, and there are no other
             // outstanding requests using the buffer.
-            self.receive_token = Some(unsafe { self.receiveq.add(&[], &[self.queue_buf_rx]) }?);
+            self.receive_token = Some(unsafe { self.receiveq.add(&[], &mut [self.queue_buf_rx]) }?);
             if self.receiveq.should_notify() {
                 self.transport.notify(QUEUE_RECEIVEQ_PORT_0);
             }
@@ -145,9 +145,12 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
         let mut flag = false;
         if let Some(receive_token) = self.receive_token {
             if self.receive_token == self.receiveq.peek_used() {
-                let len = self
-                    .receiveq
-                    .pop_used(receive_token, &[], &[self.queue_buf_rx])?;
+                // Safe because we are passing the same buffer as we passed to `VirtQueue::add` in
+                // `poll_retrieve` and it is still valid.
+                let len = unsafe {
+                    self.receiveq
+                        .pop_used(receive_token, &[], &mut [self.queue_buf_rx])?
+                };
                 flag = true;
                 assert_ne!(len, 0);
                 self.cursor = 0;
@@ -176,9 +179,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
     /// Sends a character to the console.
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
-        // Safe because the buffer is valid until we pop_used below.
         self.transmitq
-            .add_notify_wait_pop(&[&buf], &[], &mut self.transport)?;
+            .add_notify_wait_pop(&[&buf], &mut [], &mut self.transport)?;
         Ok(())
     }
 }

@@ -109,7 +109,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let mut resp = BlkResp::default();
         self.queue.add_notify_wait_pop(
             &[req.as_bytes()],
-            &[buf, resp.as_bytes_mut()],
+            &mut [buf, resp.as_bytes_mut()],
             &mut self.transport,
         )?;
         resp.status.into()
@@ -187,7 +187,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let token = self
             .queue
-            .add(&[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
+            .add(&[req.as_bytes()], &mut [buf, resp.as_bytes_mut()])?;
         if self.queue.should_notify() {
             self.transport.notify(QUEUE);
         }
@@ -208,7 +208,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         resp: &mut BlkResp,
     ) -> Result<()> {
         self.queue
-            .pop_used(token, &[req.as_bytes()], &[buf, resp.as_bytes_mut()])?;
+            .pop_used(token, &[req.as_bytes()], &mut [buf, resp.as_bytes_mut()])?;
         resp.status.into()
     }
 
@@ -225,7 +225,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let mut resp = BlkResp::default();
         self.queue.add_notify_wait_pop(
             &[req.as_bytes(), buf],
-            &[resp.as_bytes_mut()],
+            &mut [resp.as_bytes_mut()],
             &mut self.transport,
         )?;
         resp.status.into()
@@ -268,7 +268,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let token = self
             .queue
-            .add(&[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
+            .add(&[req.as_bytes(), buf], &mut [resp.as_bytes_mut()])?;
         if self.queue.should_notify() {
             self.transport.notify(QUEUE);
         }
@@ -289,7 +289,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         resp: &mut BlkResp,
     ) -> Result<()> {
         self.queue
-            .pop_used(token, &[req.as_bytes(), buf], &[resp.as_bytes_mut()])?;
+            .pop_used(token, &[req.as_bytes(), buf], &mut [resp.as_bytes_mut()])?;
         resp.status.into()
     }
 
