@@ -155,6 +155,9 @@ impl<H: Hal, T: Transport> VirtIOConsole<'_, H, T> {
                 assert_ne!(len, 0);
                 self.cursor = 0;
                 self.pending_len = len as usize;
+                // Clear `receive_token` so that when the buffer is used up the next call to
+                // `poll_retrieve` will add a new pending request.
+                self.receive_token.take();
             }
         }
         Ok(flag)
