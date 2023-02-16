@@ -76,6 +76,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
                     .pop_used(token, &[], &mut [event.as_bytes_mut()])
                     .ok()?;
             }
+            let event_saved = *event;
             // requeue
             // Safe because buffer lasts as long as the queue.
             if let Ok(new_token) = unsafe { self.event_queue.add(&[], &mut [event.as_bytes_mut()]) }
@@ -87,7 +88,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
                 if self.event_queue.should_notify() {
                     self.transport.notify(QUEUE_EVENT);
                 }
-                return Some(*event);
+                return Some(event_saved);
             }
         }
         None

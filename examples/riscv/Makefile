@@ -4,6 +4,8 @@ mode := release
 kernel := target/$(target)/$(mode)/riscv
 img := target/$(target)/$(mode)/img
 
+tcp ?= off
+
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=$(arch)
 objcopy := $(shell find $(sysroot) -name llvm-objcopy)
@@ -11,6 +13,10 @@ objcopy := $(shell find $(sysroot) -name llvm-objcopy)
 BUILD_ARGS += --target $(target)
 ifeq ($(mode), release)
 	BUILD_ARGS += --release
+endif
+
+ifeq ($(tcp), on)
+	BUILD_ARGS += --features tcp
 endif
 
 .PHONY: kernel build clean qemu run env
@@ -38,7 +44,7 @@ clean:
 
 qemu-legacy: kernel $(img)
 # Wait a few seconds, then try to open a connection to the VM so it can test its networking.
-	( sleep 4 && nc localhost 5555 -v < /dev/null) &
+	( sleep 4 && echo "hello" | nc localhost 5555 -N -v) &
 	qemu-system-$(arch) \
 	  $(QEMU_ARGS) \
 		-machine virt \
@@ -54,7 +60,7 @@ qemu-legacy: kernel $(img)
 
 qemu: kernel $(img)
 # Wait a few seconds, then try to open a connection to the VM so it can test its networking.
-	( sleep 4 && nc localhost 5555 -v < /dev/null) &
+	( sleep 4 && echo "hello" | nc localhost 5555 -N -v) &
 	qemu-system-$(arch) \
 	  $(QEMU_ARGS) \
 		-machine virt \

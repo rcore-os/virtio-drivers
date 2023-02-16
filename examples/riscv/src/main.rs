@@ -2,13 +2,16 @@
 #![no_main]
 #![deny(warnings)]
 
+#[macro_use]
+extern crate log;
+
 extern crate alloc;
 extern crate opensbi_rt;
 
 use alloc::vec;
 use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
-use log::{info, warn, LevelFilter};
+use log::LevelFilter;
 use virtio_drivers::{
     device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput, net::VirtIONet},
     transport::{
@@ -19,6 +22,9 @@ use virtio_drivers::{
 use virtio_impl::HalImpl;
 
 mod virtio_impl;
+
+#[cfg(feature = "tcp")]
+mod tcp;
 
 #[no_mangle]
 extern "C" fn main(_hartid: usize, device_tree_paddr: usize) {
@@ -114,7 +120,7 @@ fn virtio_gpu<T: Transport>(transport: T) {
     gpu.flush().expect("failed to flush");
     //delay some time
     info!("virtio-gpu show graphics....");
-    for _ in 0..100000 {
+    for _ in 0..10000 {
         for _ in 0..100000 {
             unsafe {
                 core::arch::asm!("nop");
@@ -137,10 +143,32 @@ fn virtio_input<T: Transport>(transport: T) {
 }
 
 fn virtio_net<T: Transport>(transport: T) {
-    let mut net = VirtIONet::<HalImpl, T>::new(transport).expect("failed to create net driver");
-    let mut buf = [0u8; 0x100];
-    let len = net.recv(&mut buf).expect("failed to recv");
-    info!("recv: {:?}", &buf[..len]);
-    net.send(&buf[..len]).expect("failed to send");
-    info!("virtio-net test finished");
+    const NET_BUFFER_LEN: usize = 2048;
+    const NET_QUEUE_SIZE: usize = 16;
+
+    let net = VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(transport, NET_BUFFER_LEN)
+        .expect("failed to create net driver");
+    info!("MAC address: {:02x?}", net.mac_address());
+
+    #[cfg(not(feature = "tcp"))]
+    {
+        let mut net = net;
+        loop {
+            match net.receive() {
+                Ok(buf) => {
+                    info!("RECV {} bytes: {:02x?}", buf.packet_len(), buf.packet());
+                    let tx_buf = virtio_drivers::device::net::TxBuffer::from(buf.packet());
+                    net.send(tx_buf).expect("failed to send");
+                    net.recycle_rx_buffer(buf).unwrap();
+                    break;
+                }
+                Err(virtio_drivers::Error::NotReady) => continue,
+                Err(err) => panic!("failed to recv: {:?}", err),
+            }
+        }
+        info!("virtio-net test finished");
+    }
+
+    #[cfg(feature = "tcp")]
+    tcp::test_echo_server(net);
 }
