@@ -8,7 +8,7 @@ edition = "2018"
 
 [features]
 tcp = ["smoltcp"]
-default = []
+default = ["tcp"]
 
 [dependencies]
 log = "0.4"

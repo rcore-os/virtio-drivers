@@ -26,6 +26,9 @@ mod virtio_impl;
 #[cfg(feature = "tcp")]
 mod tcp;
 
+const NET_BUFFER_LEN: usize = 2048;
+const NET_QUEUE_SIZE: usize = 16;
+
 #[no_mangle]
 extern "C" fn main(_hartid: usize, device_tree_paddr: usize) {
     log::set_max_level(LevelFilter::Info);
@@ -143,9 +146,6 @@ fn virtio_input<T: Transport>(transport: T) {
 }
 
 fn virtio_net<T: Transport>(transport: T) {
-    const NET_BUFFER_LEN: usize = 2048;
-    const NET_QUEUE_SIZE: usize = 16;
-
     let net = VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(transport, NET_BUFFER_LEN)
         .expect("failed to create net driver");
     info!("MAC address: {:02x?}", net.mac_address());

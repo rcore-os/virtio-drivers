@@ -17,6 +17,8 @@ endif
 
 ifeq ($(tcp), on)
 	BUILD_ARGS += --features tcp
+else
+	BUILD_ARGS += --no-default-features
 endif
 
 .PHONY: kernel build clean qemu run env
