@@ -6,10 +6,25 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+tcp = ["smoltcp"]
+default = ["tcp"]
+
 [dependencies]
 log = "0.4"
-riscv = "0.6"
+riscv = "0.10"
 opensbi-rt = { git = "https://github.com/rcore-os/opensbi-rt.git", rev = "abdfeb72" }
 fdt = "0.1.4"
 virtio-drivers = { path = "../.." }
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
+
+[dependencies.smoltcp]
+version = "0.9.1"
+optional = true
+default-features = false
+features = [
+  "alloc", "log",   # no std
+  "medium-ethernet",
+  "proto-ipv4",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",
+]

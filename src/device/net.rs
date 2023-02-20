@@ -4,13 +4,95 @@ use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly};
-use crate::Result;
+use crate::{Error, Result};
+use alloc::{vec, vec::Vec};
 use bitflags::bitflags;
-use core::mem::{size_of, MaybeUninit};
-use log::{debug, info};
+use core::mem::size_of;
+use log::{debug, info, warn};
 use zerocopy::{AsBytes, FromBytes};
 
-const QUEUE_SIZE: u16 = 2;
+const MAX_BUFFER_LEN: usize = 65535;
+const MIN_BUFFER_LEN: usize = 1526;
+const NET_HDR_SIZE: usize = size_of::<VirtioNetHdr>();
+
+/// A buffer used for transmitting.
+pub struct TxBuffer(Vec<u8>);
+
+/// A buffer used for receiving.
+pub struct RxBuffer {
+    buf: Vec<usize>, // for alignment
+    packet_len: usize,
+    idx: usize,
+}
+
+impl TxBuffer {
+    /// Constructs the buffer from the given slice.
+    pub fn from(buf: &[u8]) -> Self {
+        Self(Vec::from(buf))
+    }
+
+    /// Returns the network packet length.
+    pub fn packet_len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns the network packet as a slice.
+    pub fn packet(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    /// Returns the network packet as a mutable slice.
+    pub fn packet_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+}
+
+impl RxBuffer {
+    /// Allocates a new buffer with length `buf_len`.
+    fn new(idx: usize, buf_len: usize) -> Self {
+        Self {
+            buf: vec![0; buf_len / size_of::<usize>()],
+            packet_len: 0,
+            idx,
+        }
+    }
+
+    /// Set the network packet length.
+    fn set_packet_len(&mut self, packet_len: usize) {
+        self.packet_len = packet_len
+    }
+
+    /// Returns the network packet length (witout header).
+    pub const fn packet_len(&self) -> usize {
+        self.packet_len
+    }
+
+    /// Returns all data in the buffer, including both the header and the packet.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.buf.as_bytes()
+    }
+
+    /// Returns all data in the buffer with the mutable reference,
+    /// including both the header and the packet.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.buf.as_bytes_mut()
+    }
+
+    /// Returns the reference of the header.
+    pub fn header(&self) -> &VirtioNetHdr {
+        unsafe { &*(self.buf.as_ptr() as *const VirtioNetHdr) }
+    }
+
+    /// Returns the network packet as a slice.
+    pub fn packet(&self) -> &[u8] {
+        &self.buf.as_bytes()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
+    }
+
+    /// Returns the network packet as a mutable slice.
+    pub fn packet_mut(&mut self) -> &mut [u8] {
+        &mut self.buf.as_bytes_mut()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
+    }
+}
 
 /// The virtio network device is a virtual ethernet card.
 ///
@@ -19,16 +101,17 @@ const QUEUE_SIZE: u16 = 2;
 /// Empty buffers are placed in one virtqueue for receiving packets, and
 /// outgoing packets are enqueued into another for transmission in that order.
 /// A third command queue is used to control advanced filtering features.
-pub struct VirtIONet<H: Hal, T: Transport> {
+pub struct VirtIONet<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
     transport: T,
     mac: EthernetAddress,
-    recv_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    send_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    recv_queue: VirtQueue<H, QUEUE_SIZE>,
+    send_queue: VirtQueue<H, QUEUE_SIZE>,
+    rx_buffers: [Option<RxBuffer>; QUEUE_SIZE],
 }
 
-impl<H: Hal, T: Transport> VirtIONet<H, T> {
+impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
-    pub fn new(mut transport: T) -> Result<Self> {
+    pub fn new(mut transport: T, buf_len: usize) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -41,11 +124,37 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {
             mac = volread!(config, mac);
-            debug!("Got MAC={:?}, status={:?}", mac, volread!(config, status));
+            debug!(
+                "Got MAC={:02x?}, status={:?}",
+                mac,
+                volread!(config, status)
+            );
         }
 
-        let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
+        if !(MIN_BUFFER_LEN..=MAX_BUFFER_LEN).contains(&buf_len) {
+            warn!(
+                "Receive buffer len {} is not in range [{}, {}]",
+                buf_len, MIN_BUFFER_LEN, MAX_BUFFER_LEN
+            );
+            return Err(Error::InvalidParam);
+        }
+
         let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
+        let mut recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
+
+        const NONE_BUF: Option<RxBuffer> = None;
+        let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];
+        for (i, rx_buf_place) in rx_buffers.iter_mut().enumerate() {
+            let mut rx_buf = RxBuffer::new(i, buf_len);
+            // Safe because the buffer lives as long as the queue.
+            let token = unsafe { recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()])? };
+            assert_eq!(token, i as u16);
+            *rx_buf_place = Some(rx_buf);
+        }
+
+        if recv_queue.should_notify() {
+            transport.notify(QUEUE_RECEIVE);
+        }
 
         transport.finish_init();
 
@@ -54,6 +163,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
             mac,
             recv_queue,
             send_queue,
+            rx_buffers,
         })
     }
 
@@ -63,7 +173,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     }
 
     /// Get MAC address.
-    pub fn mac(&self) -> EthernetAddress {
+    pub fn mac_address(&self) -> EthernetAddress {
         self.mac
     }
 
@@ -77,24 +187,66 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
         self.recv_queue.can_pop()
     }
 
-    /// Receive a packet.
-    pub fn recv(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let mut header = MaybeUninit::<Header>::uninit();
-        let header_buf = unsafe { (*header.as_mut_ptr()).as_bytes_mut() };
-        let len = self.recv_queue.add_notify_wait_pop(
-            &[],
-            &mut [header_buf, buf],
-            &mut self.transport,
-        )?;
-        // let header = unsafe { header.assume_init() };
-        Ok(len as usize - size_of::<Header>())
+    /// Receives a [`RxBuffer`] from network. If currently no data, returns an
+    /// error with type [`Error::NotReady`].
+    ///
+    /// It will try to pop a buffer that completed data reception in the
+    /// NIC queue.
+    pub fn receive(&mut self) -> Result<RxBuffer> {
+        if let Some(token) = self.recv_queue.peek_used() {
+            let mut rx_buf = self.rx_buffers[token as usize]
+                .take()
+                .ok_or(Error::WrongToken)?;
+            if token as usize != rx_buf.idx {
+                return Err(Error::WrongToken);
+            }
+
+            // Safe because `token` == `rx_buf.idx`, we are passing the same
+            // buffer as we passed to `VirtQueue::add` and it is still valid.
+            let len = unsafe {
+                self.recv_queue
+                    .pop_used(token, &[], &mut [rx_buf.as_bytes_mut()])?
+            };
+            if (len as usize) < NET_HDR_SIZE {
+                Err(Error::IoError)
+            } else {
+                rx_buf.set_packet_len(len as usize - NET_HDR_SIZE);
+                Ok(rx_buf)
+            }
+        } else {
+            Err(Error::NotReady)
+        }
     }
 
-    /// Send a packet.
-    pub fn send(&mut self, buf: &[u8]) -> Result {
-        let header = unsafe { MaybeUninit::<Header>::zeroed().assume_init() };
+    /// Gives back the ownership of `rx_buf`, and recycles it for next use.
+    ///
+    /// It will add the buffer back to the NIC queue.
+    pub fn recycle_rx_buffer(&mut self, mut rx_buf: RxBuffer) -> Result {
+        let old_token = rx_buf.idx;
+        // Safe because we take the ownership of `rx_buf` back to `rx_buffers`,
+        // it lives as long as the queue.
+        let new_token = unsafe { self.recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()]) }?;
+        if new_token as usize != old_token {
+            return Err(Error::WrongToken);
+        }
+        self.rx_buffers[old_token] = Some(rx_buf);
+        if self.recv_queue.should_notify() {
+            self.transport.notify(QUEUE_RECEIVE);
+        }
+        Ok(())
+    }
+
+    /// Allocate a new buffer for transmitting.
+    pub fn new_tx_buffer(&self, buf_len: usize) -> TxBuffer {
+        TxBuffer(vec![0; buf_len])
+    }
+
+    /// Sends a [`TxBuffer`] to the network, and blocks until the request
+    /// completed.
+    pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
+        let header = VirtioNetHdr::default();
         self.send_queue.add_notify_wait_pop(
-            &[header.as_bytes(), buf],
+            &[header.as_bytes(), tx_buf.packet()],
             &mut [],
             &mut self.transport,
         )?;
@@ -102,7 +254,7 @@ impl<H: Hal, T: Transport> VirtIONet<H, T> {
     }
 }
 
-impl<H: Hal, T: Transport> Drop for VirtIONet<H, T> {
+impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> Drop for VirtIONet<H, T, QUEUE_SIZE> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
@@ -190,26 +342,33 @@ bitflags! {
 struct Config {
     mac: ReadOnly<EthernetAddress>,
     status: ReadOnly<Status>,
+    max_virtqueue_pairs: ReadOnly<u16>,
+    mtu: ReadOnly<u16>,
 }
 
 type EthernetAddress = [u8; 6];
 
-// virtio 5.1.6 Device Operation
+/// VirtIO 5.1.6 Device Operation:
+///
+/// Packets are transmitted by placing them in the transmitq1. . .transmitqN,
+/// and buffers for incoming packets are placed in the receiveq1. . .receiveqN.
+/// In each case, the packet itself is preceded by a header.
 #[repr(C)]
-#[derive(AsBytes, Debug, FromBytes)]
-struct Header {
+#[derive(AsBytes, Debug, Default, FromBytes)]
+pub struct VirtioNetHdr {
     flags: Flags,
     gso_type: GsoType,
     hdr_len: u16, // cannot rely on this
     gso_size: u16,
     csum_start: u16,
     csum_offset: u16,
+    // num_buffers: u16, // only available when the feature MRG_RXBUF is negotiated.
     // payload starts from here
 }
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(AsBytes, FromBytes)]
+    #[derive(AsBytes, Default, FromBytes)]
     struct Flags: u8 {
         const NEEDS_CSUM = 1;
         const DATA_VALID = 2;
@@ -218,7 +377,7 @@ bitflags! {
 }
 
 #[repr(transparent)]
-#[derive(AsBytes, Debug, Copy, Clone, Eq, FromBytes, PartialEq)]
+#[derive(AsBytes, Debug, Copy, Clone, Default, Eq, FromBytes, PartialEq)]
 struct GsoType(u8);
 
 impl GsoType {

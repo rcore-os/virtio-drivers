@@ -5,4 +5,5 @@ pub mod console;
 pub mod gpu;
 #[cfg(feature = "alloc")]
 pub mod input;
+#[cfg(feature = "alloc")]
 pub mod net;

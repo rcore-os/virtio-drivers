@@ -23,7 +23,7 @@ use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, console::VirtIOConsole, gpu::VirtIOGpu, net::VirtIONet},
+    device::{blk::VirtIOBlk, console::VirtIOConsole, gpu::VirtIOGpu},
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         pci::{
@@ -114,7 +114,7 @@ fn virtio_device(transport: impl Transport) {
     match transport.device_type() {
         DeviceType::Block => virtio_blk(transport),
         DeviceType::GPU => virtio_gpu(transport),
-        DeviceType::Network => virtio_net(transport),
+        // DeviceType::Network => virtio_net(transport), // currently is unsupported without alloc
         DeviceType::Console => virtio_console(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
@@ -163,15 +163,6 @@ fn virtio_gpu<T: Transport>(transport: T) {
     }
 
     info!("virtio-gpu test finished");
-}
-
-fn virtio_net<T: Transport>(transport: T) {
-    let mut net = VirtIONet::<HalImpl, T>::new(transport).expect("failed to create net driver");
-    let mut buf = [0u8; 0x100];
-    let len = net.recv(&mut buf).expect("failed to recv");
-    info!("recv: {:?}", &buf[..len]);
-    net.send(&buf[..len]).expect("failed to send");
-    info!("virtio-net test finished");
 }
 
 fn virtio_console<T: Transport>(transport: T) {
