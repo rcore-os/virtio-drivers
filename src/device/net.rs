@@ -206,13 +206,9 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             let len = unsafe {
                 self.recv_queue
                     .pop_used(token, &[], &mut [rx_buf.as_bytes_mut()])?
-            };
-            if (len as usize) < NET_HDR_SIZE {
-                Err(Error::IoError)
-            } else {
-                rx_buf.set_packet_len(len as usize - NET_HDR_SIZE);
-                Ok(rx_buf)
-            }
+            } as usize;
+            rx_buf.set_packet_len(len.checked_sub(NET_HDR_SIZE).ok_or(Error::IoError)?);
+            Ok(rx_buf)
         } else {
             Err(Error::NotReady)
         }
