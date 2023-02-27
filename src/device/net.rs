@@ -7,7 +7,7 @@ use crate::volatile::{volread, ReadOnly};
 use crate::{Error, Result};
 use alloc::{vec, vec::Vec};
 use bitflags::bitflags;
-use core::mem::size_of;
+use core::{convert::TryInto, mem::size_of};
 use log::{debug, info, warn};
 use zerocopy::{AsBytes, FromBytes};
 
@@ -22,7 +22,7 @@ pub struct TxBuffer(Vec<u8>);
 pub struct RxBuffer {
     buf: Vec<usize>, // for alignment
     packet_len: usize,
-    idx: usize,
+    idx: u16,
 }
 
 impl TxBuffer {
@@ -53,7 +53,7 @@ impl RxBuffer {
         Self {
             buf: vec![0; buf_len / size_of::<usize>()],
             packet_len: 0,
-            idx,
+            idx: idx.try_into().unwrap(),
         }
     }
 
@@ -197,7 +197,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             let mut rx_buf = self.rx_buffers[token as usize]
                 .take()
                 .ok_or(Error::WrongToken)?;
-            if token as usize != rx_buf.idx {
+            if token != rx_buf.idx {
                 return Err(Error::WrongToken);
             }
 
@@ -224,14 +224,14 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     pub fn recycle_rx_buffer(&mut self, mut rx_buf: RxBuffer) -> Result {
         // Safe because we take the ownership of `rx_buf` back to `rx_buffers`,
         // it lives as long as the queue.
-        let new_token = unsafe { self.recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()]) }? as usize;
+        let new_token = unsafe { self.recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()]) }?;
         // `rx_buffers[new_token]` is expected to be `None` since it was taken
         // away at `Self::receive()` and has not been added back.
-        if self.rx_buffers[new_token].is_some() {
+        if self.rx_buffers[new_token as usize].is_some() {
             return Err(Error::WrongToken);
         }
         rx_buf.idx = new_token;
-        self.rx_buffers[new_token] = Some(rx_buf);
+        self.rx_buffers[new_token as usize] = Some(rx_buf);
         if self.recv_queue.should_notify() {
             self.transport.notify(QUEUE_RECEIVE);
         }
