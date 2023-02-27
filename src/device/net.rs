@@ -222,14 +222,16 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     ///
     /// It will add the buffer back to the NIC queue.
     pub fn recycle_rx_buffer(&mut self, mut rx_buf: RxBuffer) -> Result {
-        let old_token = rx_buf.idx;
         // Safe because we take the ownership of `rx_buf` back to `rx_buffers`,
         // it lives as long as the queue.
-        let new_token = unsafe { self.recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()]) }?;
-        if new_token as usize != old_token {
+        let new_token = unsafe { self.recv_queue.add(&[], &mut [rx_buf.as_bytes_mut()]) }? as usize;
+        // `rx_buffers[new_token]` is expected to be `None` since it was taken
+        // away at `Self::receive()` and has not been added back.
+        if self.rx_buffers[new_token].is_some() {
             return Err(Error::WrongToken);
         }
-        self.rx_buffers[old_token] = Some(rx_buf);
+        rx_buf.idx = new_token;
+        self.rx_buffers[new_token] = Some(rx_buf);
         if self.recv_queue.should_notify() {
             self.transport.notify(QUEUE_RECEIVE);
         }
