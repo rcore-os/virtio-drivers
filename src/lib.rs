@@ -48,6 +48,7 @@
 extern crate alloc;
 
 pub mod device;
+mod endian;
 mod hal;
 mod queue;
 pub mod transport;
@@ -89,6 +90,8 @@ pub enum Error {
     ConfigSpaceTooSmall,
     /// The device doesn't have any config space, but the driver expects some.
     ConfigSpaceMissing,
+    /// Error from the socket device.
+    SocketDeviceError(device::socket::SocketError),
 }
 
 impl Display for Error {
@@ -114,8 +117,18 @@ impl Display for Error {
                     f,
                     "The device doesn't have any config space, but the driver expects some"
                 )
-            }
+            },
+            Self::SocketDeviceError(e) => write!(
+                f,
+                "Error from the socket device: {e:?}"
+            ),
         }
+    }
+}
+
+impl From<device::socket::SocketError> for Error {
+    fn from(e: device::socket::SocketError) -> Self {
+        Self::SocketDeviceError(e)
     }
 }
 

@@ -7,3 +7,6 @@ pub mod gpu;
 pub mod input;
 #[cfg(feature = "alloc")]
 pub mod net;
+pub mod socket;
+
+pub(crate) mod common;

@@ -23,7 +23,7 @@ use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use psci::system_off;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, console::VirtIOConsole, gpu::VirtIOGpu},
+    device::{blk::VirtIOBlk, console::VirtIOConsole, gpu::VirtIOGpu, socket::VirtIOSocket},
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         pci::{
@@ -116,6 +116,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::GPU => virtio_gpu(transport),
         // DeviceType::Network => virtio_net(transport), // currently is unsupported without alloc
         DeviceType::Console => virtio_console(transport),
+        DeviceType::Socket => virtio_socket(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -176,6 +177,17 @@ fn virtio_console<T: Transport>(transport: T) {
     let c = console.recv(true).expect("Failed to read from console");
     info!("Read {:?}", c);
     info!("virtio-console test finished");
+}
+
+fn virtio_socket<T: Transport>(transport: T) {
+    let mut socket =
+        VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver");
+    let host_cid = 2;
+    let port = 1234;
+    if let Err(e) = socket.connect(host_cid, port, port) {
+        error!("Failed to connect to host: {:?}", e);
+    }
+    info!("VirtIO socket test finished");
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

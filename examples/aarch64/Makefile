@@ -51,15 +51,16 @@ qemu: $(kernel_qemu_bin) $(img)
 	  $(QEMU_ARGS) \
 		-machine virt \
 		-cpu max \
-		-serial chardev:char0 \
+		-nographic \
 		-kernel $(kernel_qemu_bin) \
 		-global virtio-mmio.force-legacy=false \
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device vhost-vsock-pci,id=virtiosocket0,guest-cid=102 \
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-serial,id=virtio-serial0 \
-		-chardev stdio,id=char0,mux=on \
+		-chardev pty,id=char0 \
 		-device virtconsole,chardev=char0
 
 qemu-pci: $(kernel_qemu_bin) $(img)
@@ -67,14 +68,15 @@ qemu-pci: $(kernel_qemu_bin) $(img)
 	  $(QEMU_ARGS) \
 		-machine virt \
 		-cpu max \
-		-serial chardev:char0 \
+		-nographic \
 		-kernel $(kernel_qemu_bin) \
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device vhost-vsock-pci,id=virtiosocket0,guest-cid=103 \
 		-device virtio-blk-pci,drive=x0 \
 		-device virtio-gpu-pci \
 		-device virtio-serial,id=virtio-serial0 \
-		-chardev stdio,id=char0,mux=on \
+		-chardev pty,id=char0 \
 		-device virtconsole,chardev=char0
 
 crosvm: $(kernel_crosvm_bin) $(img)

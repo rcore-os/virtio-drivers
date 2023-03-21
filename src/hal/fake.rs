@@ -21,6 +21,7 @@ unsafe impl Hal for FakeHal {
         }
     }
 
+    #[allow(unused_unsafe)]
     unsafe fn dma_dealloc(_paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
