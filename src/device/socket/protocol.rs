@@ -4,7 +4,11 @@ use super::error::{self, SocketError};
 use crate::endian::{Le16, Le32, Le64};
 use crate::volatile::ReadOnly;
 use core::convert::TryInto;
+<<<<<<< HEAD
 use core::{convert::TryFrom, fmt, mem::size_of};
+=======
+use core::{convert::TryFrom, mem::size_of};
+>>>>>>> c9a375f (Add protocols to support virtio socket device)
 use zerocopy::{AsBytes, FromBytes};
 
 pub const TYPE_STREAM_SOCKET: u16 = 1;
@@ -86,7 +90,11 @@ pub struct VirtioVsockEvent {
 }
 
 #[allow(non_camel_case_types)]
+<<<<<<< HEAD
 #[derive(Copy, Clone, Eq, PartialEq)]
+=======
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+>>>>>>> c9a375f (Add protocols to support virtio socket device)
 #[repr(u16)]
 pub enum Op {
     VIRTIO_VSOCK_OP_INVALID = 0,
@@ -130,6 +138,7 @@ impl TryFrom<Le16> for Op {
         Ok(op)
     }
 }
+<<<<<<< HEAD
 
 impl fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -145,3 +154,5 @@ impl fmt::Debug for Op {
         }
     }
 }
+=======
+>>>>>>> c9a375f (Add protocols to support virtio socket device)
