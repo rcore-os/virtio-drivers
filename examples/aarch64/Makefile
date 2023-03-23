@@ -56,7 +56,7 @@ qemu: $(kernel_qemu_bin) $(img)
 		-global virtio-mmio.force-legacy=false \
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
-		-device vhost-vsock-pci,id=virtiosocket0,guest-cid=102 \
+		-device vhost-vsock-device,id=virtiosocket0,guest-cid=102 \
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-serial,id=virtio-serial0 \
