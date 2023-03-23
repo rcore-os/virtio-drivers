@@ -4,11 +4,7 @@ use super::error::{self, SocketError};
 use crate::endian::{Le16, Le32, Le64};
 use crate::volatile::ReadOnly;
 use core::convert::TryInto;
-<<<<<<< HEAD
-use core::{convert::TryFrom, fmt, mem::size_of};
-=======
 use core::{convert::TryFrom, mem::size_of};
->>>>>>> c9a375f (Add protocols to support virtio socket device)
 use zerocopy::{AsBytes, FromBytes};
 
 pub const TYPE_STREAM_SOCKET: u16 = 1;
@@ -90,11 +86,7 @@ pub struct VirtioVsockEvent {
 }
 
 #[allow(non_camel_case_types)]
-<<<<<<< HEAD
-#[derive(Copy, Clone, Eq, PartialEq)]
-=======
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
->>>>>>> c9a375f (Add protocols to support virtio socket device)
 #[repr(u16)]
 pub enum Op {
     VIRTIO_VSOCK_OP_INVALID = 0,
@@ -138,21 +130,3 @@ impl TryFrom<Le16> for Op {
         Ok(op)
     }
 }
-<<<<<<< HEAD
-
-impl fmt::Debug for Op {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::VIRTIO_VSOCK_OP_INVALID => write!(f, "VIRTIO_VSOCK_OP_INVALID"),
-            Self::VIRTIO_VSOCK_OP_REQUEST => write!(f, "VIRTIO_VSOCK_OP_REQUEST"),
-            Self::VIRTIO_VSOCK_OP_RESPONSE => write!(f, "VIRTIO_VSOCK_OP_RESPONSE"),
-            Self::VIRTIO_VSOCK_OP_RST => write!(f, "VIRTIO_VSOCK_OP_RST"),
-            Self::VIRTIO_VSOCK_OP_SHUTDOWN => write!(f, "VIRTIO_VSOCK_OP_SHUTDOWN"),
-            Self::VIRTIO_VSOCK_OP_RW => write!(f, "VIRTIO_VSOCK_OP_RW"),
-            Self::VIRTIO_VSOCK_OP_CREDIT_UPDATE => write!(f, "VIRTIO_VSOCK_OP_CREDIT_UPDATE"),
-            Self::VIRTIO_VSOCK_OP_CREDIT_REQUEST => write!(f, "VIRTIO_VSOCK_OP_CREDIT_REQUEST"),
-        }
-    }
-}
-=======
->>>>>>> c9a375f (Add protocols to support virtio socket device)
