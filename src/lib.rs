@@ -117,11 +117,8 @@ impl Display for Error {
                     f,
                     "The device doesn't have any config space, but the driver expects some"
                 )
-            },
-            Self::SocketDeviceError(e) => write!(
-                f,
-                "Error from the socket device: {e:?}"
-            ),
+            }
+            Self::SocketDeviceError(e) => write!(f, "Error from the socket device: {e:?}"),
         }
     }
 }
