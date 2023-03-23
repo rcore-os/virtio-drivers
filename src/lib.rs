@@ -48,7 +48,6 @@
 extern crate alloc;
 
 pub mod device;
-mod endian;
 mod hal;
 mod queue;
 pub mod transport;

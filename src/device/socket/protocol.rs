@@ -1,11 +1,13 @@
 //! This module defines the socket device protocol according to the virtio spec 5.10 Socket Device
 
 use super::error::{self, SocketError};
-use crate::endian::{Le16, Le32, Le64};
 use crate::volatile::ReadOnly;
 use core::convert::TryInto;
 use core::{convert::TryFrom, mem::size_of};
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{
+    byteorder::{LittleEndian, U16, U32, U64},
+    AsBytes, FromBytes,
+};
 
 pub const TYPE_STREAM_SOCKET: u16 = 1;
 
@@ -24,31 +26,31 @@ pub struct VirtioVsockConfig {
 #[repr(packed)]
 #[derive(AsBytes, Clone, Copy, Debug, FromBytes)]
 pub struct VirtioVsockHdr {
-    pub src_cid: Le64,
-    pub dst_cid: Le64,
-    pub src_port: Le32,
-    pub dst_port: Le32,
-    pub len: Le32,
-    pub r#type: Le16,
-    pub op: Le16,
-    pub flags: Le32,
-    pub buf_alloc: Le32,
-    pub fwd_cnt: Le32,
+    pub src_cid: U64<LittleEndian>,
+    pub dst_cid: U64<LittleEndian>,
+    pub src_port: U32<LittleEndian>,
+    pub dst_port: U32<LittleEndian>,
+    pub len: U32<LittleEndian>,
+    pub r#type: U16<LittleEndian>,
+    pub op: U16<LittleEndian>,
+    pub flags: U32<LittleEndian>,
+    pub buf_alloc: U32<LittleEndian>,
+    pub fwd_cnt: U32<LittleEndian>,
 }
 
 impl Default for VirtioVsockHdr {
     fn default() -> Self {
         Self {
-            src_cid: Le64::default(),
-            dst_cid: Le64::default(),
-            src_port: Le32::default(),
-            dst_port: Le32::default(),
-            len: Le32::default(),
+            src_cid: 0.into(),
+            dst_cid: 0.into(),
+            src_port: 0.into(),
+            dst_port: 0.into(),
+            len: 0.into(),
             r#type: TYPE_STREAM_SOCKET.into(),
-            op: Le16::default(),
-            flags: Le32::default(),
-            buf_alloc: Le32::default(),
-            fwd_cnt: Le32::default(),
+            op: 0.into(),
+            flags: 0.into(),
+            buf_alloc: 0.into(),
+            fwd_cnt: 0.into(),
         }
     }
 }
@@ -65,7 +67,7 @@ impl<'a> VirtioVsockPacket<'a> {
             .get(0..size_of::<VirtioVsockHdr>())
             .ok_or(SocketError::BufferTooShort)?;
         let hdr = VirtioVsockHdr::read_from(hdr).ok_or(SocketError::PacketParsingFailed)?;
-        let data_end = size_of::<VirtioVsockHdr>() + (hdr.len.to_native() as usize);
+        let data_end = size_of::<VirtioVsockHdr>() + (hdr.len.get() as usize);
         let data = buffer
             .get(size_of::<VirtioVsockHdr>()..data_end)
             .ok_or(SocketError::BufferTooShort)?;
@@ -82,7 +84,7 @@ impl<'a> VirtioVsockPacket<'a> {
 #[repr(C)]
 pub struct VirtioVsockEvent {
     // ID from the virtio_vsock_event_id struct in the virtio spec
-    pub id: Le32,
+    pub id: U32<LittleEndian>,
 }
 
 #[allow(non_camel_case_types)]
@@ -106,16 +108,16 @@ pub enum Op {
     VIRTIO_VSOCK_OP_CREDIT_REQUEST = 7,
 }
 
-impl Into<Le16> for Op {
-    fn into(self) -> Le16 {
-        Le16::from(self as u16)
+impl Into<U16<LittleEndian>> for Op {
+    fn into(self) -> U16<LittleEndian> {
+        (self as u16).into()
     }
 }
 
-impl TryFrom<Le16> for Op {
+impl TryFrom<U16<LittleEndian>> for Op {
     type Error = SocketError;
 
-    fn try_from(v: Le16) -> Result<Self, Self::Error> {
+    fn try_from(v: U16<LittleEndian>) -> Result<Self, Self::Error> {
         let op = match u16::from(v) {
             0 => Self::VIRTIO_VSOCK_OP_INVALID,
             1 => Self::VIRTIO_VSOCK_OP_REQUEST,
