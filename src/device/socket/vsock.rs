@@ -2,13 +2,13 @@
 
 use super::common::Feature;
 use super::error::SocketError;
-use super::protocol::{Op, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockPacket};
+use super::protocol::{VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VirtioVsockPacket};
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
-use log::{error, info};
+use log::{trace, info};
 use zerocopy::AsBytes;
 
 const RX_QUEUE_IDX: u16 = 0;
@@ -56,7 +56,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         let config = transport.config_space::<VirtioVsockConfig>()?;
         info!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
-        let guest_cid = unsafe { volread!(config, guest_cid_low) as u64 };
+        let guest_cid = unsafe {
+            volread!(config, guest_cid_low) as u64 | (volread!(config, guest_cid_high) as u64) << 32
+        };
         info!("guest cid: {guest_cid:?}");
 
         let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
@@ -96,7 +98,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             dst_cid: dst_cid.into(),
             src_port: src_port.into(),
             dst_port: dst_port.into(),
-            op: Op::VIRTIO_VSOCK_OP_REQUEST.into(),
+            op: VirtioVsockOp::Request.into(),
             ..Default::default()
         };
         self.tx
@@ -106,25 +108,19 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         } else {
             return Err(SocketError::NoResponseReceived.into());
         };
+        // Safe because we are passing the same buffer as we passed to `VirtQueue::add`.
         let _len = unsafe {
             self.rx
                 .pop_used(token, &[], &mut [&mut self.queue_buf_rx])?
         };
         let packet_rx = VirtioVsockPacket::read_from(&self.queue_buf_rx)?;
-        let result = match packet_rx.op()? {
-            Op::VIRTIO_VSOCK_OP_RESPONSE => Ok(()),
-            Op::VIRTIO_VSOCK_OP_RST => Err(SocketError::ConnectionFailed.into()),
-            Op::VIRTIO_VSOCK_OP_INVALID => Err(SocketError::InvalidOperation.into()),
+        trace!("Received packet {:?}. Op {:?}", packet_rx, packet_rx.op());
+        match packet_rx.op()? {
+            VirtioVsockOp::Response => Ok(()),
+            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
+            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
             _ => todo!(),
-        };
-        if result.is_err() {
-            error!(
-                "Connection failed. Packet received: {:?}, op={:?}",
-                packet_rx,
-                packet_rx.op()
-            );
         }
-        result
     }
 }
 
@@ -147,7 +143,7 @@ mod tests {
     fn config() {
         let mut config_space = VirtioVsockConfig {
             guest_cid_low: ReadOnly::new(66),
-            _guest_cid_high: ReadOnly::new(0),
+            guest_cid_high: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),

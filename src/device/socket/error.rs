@@ -11,11 +11,9 @@ pub enum SocketError {
     NoResponseReceived,
     /// The given buffer is shorter than expected.
     BufferTooShort,
-    /// Failed to parse the VirtioVsockPacket from buffer.
-    PacketParsingFailed,
     /// Unknown operation.
     UnknownOperation(u16),
-    /// Invalid opration,
+    /// Invalid operation,
     InvalidOperation,
 }
 
@@ -25,9 +23,6 @@ impl fmt::Display for SocketError {
             Self::ConnectionFailed => write!(f, "Failed to establish the connection"),
             Self::NoResponseReceived => write!(f, "No response received"),
             Self::BufferTooShort => write!(f, "The given buffer is shorter than expected"),
-            Self::PacketParsingFailed => {
-                write!(f, "Failed to parse the VirtioVsockPacket from buffer")
-            }
             Self::UnknownOperation(op) => {
                 write!(f, "The operation code '{op}' is unknown")
             }
