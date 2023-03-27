@@ -8,7 +8,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
-use log::{trace, info};
+use log::{info, trace};
 use zerocopy::AsBytes;
 
 const RX_QUEUE_IDX: u16 = 0;

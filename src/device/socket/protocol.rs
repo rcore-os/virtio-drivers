@@ -12,7 +12,18 @@ use zerocopy::{
     AsBytes, FromBytes,
 };
 
-pub const TYPE_STREAM_SOCKET: u16 = 1;
+/// Currently only stream sockets are supported. type is 1 for stream socket types.
+/// Stream sockets provide in-order, guaranteed, connection-oriented delivery without message boundaries.
+#[derive(Copy, Clone, Debug)]
+pub enum SocketType {
+    Stream,
+}
+
+impl Into<U16<LittleEndian>> for SocketType {
+    fn into(self) -> U16<LittleEndian> {
+        (self as u16).into()
+    }
+}
 
 /// VirtioVsockConfig is the vsock device configuration space.
 #[repr(C)]
@@ -49,7 +60,7 @@ impl Default for VirtioVsockHdr {
             src_port: 0.into(),
             dst_port: 0.into(),
             len: 0.into(),
-            socket_type: TYPE_STREAM_SOCKET.into(),
+            socket_type: SocketType::Stream.into(),
             op: 0.into(),
             flags: 0.into(),
             buf_alloc: 0.into(),
