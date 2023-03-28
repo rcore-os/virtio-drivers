@@ -4,6 +4,7 @@ kernel := target/$(target)/$(mode)/aarch64
 kernel_qemu_bin := target/$(target)/$(mode)/aarch64_qemu.bin
 kernel_crosvm_bin := target/$(target)/$(mode)/aarch64_crosvm.bin
 img := target/$(target)/$(mode)/img
+vsock_server_bin := target/$(target)/$(mode)/vsock_server.bin
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=aarch64
@@ -34,6 +35,9 @@ $(kernel_qemu_bin): kernel_qemu
 $(kernel_crosvm_bin): kernel_crosvm
 	aarch64-linux-gnu-objcopy -O binary $(kernel) $(kernel_crosvm_bin)
 
+$(vsock_server_bin):
+	gcc vsock_server.cc -o $(vsock_server_bin)
+
 asm: kernel
 	$(objdump) -d $(kernel) | less
 
@@ -46,8 +50,8 @@ header: kernel
 clean:
 	cargo clean
 
-qemu: $(kernel_qemu_bin) $(img)
-	(nc localhost -l 1235 -v) &
+qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
+	$(vsock_server_bin) &
 	qemu-system-aarch64 \
 	  $(QEMU_ARGS) \
 		-machine virt \
@@ -65,7 +69,6 @@ qemu: $(kernel_qemu_bin) $(img)
 		-device virtconsole,chardev=char0
 
 qemu-pci: $(kernel_qemu_bin) $(img)
-	(nc localhost -l 1235 -v) &
 	qemu-system-aarch64 \
 		$(QEMU_ARGS) \
 		-machine virt \
