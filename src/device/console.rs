@@ -206,6 +206,7 @@ struct Config {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         const SIZE                  = 1 << 0;
         const MULTIPORT             = 1 << 1;

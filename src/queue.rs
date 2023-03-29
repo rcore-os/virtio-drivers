@@ -555,10 +555,13 @@ impl Descriptor {
     }
 }
 
+/// Descriptor flags
+#[derive(Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
+#[repr(transparent)]
+struct DescFlags(u16);
+
 bitflags! {
-    /// Descriptor flags
-    #[derive(FromBytes)]
-    struct DescFlags: u16 {
+    impl DescFlags: u16 {
         const NEXT = 1;
         const WRITE = 2;
         const INDIRECT = 4;

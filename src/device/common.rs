@@ -3,6 +3,7 @@
 use bitflags::bitflags;
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub(crate) struct Feature: u64 {
         // device independent
         const NOTIFY_ON_EMPTY       = 1 << 24; // legacy

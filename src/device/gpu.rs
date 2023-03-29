@@ -313,6 +313,7 @@ struct Config {
 const EVENT_DISPLAY: u32 = 1 << 0;
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         /// virgl 3D mode is supported.
         const VIRGL                 = 1 << 0;

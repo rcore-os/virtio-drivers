@@ -24,6 +24,7 @@ pub const PCI_CAP_ID_VNDR: u8 = 0x09;
 
 bitflags! {
     /// The status register in PCI configuration space.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct Status: u16 {
         // Bits 0-2 are reserved.
         /// The state of the device's INTx# signal.
@@ -53,6 +54,7 @@ bitflags! {
 
 bitflags! {
     /// The command register in PCI configuration space.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct Command: u16 {
         /// The device can respond to I/O Space accesses.
         const IO_SPACE = 1 << 0;

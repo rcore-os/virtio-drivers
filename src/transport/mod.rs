@@ -93,7 +93,7 @@ pub trait Transport {
 
 bitflags! {
     /// The device status field. Writing 0 into this field resets the device.
-    #[derive(Default)]
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct DeviceStatus: u32 {
         /// Indicates that the guest OS has found the device and recognized it
         /// as a valid virtio device.
