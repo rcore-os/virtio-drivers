@@ -64,6 +64,7 @@ qemu: $(kernel_qemu_bin) $(img)
 
 qemu-pci: $(kernel_qemu_bin) $(img)
 	qemu-system-aarch64 \
+	  $(QEMU_ARGS) \
 		-machine virt \
 		-cpu max \
 		-serial chardev:char0 \
