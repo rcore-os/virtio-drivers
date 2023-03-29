@@ -350,6 +350,11 @@ impl Transport for MmioTransport {
         }
     }
 
+    fn get_status(&self) -> DeviceStatus {
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.header, status) }
+    }
+
     fn set_status(&mut self, status: DeviceStatus) {
         // Safe because self.header points to a valid VirtIO MMIO region.
         unsafe {

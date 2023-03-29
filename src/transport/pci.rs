@@ -251,6 +251,13 @@ impl Transport for PciTransport {
         }
     }
 
+    fn get_status(&self) -> DeviceStatus {
+        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // was aligned.
+        let status = unsafe { volread!(self.common_cfg, device_status) };
+        DeviceStatus::from_bits_truncate(status.into())
+    }
+
     fn set_status(&mut self, status: DeviceStatus) {
         // Safe because the common config pointer is valid and we checked in get_bar_region that it
         // was aligned.
@@ -341,7 +348,8 @@ impl Transport for PciTransport {
 impl Drop for PciTransport {
     fn drop(&mut self) {
         // Reset the device when the transport is dropped.
-        self.set_status(DeviceStatus::empty())
+        self.set_status(DeviceStatus::empty());
+        while self.get_status() != DeviceStatus::empty() {}
     }
 }
 
