@@ -5,7 +5,7 @@ kernel_qemu_bin := target/$(target)/$(mode)/aarch64_qemu.bin
 kernel_crosvm_bin := target/$(target)/$(mode)/aarch64_crosvm.bin
 img := target/$(target)/$(mode)/img
 vsock_server_path := ../vsock_server
-vsock_server_bin := $(vsock_server_path)/target/x86_64-unknown-linux-gnu/$(mode)/vsock_server
+vsock_server_bin := $(vsock_server_path)/target/$(mode)/vsock_server
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=aarch64
@@ -16,7 +16,7 @@ ifeq ($(mode), release)
 	BUILD_ARGS += --release
 endif
 
-VSOCK_BUILD_ARGS = --target=x86_64-unknown-linux-gnu
+VSOCK_BUILD_ARGS =
 ifeq ($(mode), release)
 	VSOCK_BUILD_ARGS += --release
 endif
@@ -42,7 +42,7 @@ $(kernel_crosvm_bin): kernel_crosvm
 	aarch64-linux-gnu-objcopy -O binary $(kernel) $(kernel_crosvm_bin)
 
 $(vsock_server_bin):
-	cargo build --manifest-path=$(vsock_server_path)/Cargo.toml $(VSOCK_BUILD_ARGS)
+	(cd $(vsock_server_path) && cargo build $(VSOCK_BUILD_ARGS))
 
 asm: kernel
 	$(objdump) -d $(kernel) | less
