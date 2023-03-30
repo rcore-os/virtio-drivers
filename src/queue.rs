@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
@@ -135,7 +137,11 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
             // Write to desc_shadow then copy.
             let desc = &mut self.desc_shadow[usize::from(self.free_head)];
-            desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+            // Safe because our caller promises that the buffers live at least until `pop_used`
+            // returns them.
+            unsafe {
+                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+            }
             last = self.free_head;
             self.free_head = desc.next;
 
@@ -515,7 +521,10 @@ impl Descriptor {
         direction: BufferDirection,
         extra_flags: DescFlags,
     ) {
-        self.addr = H::share(buf, direction) as u64;
+        // Safe because our caller promises that the buffer is valid.
+        unsafe {
+            self.addr = H::share(buf, direction) as u64;
+        }
         self.len = buf.len() as u32;
         self.flags = extra_flags
             | match direction {
