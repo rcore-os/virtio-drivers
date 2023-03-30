@@ -1,4 +1,4 @@
-//! This module defines the socket device protocol according to the virtio spec 5.10 Socket Device
+//! This module defines the socket device protocol according to the virtio spec v1.1 5.10 Socket Device
 
 use super::error::{self, SocketError};
 use crate::volatile::ReadOnly;
@@ -13,15 +13,16 @@ use zerocopy::{
 };
 
 /// Currently only stream sockets are supported. type is 1 for stream socket types.
-/// Stream sockets provide in-order, guaranteed, connection-oriented delivery without message boundaries.
 #[derive(Copy, Clone, Debug)]
+#[repr(u16)]
 pub enum SocketType {
-    Stream,
+    /// Stream sockets provide in-order, guaranteed, connection-oriented delivery without message boundaries.
+    Stream = 1,
 }
 
-impl Into<U16<LittleEndian>> for SocketType {
-    fn into(self) -> U16<LittleEndian> {
-        (self as u16).into()
+impl From<SocketType> for U16<LittleEndian> {
+    fn from(socket_type: SocketType) -> Self {
+        (socket_type as u16).into()
     }
 }
 
@@ -31,7 +32,9 @@ pub struct VirtioVsockConfig {
     /// The guest_cid field contains the guest’s context ID, which uniquely identifies
     /// the device for its lifetime. The upper 32 bits of the CID are reserved and zeroed.
     ///
-    /// We need to split the guest_cid into two parts because VirtIO only guarantees 4 bytes alignment.
+    /// According to virtio spec v1.1 2.4.1 Driver Requirements: Device Configuration Space,
+    /// drivers MUST NOT assume reads from fields greater than 32 bits wide are atomic.
+    /// So we need to split the u64 guest_cid into two parts.
     pub guest_cid_low: ReadOnly<u32>,
     pub guest_cid_high: ReadOnly<u32>,
 }
@@ -118,9 +121,9 @@ pub enum VirtioVsockOp {
     CreditRequest = 7,
 }
 
-impl Into<U16<LittleEndian>> for VirtioVsockOp {
-    fn into(self) -> U16<LittleEndian> {
-        (self as u16).into()
+impl From<VirtioVsockOp> for U16<LittleEndian> {
+    fn from(op: VirtioVsockOp) -> Self {
+        (op as u16).into()
     }
 }
 

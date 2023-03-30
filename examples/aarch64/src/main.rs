@@ -187,6 +187,8 @@ fn virtio_socket<T: Transport>(transport: T) {
     info!("Connecting to host on port {port}...");
     if let Err(e) = socket.connect(host_cid, port, port) {
         error!("Failed to connect to host: {:?}", e);
+    } else {
+        info!("Connected to host on port {port} successfully.")
     }
     info!("VirtIO socket test finished");
 }

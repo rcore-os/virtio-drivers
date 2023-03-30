@@ -4,7 +4,8 @@ kernel := target/$(target)/$(mode)/aarch64
 kernel_qemu_bin := target/$(target)/$(mode)/aarch64_qemu.bin
 kernel_crosvm_bin := target/$(target)/$(mode)/aarch64_crosvm.bin
 img := target/$(target)/$(mode)/img
-vsock_server_bin := target/$(target)/$(mode)/vsock_server.bin
+vsock_server_path := ../vsock_server
+vsock_server_bin := $(vsock_server_path)/target/x86_64-unknown-linux-gnu/$(mode)/vsock_server
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=aarch64
@@ -13,6 +14,11 @@ objcopy := $(shell find $(sysroot) -name llvm-objcopy)
 BUILD_ARGS += --target $(target)
 ifeq ($(mode), release)
 	BUILD_ARGS += --release
+endif
+
+VSOCK_BUILD_ARGS = --target=x86_64-unknown-linux-gnu
+ifeq ($(mode), release)
+	VSOCK_BUILD_ARGS += --release
 endif
 
 .PHONY: kernel clean qemu run env
@@ -36,7 +42,7 @@ $(kernel_crosvm_bin): kernel_crosvm
 	aarch64-linux-gnu-objcopy -O binary $(kernel) $(kernel_crosvm_bin)
 
 $(vsock_server_bin):
-	gcc vsock_server.cc -o $(vsock_server_bin)
+	cargo build --manifest-path=$(vsock_server_path)/Cargo.toml $(VSOCK_BUILD_ARGS)
 
 asm: kernel
 	$(objdump) -d $(kernel) | less
@@ -69,6 +75,7 @@ qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
 		-device virtconsole,chardev=char0
 
 qemu-pci: $(kernel_qemu_bin) $(img)
+	$(vsock_server_bin) &
 	qemu-system-aarch64 \
 		$(QEMU_ARGS) \
 		-machine virt \
