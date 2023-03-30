@@ -1,8 +1,8 @@
 //! Driver for VirtIO socket devices.
 
-use super::common::Feature;
 use super::error::SocketError;
 use super::protocol::{VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VirtioVsockPacket};
+use crate::device::common::Feature;
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
