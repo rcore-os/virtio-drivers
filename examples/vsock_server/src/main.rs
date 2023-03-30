@@ -7,7 +7,8 @@ fn main() {
     println!("Setting up listening socket on port {PORT}");
     let listener = VsockListener::bind(&VsockAddr::new(VMADDR_CID_HOST, PORT))
         .expect("Failed to set up listening port");
-    for incoming in listener.incoming() {
-        println!("Accept connection: {incoming:?}");
+    for vsock_stream in listener.incoming() {
+        let mut vsock_stream = vsock_stream.expect("Failed to extract vsock_stream");
+        println!("Accept connection: {vsock_stream:?}");
     }
 }

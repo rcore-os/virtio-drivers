@@ -185,11 +185,12 @@ fn virtio_socket<T: Transport>(transport: T) {
     let host_cid = 2;
     let port = 1221;
     info!("Connecting to host on port {port}...");
-    if let Err(e) = socket.connect(host_cid, port, port) {
-        error!("Failed to connect to host: {:?}", e);
-    } else {
-        info!("Connected to host on port {port} successfully.")
-    }
+    let res = socket.connect(host_cid, port, port);
+    info!("Connection to host: {res:?}");
+    let res = socket.request_credit();
+    info!("Request credit: {res:?}");
+    let res = socket.shutdown();
+    info!("Shutdown the connection: {res:?}");
     info!("VirtIO socket test finished");
 }
 

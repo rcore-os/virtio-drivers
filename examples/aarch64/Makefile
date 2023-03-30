@@ -42,7 +42,7 @@ $(kernel_crosvm_bin): kernel_crosvm
 	aarch64-linux-gnu-objcopy -O binary $(kernel) $(kernel_crosvm_bin)
 
 $(vsock_server_bin):
-	(cd $(vsock_server_path) && cargo build $(VSOCK_BUILD_ARGS))
+	(cd $(vsock_server_path) && cargo clean && cargo build $(VSOCK_BUILD_ARGS))
 
 asm: kernel
 	$(objdump) -d $(kernel) | less
