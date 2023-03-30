@@ -4,6 +4,8 @@ kernel := target/$(target)/$(mode)/aarch64
 kernel_qemu_bin := target/$(target)/$(mode)/aarch64_qemu.bin
 kernel_crosvm_bin := target/$(target)/$(mode)/aarch64_crosvm.bin
 img := target/$(target)/$(mode)/img
+vsock_server_path := ../vsock_server
+vsock_server_bin := $(vsock_server_path)/target/$(mode)/vsock_server
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=aarch64
@@ -12,6 +14,11 @@ objcopy := $(shell find $(sysroot) -name llvm-objcopy)
 BUILD_ARGS += --target $(target)
 ifeq ($(mode), release)
 	BUILD_ARGS += --release
+endif
+
+VSOCK_BUILD_ARGS =
+ifeq ($(mode), release)
+	VSOCK_BUILD_ARGS += --release
 endif
 
 .PHONY: kernel clean qemu run env
@@ -34,6 +41,9 @@ $(kernel_qemu_bin): kernel_qemu
 $(kernel_crosvm_bin): kernel_crosvm
 	aarch64-linux-gnu-objcopy -O binary $(kernel) $(kernel_crosvm_bin)
 
+$(vsock_server_bin):
+	(cd $(vsock_server_path) && cargo build $(VSOCK_BUILD_ARGS))
+
 asm: kernel
 	$(objdump) -d $(kernel) | less
 
@@ -46,7 +56,8 @@ header: kernel
 clean:
 	cargo clean
 
-qemu: $(kernel_qemu_bin) $(img)
+qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
+	$(vsock_server_bin) &
 	qemu-system-aarch64 \
 	  $(QEMU_ARGS) \
 		-machine virt \
@@ -56,6 +67,7 @@ qemu: $(kernel_qemu_bin) $(img)
 		-global virtio-mmio.force-legacy=false \
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device vhost-vsock-device,id=virtiosocket0,guest-cid=102 \
 		-device virtio-blk-device,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-serial,id=virtio-serial0 \
@@ -63,14 +75,16 @@ qemu: $(kernel_qemu_bin) $(img)
 		-device virtconsole,chardev=char0
 
 qemu-pci: $(kernel_qemu_bin) $(img)
+	$(vsock_server_bin) &
 	qemu-system-aarch64 \
-	  $(QEMU_ARGS) \
+		$(QEMU_ARGS) \
 		-machine virt \
 		-cpu max \
 		-serial chardev:char0 \
 		-kernel $(kernel_qemu_bin) \
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device vhost-vsock-pci,id=virtiosocket0,guest-cid=103 \
 		-device virtio-blk-pci,drive=x0 \
 		-device virtio-gpu-pci \
 		-device virtio-serial,id=virtio-serial0 \
