@@ -116,6 +116,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// The input and output buffers must remain valid and not be accessed until a call to
     /// `pop_used` with the returned token succeeds.
+    #[allow(unused_unsafe)]
     pub unsafe fn add<'a, 'b>(
         &mut self,
         inputs: &'a [&'b [u8]],
@@ -264,6 +265,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
     /// queue by `add`.
+    #[allow(unused_unsafe)]
     unsafe fn recycle_descriptors<'a>(
         &mut self,
         head: u16,
@@ -310,6 +312,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     ///
     /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
     /// queue by `add` when it returned the token being passed in here.
+    #[allow(unused_unsafe)]
     pub unsafe fn pop_used<'a>(
         &mut self,
         token: u16,
