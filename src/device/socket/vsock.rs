@@ -109,11 +109,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             return Err(SocketError::NoResponseReceived.into());
         };
         // Safe because we are passing the same buffer as we passed to `VirtQueue::add`.
-        let _len = unsafe {
-            self.rx
-                .pop_used(token, &[], &mut [&mut self.queue_buf_rx])?
-        };
-        let packet_rx = VirtioVsockPacket::read_from(&self.queue_buf_rx)?;
+        let _len = unsafe { self.rx.pop_used(token, &[], &mut [self.queue_buf_rx])? };
+        let packet_rx = VirtioVsockPacket::read_from(self.queue_buf_rx)?;
         trace!("Received packet {:?}. Op {:?}", packet_rx, packet_rx.op());
         match packet_rx.op()? {
             VirtioVsockOp::Response => Ok(()),
