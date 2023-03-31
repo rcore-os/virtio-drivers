@@ -18,7 +18,7 @@ const RX_QUEUE_IDX: u16 = 0;
 const TX_QUEUE_IDX: u16 = 1;
 const EVENT_QUEUE_IDX: u16 = 2;
 
-const QUEUE_SIZE: usize = 16;
+const QUEUE_SIZE: usize = 8;
 
 #[derive(Copy, Clone, Debug, Default)]
 struct ConnectionInfo {
@@ -202,20 +202,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             fwd_cnt: connection_info.fwd_cnt.into(),
             ..Default::default()
         };
-        self.send_packet_to_tx_queue(&header, buffer)?;
-        for _ in 0..100000 {
-            if self.rx.can_pop() {
-                break;
-            } else {
-                core::hint::spin_loop();
-            }
-        }
-        let received_header = self.pop_header_only_packet_from_rx_queue()?;
-        match received_header.op()? {
-            VirtioVsockOp::Response => Ok(()),
-            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
-            _ => Err(SocketError::InvalidOperation.into()),
-        }
+        self.send_packet_to_tx_queue(&header, buffer)
     }
 
     /// Receives the buffer from the destination.
@@ -288,7 +275,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
     fn pop_packet_from_rx_queue(&mut self) -> Result<VirtioVsockPacket> {
         let token = if let Some(token) = self.rx.peek_used() {
-            token
+            token // TODO: Use let else after updating Rust
         } else {
             return Err(SocketError::NoResponseReceived.into());
         };
@@ -323,11 +310,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     fn connection_info(&self) -> Result<ConnectionInfo> {
-        if let Some(connection_info) = self.connection_info {
-            Ok(connection_info)
-        } else {
-            Err(SocketError::NotConnected.into())
-        }
+        self.connection_info.ok_or(SocketError::NotConnected.into())
     }
 }
 
