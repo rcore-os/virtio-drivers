@@ -172,6 +172,12 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
+        // Wait until there is at least one element to pop.
+        for _ in 0..10000000 {
+            if self.rx.can_pop() {
+                break;
+            }
+        }
         let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
             VirtioVsockOp::CreditUpdate => {
@@ -190,6 +196,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     /// Sends the buffer to the destination.
     /// TODO: send doesn't work yet.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
+        self.request_credit()?;
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
             src_cid: self.guest_cid.into(),
@@ -220,7 +227,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        // Wait until there is at least one element can pop.
+        // Wait until there is at least one element to pop.
         for _ in 0..10000000 {
             if self.rx.can_pop() {
                 break;

@@ -26,14 +26,20 @@ fn main() {
         vsock_stream.flush().expect("flush");
         println!("[Host] Flushed.");
 
-        let mut message = Vec::new();
+        let mut message = vec![0u8; 30];
         vsock_stream
             .set_read_timeout(Some(Duration::from_millis(3_000)))
             .expect("set_read_timeout");
         for i in 0..10 {
-            match vsock_stream.read_to_end(&mut message) {
+            match vsock_stream.read(&mut message) {
                 Ok(len) => {
-                    println!("[Host] Received message: {:?}, len:{}", message, len);
+                    println!(
+                        "[Host] Received message: {:?}, len:{:?}, str: {:?}",
+                        message,
+                        len,
+                        std::str::from_utf8(&message[..len])
+                    );
+
                     break;
                 }
                 Err(e) => {

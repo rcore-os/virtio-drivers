@@ -192,7 +192,7 @@ fn virtio_socket<T: Transport>(transport: T) {
     let mut buffer = [0u8; 24];
     let res = socket.recv(&mut buffer);
     info!("Received message: {:?}. Message: {:?}", res, buffer);
-    let res = socket.send(b"Hello from guest");
+    let res = socket.send(b"Ack. Hello from guest.");
     info!("Send message: {res:?}");
     let res = socket.shutdown();
     info!("Shutdown the connection: {res:?}");
