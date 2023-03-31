@@ -11,6 +11,8 @@ pub enum SocketError {
     ConnectionFailed,
     /// The device is not connected to any peer.
     NotConnected,
+    /// Peer socket is shutdown.
+    PeerSocketShutdown,
     /// No response received.
     NoResponseReceived,
     /// The given buffer is shorter than expected.
@@ -31,6 +33,7 @@ impl fmt::Display for SocketError {
                 "There is an existing connection. Please close the current connection before attempting to connect again."),
             Self::ConnectionFailed => write!(f, "Failed to establish the connection"),
             Self::NotConnected => write!(f, "The device is not connected to any peer. Please connect it to a peer first."),
+            Self::PeerSocketShutdown => write!(f, "The peer socket is shutdown."),
             Self::NoResponseReceived => write!(f, "No response received"),
             Self::BufferTooShort => write!(f, "The given buffer is shorter than expected"),
             Self::UnknownOperation(op) => {

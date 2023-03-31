@@ -11,7 +11,7 @@ use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
 use core::{mem::size_of, ops::Range};
-use log::{debug, info, trace};
+use log::{debug, info};
 use zerocopy::AsBytes;
 
 const RX_QUEUE_IDX: u16 = 0;
@@ -140,7 +140,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        let received_header = self.get_header_only_packet_from_rx_queue()?;
+        let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
             VirtioVsockOp::Response => {
                 let dst = VsockAddr {
@@ -155,8 +155,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 Ok(())
             }
             VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
-            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
-            _ => todo!(),
+            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
+            _ => Err(SocketError::InvalidOperation.into()),
         }
     }
 
@@ -172,7 +172,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        let received_header = self.get_header_only_packet_from_rx_queue()?;
+        let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
             VirtioVsockOp::CreditUpdate => {
                 if let Some(connection_info) = self.connection_info.as_mut() {
@@ -181,6 +181,72 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 }
                 debug!("Connection info {:?}", self.connection_info);
                 Ok(())
+            }
+            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
+            _ => Err(SocketError::InvalidOperation.into()),
+        }
+    }
+
+    /// Sends the buffer to the destination.
+    /// TODO: send doesn't work yet.
+    pub fn send(&mut self, buffer: &[u8]) -> Result {
+        let connection_info = self.connection_info()?;
+        let header = VirtioVsockHdr {
+            src_cid: self.guest_cid.into(),
+            dst_cid: connection_info.dst.cid.into(),
+            src_port: connection_info.src_port.into(),
+            dst_port: connection_info.dst.port.into(),
+            op: VirtioVsockOp::Rw.into(),
+            len: (buffer.len() as u32).into(),
+            buf_alloc: connection_info.buf_alloc.into(),
+            fwd_cnt: connection_info.fwd_cnt.into(),
+            ..Default::default()
+        };
+        self.send_packet_to_tx_queue(&header, buffer)?;
+        for _ in 0..100000 {
+            if self.rx.can_pop() {
+                break;
+            } else {
+                core::hint::spin_loop();
+            }
+        }
+        let received_header = self.pop_header_only_packet_from_rx_queue()?;
+        match received_header.op()? {
+            VirtioVsockOp::Response => Ok(()),
+            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
+            _ => Err(SocketError::InvalidOperation.into()),
+        }
+    }
+
+    /// Receives the buffer from the destination.
+    /// Returns the actual size of the message.
+    pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
+        let connection_info = self.connection_info()?;
+        let header = VirtioVsockHdr {
+            src_cid: self.guest_cid.into(),
+            dst_cid: connection_info.dst.cid.into(),
+            src_port: connection_info.src_port.into(),
+            dst_port: connection_info.dst.port.into(),
+            op: VirtioVsockOp::Rw.into(),
+            buf_alloc: connection_info.buf_alloc.into(),
+            fwd_cnt: connection_info.fwd_cnt.into(),
+            ..Default::default()
+        };
+        self.send_packet_to_tx_queue(&header, &[])?;
+        // Wait until there is at least one element can pop.
+        for _ in 0..10000000 {
+            if self.rx.can_pop() {
+                break;
+            }
+        }
+        let packet = self.pop_packet_from_rx_queue()?;
+        match packet.hdr.op()? {
+            VirtioVsockOp::Rw => {
+                buffer
+                    .get_mut(0..packet.hdr.len())
+                    .ok_or(SocketError::BufferTooShort)?
+                    .copy_from_slice(packet.data);
+                Ok(packet.hdr.len())
             }
             VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
             _ => Err(SocketError::InvalidOperation.into()),
@@ -200,15 +266,14 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        let received_header = self.get_header_only_packet_from_rx_queue()?;
+        let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
             VirtioVsockOp::Rst => {
                 info!("Disconnected from the peer");
                 self.connection_info = None;
                 Ok(())
             }
-            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
-            _ => todo!(),
+            _ => Err(SocketError::InvalidOperation.into()),
         }
     }
 
@@ -221,7 +286,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         Ok(())
     }
 
-    fn get_header_only_packet_from_rx_queue(&mut self) -> Result<VirtioVsockHdr> {
+    fn pop_packet_from_rx_queue(&mut self) -> Result<VirtioVsockPacket> {
         let token = if let Some(token) = self.rx.peek_used() {
             token
         } else {
@@ -232,7 +297,12 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         // Safe because we are passing the same buffer as we passed to `VirtQueue::add`.
         let _len = unsafe { self.rx.pop_used(token, &[], &mut [buffer])? };
         let packet = VirtioVsockPacket::read_from(buffer)?;
-        trace!("Received packet {:?}. Op {:?}", packet, packet.hdr.op());
+        debug!("Received packet {:?}. Op {:?}", packet, packet.hdr.op());
+        Ok(packet)
+    }
+
+    fn pop_header_only_packet_from_rx_queue(&mut self) -> Result<VirtioVsockHdr> {
+        let packet = self.pop_packet_from_rx_queue()?;
         assert_eq!(packet.data.len(), 0);
         Ok(packet.hdr)
     }
