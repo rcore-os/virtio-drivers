@@ -33,5 +33,5 @@ Guest:
 [DEBUG] Connection info Some(ConnectionInfo { dst: VsockAddr { cid: 2, port: 1221 }, src_port: 1221, buf_alloc: 262144, fwd_cnt: 0 })
 ...
 [INFO] Received message: Ok(15). Message: [72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 104, 111, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-[INFO] Send message '[65, 99, 107, 46, 32, 72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 103, 117, 101, 115, 116, 46]': Ok(())
+[INFO] Sent message '[65, 99, 107, 46, 32, 72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 103, 117, 101, 115, 116, 46]': Ok(())
 ```

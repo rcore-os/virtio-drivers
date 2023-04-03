@@ -195,7 +195,7 @@ fn virtio_socket<T: Transport>(transport: T) {
 
     let message = b"Ack. Hello from guest.";
     let res = socket.send(message);
-    info!("Send message '{:?}': {res:?}", message);
+    info!("Sent message '{:?}': {res:?}", message);
     let res = socket.shutdown();
     info!("Shutdown the connection: {res:?}");
     info!("VirtIO socket test finished");

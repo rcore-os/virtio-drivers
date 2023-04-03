@@ -184,12 +184,17 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 Ok(())
             }
             VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
+            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
             _ => Err(SocketError::InvalidOperation.into()),
         }
     }
 
     /// Sends the buffer to the destination.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
+        let max_buffer_size = self.rx_buf.len() / QUEUE_SIZE - size_of::<VirtioVsockHdr>();
+        if buffer.len() > max_buffer_size {
+            return Err(SocketError::BufferTooLong(buffer.len(), max_buffer_size).into());
+        }
         self.request_credit()?;
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
@@ -228,11 +233,12 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             VirtioVsockOp::Rw => {
                 buffer
                     .get_mut(0..packet.hdr.len())
-                    .ok_or(SocketError::BufferTooShort)?
+                    .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len()))?
                     .copy_from_slice(packet.data);
                 Ok(packet.hdr.len())
             }
             VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
+            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
             _ => Err(SocketError::InvalidOperation.into()),
         }
     }

@@ -17,6 +17,10 @@ pub enum SocketError {
     NoResponseReceived,
     /// The given buffer is shorter than expected.
     BufferTooShort,
+    /// The given buffer for output is shorter than expected.
+    OutputBufferTooShort(usize),
+    /// The given buffer has exceeded the maximum buffer size.
+    BufferTooLong(usize, usize),
     /// Unknown operation.
     UnknownOperation(u16),
     /// Invalid operation,
@@ -36,6 +40,12 @@ impl fmt::Display for SocketError {
             Self::PeerSocketShutdown => write!(f, "The peer socket is shutdown."),
             Self::NoResponseReceived => write!(f, "No response received"),
             Self::BufferTooShort => write!(f, "The given buffer is shorter than expected"),
+            Self::BufferTooLong(actual, max) => {
+                write!(f, "The given buffer length '{actual}' has exceeded the maximum allowed buffer length '{max}'")
+            }
+            Self::OutputBufferTooShort(expected) => {
+                write!(f, "The given output buffer is too short. '{expected}' bytes is needed for the output buffer.")
+            }
             Self::UnknownOperation(op) => {
                 write!(f, "The operation code '{op}' is unknown")
             }
