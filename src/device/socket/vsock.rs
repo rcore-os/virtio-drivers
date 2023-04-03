@@ -162,6 +162,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             src_port,
             ..Default::default()
         });
+        debug!("Connection established: {:?}", self.connection_info);
         Ok(())
     }
 
@@ -273,7 +274,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     where
         F: FnOnce(VirtioVsockPacket) -> Result,
     {
-        let mut connection_info = self.connection_info.unwrap_or(ConnectionInfo::default());
+        let mut connection_info = self.connection_info.unwrap_or_default();
         loop {
             self.wait_one_in_rx_queue();
             let packet = self.pop_packet_from_rx_queue()?;

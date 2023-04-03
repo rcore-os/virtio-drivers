@@ -1,4 +1,4 @@
-//! Sets a listening socket on host.
+//! Sets up a listening socket on host.
 use std::{
     io::{Read, Write},
     time::Duration,

@@ -30,7 +30,7 @@ Guest:
 ```
 [INFO] guest cid: 102
 [INFO] Connecting to host on port 1221...
-[DEBUG] Connection info updated: Some(ConnectionInfo { dst: VsockAddr { cid: 0, port: 0 }, src_port: 0, buf_alloc: 0, fwd_cnt: 0 })
+[DEBUG] Connection established: Some(ConnectionInfo { dst: VsockAddr { cid: 2, port: 1221 }, src_port: 1221, buf_alloc: 0, fwd_cnt: 0 })
 [INFO] Connected to the host
 [DEBUG] Connection info updated: Some(ConnectionInfo { dst: VsockAddr { cid: 2, port: 1221 }, src_port: 1221, buf_alloc: 262144, fwd_cnt: 0 })
 ...

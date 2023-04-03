@@ -118,7 +118,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::Console => virtio_console(transport),
         DeviceType::Socket => match virtio_socket(transport) {
             Ok(()) => info!("virtio-socket test finished successfully"),
-            Err(e) => info!("virtio-socket test finished with error '{e:?}'"),
+            Err(e) => error!("virtio-socket test finished with error '{e:?}'"),
         },
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
