@@ -272,7 +272,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
     fn send_packet_to_tx_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
         let _len = self.tx.add_notify_wait_pop(
-            &[header.as_bytes(), &buffer],
+            &[header.as_bytes(), buffer],
             &mut [],
             &mut self.transport,
         )?;
