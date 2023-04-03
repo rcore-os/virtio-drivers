@@ -20,7 +20,7 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 const QUEUE_SIZE: usize = 8;
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 struct ConnectionInfo {
     dst: VsockAddr,
     src_port: u32,
@@ -88,7 +88,10 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer
         // (which we don't otherwise access).
         let rx_buf = unsafe { rx_buf_dma.raw_slice().as_mut() };
-        Self::fill_rx_queue(&mut rx, rx_buf, &mut transport)?;
+        // Safe because `rx_buf` lives as long as the `rx` queue.
+        unsafe {
+            Self::fill_rx_queue(&mut rx, rx_buf, &mut transport)?;
+        }
         transport.finish_init();
 
         Ok(Self {
@@ -103,20 +106,25 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         })
     }
 
-    fn fill_rx_queue(
+    /// Fills the `rx` queue with the buffer `rx_buf`.
+    ///
+    /// # Safety
+    /// Behavior is undefined if any of the following condition is violated:
+    /// * `rx_buf` must live at least as long as the `rx` queue.
+    #[deny(unsafe_op_in_unsafe_fn)]
+    unsafe fn fill_rx_queue(
         rx: &mut VirtQueue<H, { QUEUE_SIZE }>,
         rx_buf: &mut [u8],
         transport: &mut T,
     ) -> Result {
-        let buffer_size = rx_buf.len() / QUEUE_SIZE;
-        if buffer_size < size_of::<VirtioVsockHdr>() {
+        if rx_buf.len() < size_of::<VirtioVsockHdr>() * QUEUE_SIZE {
             return Err(SocketError::BufferTooShort.into());
         }
         for i in 0..QUEUE_SIZE {
-            let start = i * buffer_size;
-            let end = start + buffer_size;
-            // Safe because the buffer lives as long as the queue.
-            let token = unsafe { rx.add(&[], &mut [&mut rx_buf[start..end]])? };
+            let buffer_range = Self::rx_buffer_range(rx_buf, i)?;
+            // Safe because the buffer lives as long as the queue as specified in the function
+            // safety requirement.
+            let token = unsafe { rx.add(&[], &mut [&mut rx_buf[buffer_range]])? };
             assert_eq!(token as usize, i);
         }
 
@@ -139,29 +147,28 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             op: VirtioVsockOp::Request.into(),
             ..Default::default()
         };
+        // Send a header only packet to the tx queue to connect the device to the listening
+        // socket at the given destination.
         self.send_packet_to_tx_queue(&header, &[])?;
-        let received_header = self.pop_header_only_packet_from_rx_queue()?;
-        match received_header.op()? {
-            VirtioVsockOp::Response => {
-                let dst = VsockAddr {
-                    cid: dst_cid,
-                    port: dst_port,
-                };
-                self.connection_info = Some(ConnectionInfo {
-                    dst,
-                    src_port,
-                    ..Default::default()
-                });
-                Ok(())
-            }
-            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
-            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
-            _ => Err(SocketError::InvalidOperation.into()),
-        }
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], |packet| {
+            packet.check_data_is_empty().map_err(|e| e.into())
+        })?;
+        let dst = VsockAddr {
+            cid: dst_cid,
+            port: dst_port,
+        };
+        self.connection_info.replace(ConnectionInfo {
+            dst,
+            src_port,
+            ..Default::default()
+        });
+        debug!("Connection established: {:?}", self.connection_info);
+        Ok(())
     }
 
     /// Requests the credit and updates the credit in the current connection info.
     pub fn request_credit(&mut self) -> Result {
+        // TODO: Process the rx queue before adding buffer to tx queue.
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
             src_cid: self.guest_cid.into(),
@@ -172,21 +179,10 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        self.wait_one_in_rx_queue();
-        let received_header = self.pop_header_only_packet_from_rx_queue()?;
-        match received_header.op()? {
-            VirtioVsockOp::CreditUpdate => {
-                if let Some(connection_info) = self.connection_info.as_mut() {
-                    connection_info.buf_alloc = received_header.buf_alloc.into();
-                    connection_info.fwd_cnt = received_header.fwd_cnt.into();
-                }
-                debug!("Connection info {:?}", self.connection_info);
-                Ok(())
-            }
-            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
-            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
-            _ => Err(SocketError::InvalidOperation.into()),
-        }
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], |packet| {
+            packet.check_data_is_empty()?;
+            Ok(())
+        })
     }
 
     /// Sends the buffer to the destination.
@@ -195,7 +191,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         if buffer.len() > max_buffer_size {
             return Err(SocketError::BufferTooLong(buffer.len(), max_buffer_size).into());
         }
-        self.request_credit()?;
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
             src_cid: self.guest_cid.into(),
@@ -227,20 +222,16 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         };
         // TODO: We shouldn't need this send to trigger the fill of the rx queue.
         self.send_packet_to_tx_queue(&header, &[])?;
-        self.wait_one_in_rx_queue();
-        let packet = self.pop_packet_from_rx_queue()?;
-        match packet.hdr.op()? {
-            VirtioVsockOp::Rw => {
-                buffer
-                    .get_mut(0..packet.hdr.len())
-                    .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len()))?
-                    .copy_from_slice(packet.data);
-                Ok(packet.hdr.len())
-            }
-            VirtioVsockOp::Rst => Err(SocketError::ConnectionFailed.into()),
-            VirtioVsockOp::Shutdown => Err(SocketError::PeerSocketShutdown.into()),
-            _ => Err(SocketError::InvalidOperation.into()),
-        }
+        let mut len: usize = 0;
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Rw], |packet| {
+            buffer
+                .get_mut(0..packet.hdr.len())
+                .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len()))?
+                .copy_from_slice(packet.data);
+            len = packet.hdr.len();
+            Ok(())
+        })?;
+        Ok(len)
     }
 
     /// Shuts down the connection.
@@ -256,24 +247,15 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        let received_header = self.pop_header_only_packet_from_rx_queue()?;
-        match received_header.op()? {
-            VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
+        self.poll_and_filter_packet_from_rx_queue(
+            &[VirtioVsockOp::Rst, VirtioVsockOp::Shutdown],
+            |packet| {
                 info!("Disconnected from the peer");
-                self.connection_info = None;
-                Ok(())
-            }
-            _ => Err(SocketError::InvalidOperation.into()),
-        }
-    }
-
-    /// Waits until there is at least one element to pop in rx queue.
-    fn wait_one_in_rx_queue(&self) {
-        for _ in 0..10000000 {
-            if self.rx.can_pop() {
-                break;
-            }
-        }
+                packet.check_data_is_empty().map_err(|e| e.into())
+            },
+        )?;
+        self.connection_info.take();
+        Ok(())
     }
 
     fn send_packet_to_tx_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
@@ -283,6 +265,55 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             &mut self.transport,
         )?;
         Ok(())
+    }
+
+    fn poll_and_filter_packet_from_rx_queue<F>(
+        &mut self,
+        accepted_ops: &[VirtioVsockOp],
+        f: F,
+    ) -> Result
+    where
+        F: FnOnce(VirtioVsockPacket) -> Result,
+    {
+        let mut connection_info = self.connection_info.unwrap_or(ConnectionInfo::default());
+        loop {
+            self.wait_one_in_rx_queue();
+            let packet = self.pop_packet_from_rx_queue()?;
+            match packet.hdr.op()? {
+                VirtioVsockOp::CreditUpdate => {
+                    connection_info.buf_alloc = packet.hdr.buf_alloc.into();
+                    connection_info.fwd_cnt = packet.hdr.fwd_cnt.into();
+                    if accepted_ops.contains(&VirtioVsockOp::CreditUpdate) {
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+                x if accepted_ops.contains(&x) => {
+                    f(packet)?;
+                    break;
+                }
+                VirtioVsockOp::Rst => return Err(SocketError::ConnectionFailed.into()),
+                VirtioVsockOp::Shutdown => return Err(SocketError::PeerSocketShutdown.into()),
+                _ => return Err(SocketError::InvalidOperation.into()),
+            };
+        }
+        if self.connection_info != Some(connection_info) {
+            self.connection_info.replace(connection_info);
+            debug!("Connection info updated: {:?}", self.connection_info);
+        }
+        Ok(())
+    }
+
+    /// Waits until there is at least one element to pop in rx queue.
+    fn wait_one_in_rx_queue(&mut self) {
+        for _ in 0..1000000 {
+            if self.rx.can_pop() {
+                break;
+            } else {
+                core::hint::spin_loop();
+            }
+        }
     }
 
     fn pop_packet_from_rx_queue(&mut self) -> Result<VirtioVsockPacket> {
@@ -300,29 +331,27 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         Ok(packet)
     }
 
-    fn pop_header_only_packet_from_rx_queue(&mut self) -> Result<VirtioVsockHdr> {
-        let packet = self.pop_packet_from_rx_queue()?;
-        assert_eq!(packet.data.len(), 0);
-        Ok(packet.hdr)
+    fn get_rx_buffer_range(&self, i: usize) -> Result<Range<usize>> {
+        Self::rx_buffer_range(self.rx_buf, i)
     }
 
-    fn get_rx_buffer_range(&self, i: usize) -> Result<Range<usize>> {
-        let buffer_size = self.rx_buf.len() / QUEUE_SIZE;
+    fn connection_info(&self) -> Result<ConnectionInfo> {
+        self.connection_info.ok_or(SocketError::NotConnected.into())
+    }
+
+    fn rx_buffer_range(rx_buf: &[u8], i: usize) -> Result<Range<usize>> {
+        let buffer_size = rx_buf.len() / QUEUE_SIZE;
         let start = buffer_size
             .checked_mul(i)
             .ok_or(SocketError::InvalidNumber)?;
         let end = start
             .checked_add(buffer_size)
             .ok_or(SocketError::InvalidNumber)?;
-        if end > self.rx_buf.len() {
+        if end > rx_buf.len() {
             Err(SocketError::BufferTooShort.into())
         } else {
             Ok(start..end)
         }
-    }
-
-    fn connection_info(&self) -> Result<ConnectionInfo> {
-        self.connection_info.ok_or(SocketError::NotConnected.into())
     }
 }
 

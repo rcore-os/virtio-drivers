@@ -102,10 +102,18 @@ impl<'a> VirtioVsockPacket<'a> {
             .ok_or(SocketError::BufferTooShort)?;
         Ok(Self { hdr, data })
     }
+
+    pub fn check_data_is_empty(&self) -> error::Result<()> {
+        if self.data.is_empty() {
+            Ok(())
+        } else {
+            Err(SocketError::UnexpectedDataInPacket)
+        }
+    }
 }
 
 /// Socket address.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct VsockAddr {
     /// Context Identifier.
     pub cid: u64,
