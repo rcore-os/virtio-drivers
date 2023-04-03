@@ -20,7 +20,7 @@ fn main() {
             vsock_stream.local_addr()
         );
 
-        let message = b"Hello from host\0";
+        let message = b"Hello from host";
         vsock_stream.write_all(message).expect("write_all");
         println!("[Host] Sent message:{:?}.", message);
         vsock_stream.flush().expect("flush");
