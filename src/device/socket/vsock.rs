@@ -172,12 +172,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        // Wait until there is at least one element to pop.
-        for _ in 0..10000000 {
-            if self.rx.can_pop() {
-                break;
-            }
-        }
+        self.wait_one_in_rx_queue();
         let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
             VirtioVsockOp::CreditUpdate => {
@@ -227,12 +222,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         };
         // TODO: We shouldn't need this send to trigger the fill of the rx queue.
         self.send_packet_to_tx_queue(&header, &[])?;
-        // Wait until there is at least one element to pop.
-        for _ in 0..10000000 {
-            if self.rx.can_pop() {
-                break;
-            }
-        }
+        self.wait_one_in_rx_queue();
         let packet = self.pop_packet_from_rx_queue()?;
         match packet.hdr.op()? {
             VirtioVsockOp::Rw => {
@@ -268,6 +258,15 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 Ok(())
             }
             _ => Err(SocketError::InvalidOperation.into()),
+        }
+    }
+
+    /// Waits until there is at least one element to pop in rx queue.
+    fn wait_one_in_rx_queue(&self) {
+        for _ in 0..10000000 {
+            if self.rx.can_pop() {
+                break;
+            }
         }
     }
 
