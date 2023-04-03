@@ -116,7 +116,10 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::GPU => virtio_gpu(transport),
         // DeviceType::Network => virtio_net(transport), // currently is unsupported without alloc
         DeviceType::Console => virtio_console(transport),
-        DeviceType::Socket => virtio_socket(transport),
+        DeviceType::Socket => match virtio_socket(transport) {
+            Ok(()) => info!("virtio-socket test finished successfully"),
+            Err(e) => info!("virtio-socket test finished with error '{e:?}'"),
+        },
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -179,26 +182,33 @@ fn virtio_console<T: Transport>(transport: T) {
     info!("virtio-console test finished");
 }
 
-fn virtio_socket<T: Transport>(transport: T) {
+fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let mut socket =
         VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver");
     let host_cid = 2;
     let port = 1221;
     info!("Connecting to host on port {port}...");
-    let res = socket.connect(host_cid, port, port);
-    info!("Connection to host: {res:?}");
-    let res = socket.request_credit();
-    info!("Request credit: {res:?}");
-    let mut buffer = [0u8; 24];
-    let res = socket.recv(&mut buffer);
-    info!("Received message: {:?}. Message: {:?}", res, buffer);
+    socket.connect(host_cid, port, port)?;
+    info!("Connected to the host");
+    socket.request_credit()?;
+    info!("Requested credit");
 
-    let message = b"Ack. Hello from guest.";
-    let res = socket.send(message);
-    info!("Sent message '{:?}': {res:?}", message);
-    let res = socket.shutdown();
-    info!("Shutdown the connection: {res:?}");
-    info!("VirtIO socket test finished");
+    let mut buffer = [0u8; 24];
+    let len = socket.recv(&mut buffer)?;
+    info!(
+        "Received message: {:?}({:?}), len: {:?}",
+        buffer,
+        core::str::from_utf8(&buffer[..len]),
+        len
+    );
+
+    let message = "Ack. Hello from guest.";
+    socket.send(message.as_bytes())?;
+    info!("Sent message: {:?}", message);
+
+    socket.shutdown()?;
+    info!("Shutdown the connection");
+    Ok(())
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

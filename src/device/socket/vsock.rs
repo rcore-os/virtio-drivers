@@ -1,4 +1,5 @@
 //! Driver for VirtIO socket devices.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use super::error::SocketError;
 use super::protocol::{
@@ -111,7 +112,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     /// # Safety
     /// Behavior is undefined if any of the following condition is violated:
     /// * `rx_buf` must live at least as long as the `rx` queue.
-    #[deny(unsafe_op_in_unsafe_fn)]
     unsafe fn fill_rx_queue(
         rx: &mut VirtQueue<H, { QUEUE_SIZE }>,
         rx_buf: &mut [u8],
@@ -162,7 +162,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             src_port,
             ..Default::default()
         });
-        debug!("Connection established: {:?}", self.connection_info);
         Ok(())
     }
 
@@ -180,8 +179,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         };
         self.send_packet_to_tx_queue(&header, &[])?;
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], |packet| {
-            packet.check_data_is_empty()?;
-            Ok(())
+            packet.check_data_is_empty().map_err(|e| e.into())
         })
     }
 
@@ -317,9 +315,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     fn pop_packet_from_rx_queue(&mut self) -> Result<VirtioVsockPacket> {
-        let token = if let Some(token) = self.rx.peek_used() {
-            token // TODO: Use let else after updating Rust
-        } else {
+        let Some(token) = self.rx.peek_used() else {
             return Err(SocketError::NoResponseReceived.into());
         };
         let buffer_range = self.get_rx_buffer_range(token as usize)?;

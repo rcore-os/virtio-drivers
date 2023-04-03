@@ -1,4 +1,4 @@
-/// Sets a listening socket on host.
+//! Sets a listening socket on host.
 use std::{
     io::{Read, Write},
     time::Duration,
@@ -11,44 +11,47 @@ fn main() {
     println!("[Host] Setting up listening socket on port {PORT}");
     let listener = VsockListener::bind(&VsockAddr::new(VMADDR_CID_HOST, PORT))
         .expect("Failed to set up listening port");
-    for vsock_stream in listener.incoming() {
-        let mut vsock_stream = vsock_stream.expect("Failed to extract vsock_stream");
-        println!(
-            "[Host] Accept connection: {:?}, peer addr: {:?}, local addr: {:?}",
-            vsock_stream,
-            vsock_stream.peer_addr(),
-            vsock_stream.local_addr()
-        );
 
-        let message = b"Hello from host";
-        vsock_stream.write_all(message).expect("write_all");
-        println!("[Host] Sent message:{:?}.", message);
-        vsock_stream.flush().expect("flush");
-        println!("[Host] Flushed.");
+    let Some(Ok(mut vsock_stream)) = listener.incoming().next() else {
+        println!("[Host] Failed to get vsock_stream");
+        return;
+    };
+    println!(
+        "[Host] Accept connection: {:?}, peer addr: {:?}, local addr: {:?}",
+        vsock_stream,
+        vsock_stream.peer_addr(),
+        vsock_stream.local_addr()
+    );
 
-        let mut message = vec![0u8; 30];
-        vsock_stream
-            .set_read_timeout(Some(Duration::from_millis(3_000)))
-            .expect("set_read_timeout");
-        for i in 0..10 {
-            match vsock_stream.read(&mut message) {
-                Ok(len) => {
-                    println!(
-                        "[Host] Received message: {:?}, len:{:?}, str: {:?}",
-                        message,
-                        len,
-                        std::str::from_utf8(&message[..len])
-                    );
+    let message = "Hello from host";
+    vsock_stream
+        .write_all(message.as_bytes())
+        .expect("write_all");
+    println!("[Host] Sent message: {:?}.", message);
+    vsock_stream.flush().expect("flush");
+    println!("[Host] Flushed.");
 
-                    break;
-                }
-                Err(e) => {
-                    println!("{i} {e:?}");
-                    std::thread::sleep(Duration::from_millis(200))
-                }
+    let mut message = vec![0u8; 30];
+    vsock_stream
+        .set_read_timeout(Some(Duration::from_millis(3_000)))
+        .expect("set_read_timeout");
+    for i in 0..10 {
+        match vsock_stream.read(&mut message) {
+            Ok(len) => {
+                println!(
+                    "[Host] Received message: {:?}({:?}), len: {:?}",
+                    message,
+                    std::str::from_utf8(&message[..len]),
+                    len,
+                );
+
+                break;
+            }
+            Err(e) => {
+                println!("{i} {e:?}");
+                std::thread::sleep(Duration::from_millis(200))
             }
         }
-        println!("[Host] End.");
-        return;
     }
+    println!("[Host] End.");
 }

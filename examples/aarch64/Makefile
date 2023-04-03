@@ -56,6 +56,8 @@ header: kernel
 clean:
 	cargo clean
 
+# This target is used to test the vsock driver manually. See vsock_server/README.md
+# for more information.
 qemu-vsock: $(kernel_qemu_bin) $(img)
 	qemu-system-aarch64 \
 	  $(QEMU_ARGS) \
