@@ -350,6 +350,11 @@ impl Transport for MmioTransport {
         }
     }
 
+    fn get_status(&self) -> DeviceStatus {
+        // Safe because self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.header, status) }
+    }
+
     fn set_status(&mut self, status: DeviceStatus) {
         // Safe because self.header points to a valid VirtIO MMIO region.
         unsafe {
@@ -442,7 +447,11 @@ impl Transport for MmioTransport {
                 // Safe because self.header points to a valid VirtIO MMIO region.
                 unsafe {
                     volwrite!(self.header, queue_sel, queue.into());
+
                     volwrite!(self.header, queue_ready, 0);
+                    // Wait until we read the same value back, to ensure synchronisation (see 4.2.2.2).
+                    while volread!(self.header, queue_ready) != 0 {}
+
                     volwrite!(self.header, queue_num, 0);
                     volwrite!(self.header, queue_desc_low, 0);
                     volwrite!(self.header, queue_desc_high, 0);

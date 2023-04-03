@@ -38,6 +38,10 @@ impl<C> Transport for FakeTransport<C> {
         self.state.lock().unwrap().queues[queue as usize].notified = true;
     }
 
+    fn get_status(&self) -> DeviceStatus {
+        self.state.lock().unwrap().status
+    }
+
     fn set_status(&mut self, status: DeviceStatus) {
         self.state.lock().unwrap().status = status;
     }

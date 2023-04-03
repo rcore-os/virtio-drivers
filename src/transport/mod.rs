@@ -26,6 +26,9 @@ pub trait Transport {
     /// Notifies the given queue on the device.
     fn notify(&mut self, queue: u16);
 
+    /// Gets the device status.
+    fn get_status(&self) -> DeviceStatus;
+
     /// Sets the device status.
     fn set_status(&mut self, status: DeviceStatus);
 
