@@ -160,7 +160,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         }
     }
 
-    /// Requests the credit.
+    /// Requests the credit and updates the credit in the current connection info.
     pub fn request_credit(&mut self) -> Result {
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
@@ -194,7 +194,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     /// Sends the buffer to the destination.
-    /// TODO: send doesn't work yet.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
         self.request_credit()?;
         let connection_info = self.connection_info()?;
@@ -226,6 +225,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             fwd_cnt: connection_info.fwd_cnt.into(),
             ..Default::default()
         };
+        // TODO: We shouldn't need this send to trigger the fill of the rx queue.
         self.send_packet_to_tx_queue(&header, &[])?;
         // Wait until there is at least one element to pop.
         for _ in 0..10000000 {
@@ -262,7 +262,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         self.send_packet_to_tx_queue(&header, &[])?;
         let received_header = self.pop_header_only_packet_from_rx_queue()?;
         match received_header.op()? {
-            VirtioVsockOp::Rst => {
+            VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
                 info!("Disconnected from the peer");
                 self.connection_info = None;
                 Ok(())

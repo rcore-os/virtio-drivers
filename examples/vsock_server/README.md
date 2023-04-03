@@ -15,6 +15,7 @@ examples/aarch64$ make qemu-vsock
 ```
 
 ## Sample log
+
 Host:
 ```
 [Host] Setting up listening socket on port 1221
