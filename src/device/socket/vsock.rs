@@ -44,6 +44,17 @@ impl ConnectionInfo {
     fn peer_free(&self) -> u32 {
         self.peer_buf_alloc - (self.tx_cnt - self.peer_fwd_cnt)
     }
+
+    fn new_header(&self, src_cid: u64) -> VirtioVsockHdr {
+        VirtioVsockHdr {
+            src_cid: src_cid.into(),
+            dst_cid: self.dst.cid.into(),
+            src_port: self.src_port.into(),
+            dst_port: self.dst.port.into(),
+            fwd_cnt: self.fwd_cnt.into(),
+            ..Default::default()
+        }
+    }
 }
 
 /// Driver for a VirtIO socket device.
@@ -206,15 +217,10 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         let connection_info = self.connection_info()?;
         let len = buffer.len() as u32;
         let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::Rw.into(),
             len: len.into(),
             buf_alloc: 0.into(),
-            fwd_cnt: connection_info.fwd_cnt.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
         self.connection_info.as_mut().unwrap().tx_cnt += len;
         self.send_packet_to_tx_queue(&header, buffer)
@@ -247,14 +253,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
         // Tell the peer that we have space to recieve some data.
         let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::CreditUpdate.into(),
             buf_alloc: (buffer.len() as u32).into(),
-            fwd_cnt: connection_info.fwd_cnt.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])?;
 
@@ -276,12 +277,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     pub fn shutdown(&mut self) -> Result {
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::Shutdown.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])?;
         self.poll_and_filter_packet_from_rx_queue(
