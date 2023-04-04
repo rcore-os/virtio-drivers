@@ -247,7 +247,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
         let connection_info = self.connection_info()?;
 
-        // Tell the peer that we have space to recieve some data.
+        // Tell the peer that we have space to receive some data.
         let header = VirtioVsockHdr {
             op: VirtioVsockOp::CreditUpdate.into(),
             buf_alloc: (buffer.len() as u32).into(),
