@@ -5,7 +5,6 @@ use crate::volatile::ReadOnly;
 use core::{
     convert::{TryFrom, TryInto},
     fmt,
-    mem::size_of,
 };
 use zerocopy::{
     byteorder::{LittleEndian, U16, U32, U64},
@@ -51,7 +50,9 @@ pub struct VirtioVsockHdr {
     pub socket_type: U16<LittleEndian>,
     pub op: U16<LittleEndian>,
     pub flags: U32<LittleEndian>,
+    /// Total receive buffer space for this socket. This includes both free and in-use buffers.
     pub buf_alloc: U32<LittleEndian>,
+    /// Free-running bytes received counter.
     pub fwd_cnt: U32<LittleEndian>,
 }
 
@@ -72,25 +73,46 @@ impl Default for VirtioVsockHdr {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct VirtioVsockPacket<'a> {
-    pub hdr: VirtioVsockHdr,
-    pub data: &'a [u8],
-}
-
-impl<'a> VirtioVsockPacket<'a> {
-    pub fn read_from(buffer: &'a [u8]) -> error::Result<Self> {
-        let hdr = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
-        let data_end = size_of::<VirtioVsockHdr>() + (hdr.len.get() as usize);
-        let data = buffer
-            .get(size_of::<VirtioVsockHdr>()..data_end)
-            .ok_or(SocketError::BufferTooShort)?;
-        Ok(Self { hdr, data })
+impl VirtioVsockHdr {
+    /// Returns the length of the data.
+    pub fn len(&self) -> u32 {
+        u32::from(self.len)
     }
 
     pub fn op(&self) -> error::Result<VirtioVsockOp> {
-        self.hdr.op.try_into()
+        self.op.try_into()
     }
+
+    pub fn source(&self) -> VsockAddr {
+        VsockAddr {
+            cid: self.src_cid.get(),
+            port: self.src_port.get(),
+        }
+    }
+
+    pub fn destination(&self) -> VsockAddr {
+        VsockAddr {
+            cid: self.dst_cid.get(),
+            port: self.dst_port.get(),
+        }
+    }
+
+    pub fn check_data_is_empty(&self) -> error::Result<()> {
+        if self.len() == 0 {
+            Ok(())
+        } else {
+            Err(SocketError::UnexpectedDataInPacket)
+        }
+    }
+}
+
+/// Socket address.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct VsockAddr {
+    /// Context Identifier.
+    pub cid: u64,
+    /// Port number.
+    pub port: u32,
 }
 
 /// An event sent to the event queue

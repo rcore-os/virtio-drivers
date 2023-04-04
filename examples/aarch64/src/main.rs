@@ -116,7 +116,10 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::GPU => virtio_gpu(transport),
         // DeviceType::Network => virtio_net(transport), // currently is unsupported without alloc
         DeviceType::Console => virtio_console(transport),
-        DeviceType::Socket => virtio_socket(transport),
+        DeviceType::Socket => match virtio_socket(transport) {
+            Ok(()) => info!("virtio-socket test finished successfully"),
+            Err(e) => error!("virtio-socket test finished with error '{e:?}'"),
+        },
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -179,18 +182,34 @@ fn virtio_console<T: Transport>(transport: T) {
     info!("virtio-console test finished");
 }
 
-fn virtio_socket<T: Transport>(transport: T) {
+fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let mut socket =
         VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver");
     let host_cid = 2;
     let port = 1221;
     info!("Connecting to host on port {port}...");
-    if let Err(e) = socket.connect(host_cid, port, port) {
-        error!("Failed to connect to host: {:?}", e);
-    } else {
-        info!("Connected to host on port {port} successfully.")
+    socket.connect(host_cid, port, port)?;
+    info!("Connected to the host");
+
+    const EXCHANGE_NUM: usize = 2;
+    let messages = ["0-Ack. Hello from guest.", "1-Ack. Received again."];
+    for k in 0..EXCHANGE_NUM {
+        let mut buffer = [0u8; 24];
+        let len = socket.recv(&mut buffer)?;
+        info!(
+            "Received message: {:?}({:?}), len: {:?}",
+            buffer,
+            core::str::from_utf8(&buffer[..len]),
+            len
+        );
+
+        let message = messages[k % messages.len()];
+        socket.send(message.as_bytes())?;
+        info!("Sent message: {:?}", message);
     }
-    info!("VirtIO socket test finished");
+    socket.shutdown()?;
+    info!("Shutdown the connection");
+    Ok(())
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

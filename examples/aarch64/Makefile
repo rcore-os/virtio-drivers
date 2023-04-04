@@ -56,6 +56,21 @@ header: kernel
 clean:
 	cargo clean
 
+# This target is used to test the vsock driver manually. See vsock_server/README.md
+# for more information.
+qemu-vsock: $(kernel_qemu_bin) $(img)
+	qemu-system-aarch64 \
+	  $(QEMU_ARGS) \
+		-machine virt \
+		-cpu max \
+		-serial chardev:char0 \
+		-kernel $(kernel_qemu_bin) \
+		-global virtio-mmio.force-legacy=false \
+		-nic none \
+		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device vhost-vsock-device,id=virtiosocket0,guest-cid=102 \
+		-chardev stdio,id=char0,mux=on
+
 qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
 	$(vsock_server_bin) &
 	qemu-system-aarch64 \
