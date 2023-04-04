@@ -170,7 +170,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     /// Requests the credit and updates the peer credit in the current connection info.
-    pub fn request_credit(&mut self) -> Result {
+    fn request_credit(&mut self) -> Result {
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
             src_cid: self.guest_cid.into(),
