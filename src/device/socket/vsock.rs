@@ -311,6 +311,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             self.wait_one_in_rx_queue();
             let mut connection_info = self.connection_info.clone().unwrap_or_default();
             let (packet, token) = self.pop_packet_from_rx_queue()?;
+            tokens_to_recycle.push(token);
+            let op = packet.hdr.op()?;
 
             // Skip packets which don't match our current connection.
             if packet.hdr.source() != connection_info.dst
@@ -324,8 +326,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 );
                 continue;
             }
-            tokens_to_recycle.push(token);
-            let op = packet.hdr.op()?;
             match op {
                 VirtioVsockOp::CreditUpdate => {
                     packet.check_data_is_empty()?;
