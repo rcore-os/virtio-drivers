@@ -46,7 +46,6 @@ fn main() {
                         std::str::from_utf8(&message[..len]),
                         len,
                     );
-
                     break;
                 }
                 Err(e) => {

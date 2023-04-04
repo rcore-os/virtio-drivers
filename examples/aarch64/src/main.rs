@@ -184,7 +184,7 @@ fn virtio_console<T: Transport>(transport: T) {
 
 fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let mut socket = VirtIOSocket::<HalImpl, T>::new(
-        transport, 2, // rx_buf_pages
+        transport, 1, // rx_buf_pages
     )
     .expect("Failed to create socket driver");
     let host_cid = 2;
@@ -205,7 +205,7 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
             len
         );
 
-        let message = messages[k];
+        let message = messages[k % messages.len()];
         socket.send(message.as_bytes())?;
         info!("Sent message: {:?}", message);
     }
