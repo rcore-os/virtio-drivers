@@ -192,10 +192,7 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     info!("Connected to the host");
 
     const EXCHANGE_NUM: usize = 2;
-    let messages = [
-        "0-Ack. Hello from guest.",
-        "1-Ack. Received again.",
-    ];
+    let messages = ["0-Ack. Hello from guest.", "1-Ack. Received again."];
     for k in 0..EXCHANGE_NUM {
         let mut buffer = [0u8; 24];
         let len = socket.recv(&mut buffer)?;
