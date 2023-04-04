@@ -24,7 +24,7 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 const QUEUE_SIZE: usize = 8;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default)]
 struct ConnectionInfo {
     dst: VsockAddr,
     src_port: u32,
@@ -201,7 +201,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
     /// Sends the buffer to the destination.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
-        self.check_local_buffer_is_sufficient(buffer.len())?;
         self.check_peer_buffer_is_sufficient(buffer.len())?;
 
         let connection_info = self.connection_info()?;
@@ -217,15 +216,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, buffer)
-    }
-
-    fn check_local_buffer_is_sufficient(&self, buffer_len: usize) -> Result {
-        let local_buf_alloc = self.total_rx_buf_alloc() / QUEUE_SIZE;
-        if local_buf_alloc >= buffer_len {
-            Ok(())
-        } else {
-            Err(SocketError::BufferTooLong(buffer_len, local_buf_alloc).into())
-        }
     }
 
     fn check_peer_buffer_is_sufficient(&mut self, buffer_len: usize) -> Result {
@@ -292,16 +282,20 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     where
         F: FnOnce(&VirtioVsockPacket) -> Result,
     {
-        let mut connection_info = self.connection_info.unwrap_or_default();
         loop {
             self.wait_one_in_rx_queue();
+            let mut connection_info = self.connection_info.unwrap_or_default();
             let packet = self.pop_packet_from_rx_queue()?;
             let op = packet.hdr.op()?;
             match op {
                 VirtioVsockOp::CreditUpdate => {
                     packet.check_data_is_empty()?;
+
                     connection_info.peer_buf_alloc = packet.hdr.buf_alloc.into();
                     connection_info.peer_fwd_cnt = packet.hdr.fwd_cnt.into();
+                    self.connection_info.replace(connection_info);
+                    debug!("Connection info updated: {:?}", self.connection_info);
+
                     if accepted_ops.contains(&op) {
                         break;
                     } else {
@@ -313,10 +307,11 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 }
                 VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
                     packet.check_data_is_empty()?;
+
                     self.connection_info.take();
                     info!("Disconnected from the peer");
                     if accepted_ops.contains(&op) {
-                        return Ok(());
+                        break;
                     } else if op == VirtioVsockOp::Rst {
                         return Err(SocketError::ConnectionFailed.into());
                     } else if op == VirtioVsockOp::Shutdown {
@@ -329,10 +324,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                 }
                 _ => return Err(SocketError::InvalidOperation.into()),
             };
-        }
-        if self.connection_info != Some(connection_info) {
-            self.connection_info.replace(connection_info);
-            debug!("Connection info updated: {:?}", self.connection_info);
         }
         Ok(())
     }
