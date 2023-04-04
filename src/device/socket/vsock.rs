@@ -364,7 +364,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                     break;
                 }
                 _ => {
-                    err.replace(SocketError::InvalidOperation.into());
+                    err.replace(SocketError::InvalidOperation);
                     break;
                 }
             };
@@ -384,7 +384,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     fn recycle_rx_buffer(&mut self, token: usize) -> Result {
-        let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf, token.into())?;
+        let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf, token)?;
         // Safe because the buffer lasts at least as long as the rx queue.
         let new_token = unsafe { self.rx.add(&[], &mut [buffer])? };
         if token == new_token.into() {
