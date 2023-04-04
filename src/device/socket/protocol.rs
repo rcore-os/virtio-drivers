@@ -5,7 +5,6 @@ use crate::volatile::ReadOnly;
 use core::{
     convert::{TryFrom, TryInto},
     fmt,
-    mem::size_of,
 };
 use zerocopy::{
     byteorder::{LittleEndian, U16, U32, U64},
@@ -97,28 +96,9 @@ impl VirtioVsockHdr {
             port: self.dst_port.get(),
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct VirtioVsockPacket<'a> {
-    pub hdr: VirtioVsockHdr,
-    pub data: &'a [u8],
-}
-
-impl<'a> VirtioVsockPacket<'a> {
-    pub fn read_from(buffer: &'a [u8]) -> error::Result<Self> {
-        let hdr = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
-        let data_end = size_of::<VirtioVsockHdr>()
-            .checked_add(hdr.len() as usize)
-            .ok_or(SocketError::InvalidNumber)?;
-        let data = buffer
-            .get(size_of::<VirtioVsockHdr>()..data_end)
-            .ok_or(SocketError::BufferTooShort)?;
-        Ok(Self { hdr, data })
-    }
 
     pub fn check_data_is_empty(&self) -> error::Result<()> {
-        if self.data.is_empty() {
+        if self.len() == 0 {
             Ok(())
         } else {
             Err(SocketError::UnexpectedDataInPacket)

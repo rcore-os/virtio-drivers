@@ -2,19 +2,17 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use super::error::SocketError;
-use super::protocol::{
-    VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VirtioVsockPacket, VsockAddr,
-};
+use super::protocol::{VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::device::common::Feature;
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
+use core::ptr::NonNull;
 use core::{convert::TryFrom, mem::size_of};
 use log::{debug, info, trace};
-use tinyvec::ArrayVec;
-use zerocopy::AsBytes;
+use zerocopy::{AsBytes, FromBytes};
 
 const RX_QUEUE_IDX: u16 = 0;
 const TX_QUEUE_IDX: u16 = 1;
@@ -56,7 +54,7 @@ impl ConnectionInfo {
 }
 
 /// Driver for a VirtIO socket device.
-pub struct VirtIOSocket<'a, H: Hal, T: Transport> {
+pub struct VirtIOSocket<H: Hal, T: Transport> {
     transport: T,
     /// Virtqueue to receive packets.
     rx: VirtQueue<H, { QUEUE_SIZE }>,
@@ -67,13 +65,12 @@ pub struct VirtIOSocket<'a, H: Hal, T: Transport> {
     /// the device for its lifetime. The upper 32 bits of the CID are reserved and zeroed.
     guest_cid: u64,
     rx_buf_dma: Dma<H>,
-    rx_buf: &'a mut [u8],
 
     /// Currently the device is only allowed to be connected to one destination at a time.
     connection_info: Option<ConnectionInfo>,
 }
 
-impl<'a, H: Hal, T: Transport> Drop for VirtIOSocket<'a, H, T> {
+impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
@@ -83,7 +80,7 @@ impl<'a, H: Hal, T: Transport> Drop for VirtIOSocket<'a, H, T> {
     }
 }
 
-impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
+impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
@@ -111,10 +108,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             1, // pages
             BufferDirection::DeviceToDriver,
         )?;
-        // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
-        // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer
-        // (which we don't otherwise access).
-        let rx_buf = unsafe { rx_buf_dma.raw_slice().as_mut() };
+        let rx_buf = rx_buf_dma.raw_slice();
         // Safe because `rx_buf` lives as long as the `rx` queue.
         unsafe {
             Self::fill_rx_queue(&mut rx, rx_buf, &mut transport)?;
@@ -128,7 +122,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             event,
             guest_cid,
             rx_buf_dma,
-            rx_buf,
             connection_info: None,
         })
     }
@@ -136,22 +129,25 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     /// Fills the `rx` queue with the buffer `rx_buf`.
     ///
     /// # Safety
-    /// Behavior is undefined if any of the following condition is violated:
-    /// * `rx_buf` must live at least as long as the `rx` queue.
+    ///
+    /// `rx_buf` must live at least as long as the `rx` queue, and the parts of the buffer which are
+    /// in the queue must not be used anywhere else at the same time.
     unsafe fn fill_rx_queue(
         rx: &mut VirtQueue<H, { QUEUE_SIZE }>,
-        rx_buf: &mut [u8],
+        rx_buf: NonNull<[u8]>,
         transport: &mut T,
     ) -> Result {
         if rx_buf.len() < size_of::<VirtioVsockHdr>() * QUEUE_SIZE {
             return Err(SocketError::BufferTooShort.into());
         }
         for i in 0..QUEUE_SIZE {
-            let buffer = Self::as_mut_sub_rx_buffer(rx_buf, i)?;
-            // Safe because the buffer lives as long as the queue as specified in the function
-            // safety requirement.
-            let token = unsafe { rx.add(&[], &mut [buffer])? };
-            assert_eq!(i, token.into());
+            // Safe because the buffer lives as long as the queue, as specified in the function
+            // safety requirement, and we don't access it until it is popped.
+            unsafe {
+                let buffer = Self::as_mut_sub_rx_buffer(rx_buf, i)?;
+                let token = rx.add(&[], &mut [buffer])?;
+                assert_eq!(i, token.into());
+            }
         }
 
         if rx.should_notify() {
@@ -186,8 +182,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             src_port,
             ..Default::default()
         });
-        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], |packet| {
-            packet.check_data_is_empty().map_err(|e| e.into())
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], &mut [], |header| {
+            header.check_data_is_empty().map_err(|e| e.into())
         })?;
         debug!("Connection established: {:?}", self.connection_info);
         Ok(())
@@ -205,7 +201,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         };
         self.send_packet_to_tx_queue(&header, &[])?;
-        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], |_| Ok(()))
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], &mut [], |_| {
+            Ok(())
+        })
     }
 
     /// Sends the buffer to the destination.
@@ -259,12 +257,8 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
         // Wait to receive some data.
         let mut len: u32 = 0;
-        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Rw], |packet| {
-            buffer
-                .get_mut(0..packet.hdr.len() as usize)
-                .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len() as usize))?
-                .copy_from_slice(packet.data);
-            len = packet.hdr.len();
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Rw], buffer, |header| {
+            len = header.len();
             Ok(())
         })?;
         self.connection_info.as_mut().unwrap().fwd_cnt += len;
@@ -281,6 +275,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         self.send_packet_to_tx_queue(&header, &[])?;
         self.poll_and_filter_packet_from_rx_queue(
             &[VirtioVsockOp::Rst, VirtioVsockOp::Shutdown],
+            &mut [],
             |_| Ok(()),
         )?;
         Ok(())
@@ -299,39 +294,39 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     fn poll_and_filter_packet_from_rx_queue<F>(
         &mut self,
         accepted_ops: &[VirtioVsockOp],
+        body: &mut [u8],
         f: F,
     ) -> Result
     where
-        F: FnOnce(&VirtioVsockPacket) -> Result,
+        F: FnOnce(&VirtioVsockHdr) -> Result,
     {
         let our_cid = self.guest_cid;
-        let mut tokens_to_recycle = ArrayVec::<[usize; QUEUE_SIZE]>::new();
         let mut err = None::<SocketError>;
         loop {
             self.wait_one_in_rx_queue();
             let mut connection_info = self.connection_info.clone().unwrap_or_default();
-            let (packet, token) = self.pop_packet_from_rx_queue()?;
-            tokens_to_recycle.push(token);
-            let op = packet.hdr.op()?;
+            let header = self.pop_packet_from_rx_queue(body)?;
+            let op = header.op()?;
 
             // Skip packets which don't match our current connection.
-            if packet.hdr.source() != connection_info.dst
-                || packet.hdr.dst_cid.get() != our_cid
-                || packet.hdr.dst_port.get() != connection_info.src_port
+            if header.source() != connection_info.dst
+                || header.dst_cid.get() != our_cid
+                || header.dst_port.get() != connection_info.src_port
             {
                 trace!(
                     "Skipping {:?} as connection is {:?}",
-                    packet.hdr,
+                    header,
                     connection_info
                 );
                 continue;
             }
+
             match op {
                 VirtioVsockOp::CreditUpdate => {
-                    packet.check_data_is_empty()?;
+                    header.check_data_is_empty()?;
 
-                    connection_info.peer_buf_alloc = packet.hdr.buf_alloc.into();
-                    connection_info.peer_fwd_cnt = packet.hdr.fwd_cnt.into();
+                    connection_info.peer_buf_alloc = header.buf_alloc.into();
+                    connection_info.peer_fwd_cnt = header.fwd_cnt.into();
                     self.connection_info.replace(connection_info);
                     debug!("Connection info updated: {:?}", self.connection_info);
 
@@ -346,7 +341,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                     }
                 }
                 VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
-                    packet.check_data_is_empty()?;
+                    header.check_data_is_empty()?;
 
                     self.connection_info.take();
                     info!("Disconnected from the peer");
@@ -360,7 +355,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
                     break;
                 }
                 x if accepted_ops.contains(&x) => {
-                    f(&packet)?;
+                    f(&header)?;
                     break;
                 }
                 _ => {
@@ -370,9 +365,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             };
         }
 
-        for token in tokens_to_recycle {
-            self.recycle_rx_buffer(token)?;
-        }
         if self.rx.should_notify() {
             self.transport.notify(RX_QUEUE_IDX);
         }
@@ -380,17 +372,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             Err(e.into())
         } else {
             Ok(())
-        }
-    }
-
-    fn recycle_rx_buffer(&mut self, token: usize) -> Result {
-        let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf, token)?;
-        // Safe because the buffer lasts at least as long as the rx queue.
-        let new_token = unsafe { self.rx.add(&[], &mut [buffer])? };
-        if token == new_token.into() {
-            Ok(())
-        } else {
-            Err(SocketError::RecycledWrongBuffer.into())
         }
     }
 
@@ -406,16 +387,38 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         }
     }
 
-    fn pop_packet_from_rx_queue(&mut self) -> Result<(VirtioVsockPacket, usize)> {
+    /// Pops one packet from the RX queue, if there is one pending. Returns the header, and copies
+    /// the body into the given buffer.
+    ///
+    /// Returns an error if there is no pending packet, or the body is bigger than the buffer
+    /// supplied.
+    fn pop_packet_from_rx_queue(&mut self, body: &mut [u8]) -> Result<VirtioVsockHdr> {
         let Some(token) = self.rx.peek_used() else {
             return Err(SocketError::NoResponseReceived.into());
         };
-        let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf, token.into())?;
-        // Safe because we are passing the same buffer as we passed to `VirtQueue::add`.
-        let _len = unsafe { self.rx.pop_used(token, &[], &mut [buffer])? };
-        let packet = VirtioVsockPacket::read_from(buffer)?;
-        debug!("Received packet {:?}. Op {:?}", packet, packet.hdr.op());
-        Ok((packet, token.into()))
+
+        // Safe because we maintain a consistent mapping of tokens to buffers, so we pass the same
+        // buffer to `pop_used` as we previously passed to `add` for the token. Once we add the
+        // buffer back to the RX queue then we don't access it again until next time it is popped.
+        let header = unsafe {
+            let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf_dma.raw_slice(), token.into())?;
+            let _len = self.rx.pop_used(token, &[], &mut [buffer])?;
+
+            // Read the header and body from the buffer. Don't check the result yet, because we need
+            // to add the buffer back to the queue either way.
+            let header_result = read_header_and_body(buffer, body);
+
+            // Add the buffer back to the RX queue.
+            let new_token = self.rx.add(&[], &mut [buffer])?;
+            // If the RX buffer somehow gets assigned a different token, then our safety assumptions
+            // are broken and we can't safely continue to do anything with the device.
+            assert_eq!(new_token, token);
+
+            header_result
+        }?;
+
+        debug!("Received packet {:?}. Op {:?}", header, header.op());
+        Ok(header)
     }
 
     fn connection_info(&self) -> Result<ConnectionInfo> {
@@ -424,7 +427,18 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             .ok_or(SocketError::NotConnected.into())
     }
 
-    fn as_mut_sub_rx_buffer(rx_buf: &mut [u8], i: usize) -> Result<&mut [u8]> {
+    /// Gets a reference to a subslice of the RX buffer to be used for the given entry in the RX
+    /// virtqueue.
+    ///
+    /// # Safety
+    ///
+    /// `rx_buf` must be a valid dereferenceable pointer.
+    /// The returned reference has an arbitrary lifetime `'a`. This lifetime must not overlap with
+    /// any other references to the same subslice of the RX buffer or outlive the buffer.
+    unsafe fn as_mut_sub_rx_buffer<'a>(
+        mut rx_buf: NonNull<[u8]>,
+        i: usize,
+    ) -> Result<&'a mut [u8]> {
         let buffer_size = rx_buf.len() / QUEUE_SIZE;
         let start = buffer_size
             .checked_mul(i)
@@ -432,10 +446,31 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         let end = start
             .checked_add(buffer_size)
             .ok_or(SocketError::InvalidNumber)?;
-        rx_buf
-            .get_mut(start..end)
-            .ok_or(SocketError::BufferTooShort.into())
+        // Safe because no alignment or initialisation is required for [u8], and our caller assures
+        // us that `rx_buf` is dereferenceable and that the lifetime of the slice we are creating
+        // won't overlap with any other references to the same slice or outlive it.
+        unsafe {
+            rx_buf
+                .as_mut()
+                .get_mut(start..end)
+                .ok_or(SocketError::BufferTooShort.into())
+        }
     }
+}
+
+fn read_header_and_body(buffer: &[u8], body: &mut [u8]) -> Result<VirtioVsockHdr> {
+    let header = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
+    let body_length = header.len() as usize;
+    let data_end = size_of::<VirtioVsockHdr>()
+        .checked_add(body_length)
+        .ok_or(SocketError::InvalidNumber)?;
+    let data = buffer
+        .get(size_of::<VirtioVsockHdr>()..data_end)
+        .ok_or(SocketError::BufferTooShort)?;
+    body.get_mut(0..body_length)
+        .ok_or(SocketError::OutputBufferTooShort(body_length))?
+        .copy_from_slice(data);
+    Ok(header)
 }
 
 #[cfg(test)]
