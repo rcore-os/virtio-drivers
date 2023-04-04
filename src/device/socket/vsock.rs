@@ -220,14 +220,22 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     fn check_peer_buffer_is_sufficient(&mut self, buffer_len: usize) -> Result {
-        // Updates the cached peer credit info before comparison.
-        self.request_credit()?;
-        let peer_buf_alloc = usize::try_from(self.connection_info()?.peer_buf_alloc)
-            .map_err(|_| SocketError::InvalidNumber)?;
-        if peer_buf_alloc >= buffer_len {
+        if usize::try_from(self.connection_info()?.peer_free())
+            .map_err(|_| SocketError::InvalidNumber)?
+            >= buffer_len
+        {
             Ok(())
         } else {
-            Err(SocketError::InsufficientBufferSpaceInPeer.into())
+            // Update cached peer credit and try again.
+            self.request_credit()?;
+            if usize::try_from(self.connection_info()?.peer_free())
+                .map_err(|_| SocketError::InvalidNumber)?
+                >= buffer_len
+            {
+                Ok(())
+            } else {
+                Err(SocketError::InsufficientBufferSpaceInPeer.into())
+            }
         }
     }
 

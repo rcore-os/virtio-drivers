@@ -29,7 +29,7 @@ pub enum SocketError {
     InvalidNumber,
     /// Unexpected data in packet.
     UnexpectedDataInPacket,
-    /// Peer has insufficient buffer space.
+    /// Peer has insufficient buffer space, try again later.
     InsufficientBufferSpaceInPeer,
 }
 
@@ -58,7 +58,7 @@ impl fmt::Display for SocketError {
             Self::InvalidOperation => write!(f, "Invalid operation"),
             Self::InvalidNumber => write!(f, "Invalid number"),
             Self::UnexpectedDataInPacket => write!(f, "No data is expected in the packet"),
-            Self::InsufficientBufferSpaceInPeer => write!(f, "Peer has insufficient buffer space"),
+            Self::InsufficientBufferSpaceInPeer => write!(f, "Peer has insufficient buffer space, try again later"),
         }
     }
 }
