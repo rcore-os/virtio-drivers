@@ -301,7 +301,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         F: FnOnce(&VirtioVsockHdr) -> Result,
     {
         let our_cid = self.guest_cid;
-        let mut err = None::<SocketError>;
+        let mut result = Ok(());
         loop {
             self.wait_one_in_rx_queue();
             let mut connection_info = self.connection_info.clone().unwrap_or_default();
@@ -347,10 +347,10 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                     info!("Disconnected from the peer");
                     if accepted_ops.contains(&op) {
                     } else if op == VirtioVsockOp::Rst {
-                        err.replace(SocketError::ConnectionFailed);
+                        result = Err(SocketError::ConnectionFailed.into());
                     } else {
                         assert_eq!(VirtioVsockOp::Shutdown, op);
-                        err.replace(SocketError::PeerSocketShutdown);
+                        result = Err(SocketError::PeerSocketShutdown.into());
                     }
                     break;
                 }
@@ -359,7 +359,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                     break;
                 }
                 _ => {
-                    err.replace(SocketError::InvalidOperation);
+                    result = Err(SocketError::InvalidOperation.into());
                     break;
                 }
             };
@@ -368,11 +368,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         if self.rx.should_notify() {
             self.transport.notify(RX_QUEUE_IDX);
         }
-        if let Some(e) = err {
-            Err(e.into())
-        } else {
-            Ok(())
-        }
+        result
     }
 
     /// Waits until there is at least one element to pop in rx queue.
