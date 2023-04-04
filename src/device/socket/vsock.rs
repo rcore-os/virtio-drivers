@@ -12,7 +12,7 @@ use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
 use core::{convert::TryFrom, mem::size_of, ops::Range};
-use log::{debug, info};
+use log::{debug, info, trace};
 use zerocopy::{
     byteorder::{LittleEndian, U32},
     AsBytes,
@@ -167,9 +167,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         // Sends a header only packet to the tx queue to connect the device to the listening
         // socket at the given destination.
         self.send_packet_to_tx_queue(&header, &[])?;
-        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], |packet| {
-            packet.check_data_is_empty().map_err(|e| e.into())
-        })?;
+
         let dst = VsockAddr {
             cid: dst_cid,
             port: dst_port,
@@ -179,6 +177,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             src_port,
             ..Default::default()
         });
+        self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], |packet| {
+            packet.check_data_is_empty().map_err(|e| e.into())
+        })?;
         debug!("Connection established: {:?}", self.connection_info);
         Ok(())
     }
@@ -308,11 +309,27 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     where
         F: FnOnce(&VirtioVsockPacket) -> Result,
     {
+        let our_cid = self.guest_cid;
+
         loop {
             self.wait_one_in_rx_queue();
             let mut connection_info = self.connection_info.clone().unwrap_or_default();
             let packet = self.pop_packet_from_rx_queue()?;
             let op = packet.hdr.op()?;
+
+            // Skip packets which don't match our current connection.
+            if packet.hdr.source() != connection_info.dst
+                || packet.hdr.dst_cid.get() != our_cid
+                || packet.hdr.dst_port.get() != connection_info.src_port
+            {
+                trace!(
+                    "Skipping {:?} as connection is {:?}",
+                    packet.hdr,
+                    connection_info
+                );
+                continue;
+            }
+
             match op {
                 VirtioVsockOp::CreditUpdate => {
                     packet.check_data_is_empty()?;

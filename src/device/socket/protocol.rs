@@ -83,6 +83,20 @@ impl VirtioVsockHdr {
     pub fn op(&self) -> error::Result<VirtioVsockOp> {
         self.op.try_into()
     }
+
+    pub fn source(&self) -> VsockAddr {
+        VsockAddr {
+            cid: self.src_cid.get(),
+            port: self.src_port.get(),
+        }
+    }
+
+    pub fn destination(&self) -> VsockAddr {
+        VsockAddr {
+            cid: self.dst_cid.get(),
+            port: self.dst_port.get(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
