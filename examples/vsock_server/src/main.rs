@@ -23,33 +23,36 @@ fn main() {
         vsock_stream.local_addr()
     );
 
-    let message = "Hello from host";
-    vsock_stream
-        .write_all(message.as_bytes())
-        .expect("write_all");
-    println!("[Host] Sent message: {:?}.", message);
-    vsock_stream.flush().expect("flush");
-    println!("[Host] Flushed.");
+    const EXCHANGE_NUM: usize = 2;
+    for k in 0..EXCHANGE_NUM {
+        let message = &format!("{k}-Hello from host");
+        vsock_stream
+            .write_all(message.as_bytes())
+            .expect("write_all");
+        println!("[Host] Sent message: {:?}.", message);
+        vsock_stream.flush().expect("flush");
+        println!("[Host] Flushed.");
 
-    let mut message = vec![0u8; 30];
-    vsock_stream
-        .set_read_timeout(Some(Duration::from_millis(3_000)))
-        .expect("set_read_timeout");
-    for i in 0..10 {
-        match vsock_stream.read(&mut message) {
-            Ok(len) => {
-                println!(
-                    "[Host] Received message: {:?}({:?}), len: {:?}",
-                    message,
-                    std::str::from_utf8(&message[..len]),
-                    len,
-                );
+        let mut message = vec![0u8; 30];
+        vsock_stream
+            .set_read_timeout(Some(Duration::from_millis(3_000)))
+            .expect("set_read_timeout");
+        for i in 0..10 {
+            match vsock_stream.read(&mut message) {
+                Ok(len) => {
+                    println!(
+                        "[Host] Received message: {:?}({:?}), len: {:?}",
+                        message,
+                        std::str::from_utf8(&message[..len]),
+                        len,
+                    );
 
-                break;
-            }
-            Err(e) => {
-                println!("{i} {e:?}");
-                std::thread::sleep(Duration::from_millis(200))
+                    break;
+                }
+                Err(e) => {
+                    println!("{i} {e:?}");
+                    std::thread::sleep(Duration::from_millis(200))
+                }
             }
         }
     }

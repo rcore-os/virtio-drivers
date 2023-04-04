@@ -190,22 +190,26 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     info!("Connecting to host on port {port}...");
     socket.connect(host_cid, port, port)?;
     info!("Connected to the host");
-    socket.request_credit()?;
-    info!("Requested credit");
 
-    let mut buffer = [0u8; 24];
-    let len = socket.recv(&mut buffer)?;
-    info!(
-        "Received message: {:?}({:?}), len: {:?}",
-        buffer,
-        core::str::from_utf8(&buffer[..len]),
-        len
-    );
+    const EXCHANGE_NUM: usize = 2;
+    let messages = [
+        "0-Ack. Hello from guest.",
+        "1-Ack. Received again.",
+    ];
+    for k in 0..EXCHANGE_NUM {
+        let mut buffer = [0u8; 24];
+        let len = socket.recv(&mut buffer)?;
+        info!(
+            "Received message: {:?}({:?}), len: {:?}",
+            buffer,
+            core::str::from_utf8(&buffer[..len]),
+            len
+        );
 
-    let message = "Ack. Hello from guest.";
-    socket.send(message.as_bytes())?;
-    info!("Sent message: {:?}", message);
-
+        let message = messages[k];
+        socket.send(message.as_bytes())?;
+        info!("Sent message: {:?}", message);
+    }
     socket.shutdown()?;
     info!("Shutdown the connection");
     Ok(())
