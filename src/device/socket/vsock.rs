@@ -24,7 +24,7 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 const QUEUE_SIZE: usize = 8;
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 struct ConnectionInfo {
     dst: VsockAddr,
     src_port: u32,
@@ -61,8 +61,8 @@ impl<'a, H: Hal, T: Transport> Drop for VirtIOSocket<'a, H, T> {
 }
 
 impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
-    /// Create a new VirtIO Vsock driver.
-    pub fn new(mut transport: T) -> Result<Self> {
+    /// Create a new VirtIO Vsock driver that uses (`rx_buf_pages` * 4 KiB) memory as the rx buffer.
+    pub fn new(mut transport: T, rx_buf_pages: usize) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
             info!("Device features: {:?}", features);
@@ -83,9 +83,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
         let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
 
-        // Use 1 page (4 KiB) memory as the rx buffer.
+        // Allocates memory as the rx buffer.
         let rx_buf_dma = Dma::new(
-            1, // pages
+            rx_buf_pages, // pages
             BufferDirection::DeviceToDriver,
         )?;
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
@@ -424,8 +424,10 @@ mod tests {
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let socket =
-            VirtIOSocket::<FakeHal, FakeTransport<VirtioVsockConfig>>::new(transport).unwrap();
+        let socket = VirtIOSocket::<FakeHal, FakeTransport<VirtioVsockConfig>>::new(
+            transport, 1, // rx_buf_pages
+        )
+        .unwrap();
         assert_eq!(socket.guest_cid, 0x00_0000_0042);
     }
 }

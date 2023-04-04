@@ -113,7 +113,7 @@ impl<'a> VirtioVsockPacket<'a> {
 }
 
 /// Socket address.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct VsockAddr {
     /// Context Identifier.
     pub cid: u64,

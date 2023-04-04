@@ -183,8 +183,10 @@ fn virtio_console<T: Transport>(transport: T) {
 }
 
 fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
-    let mut socket =
-        VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver");
+    let mut socket = VirtIOSocket::<HalImpl, T>::new(
+        transport, 2, // rx_buf_pages
+    )
+    .expect("Failed to create socket driver");
     let host_cid = 2;
     let port = 1221;
     info!("Connecting to host on port {port}...");
