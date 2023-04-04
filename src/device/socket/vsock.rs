@@ -24,7 +24,7 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 const QUEUE_SIZE: usize = 8;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ConnectionInfo {
     dst: VsockAddr,
     src_port: u32,
@@ -310,7 +310,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     {
         loop {
             self.wait_one_in_rx_queue();
-            let mut connection_info = self.connection_info.unwrap_or_default();
+            let mut connection_info = self.connection_info.clone().unwrap_or_default();
             let packet = self.pop_packet_from_rx_queue()?;
             let op = packet.hdr.op()?;
             match op {
@@ -384,7 +384,9 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     }
 
     fn connection_info(&self) -> Result<ConnectionInfo> {
-        self.connection_info.ok_or(SocketError::NotConnected.into())
+        self.connection_info
+            .clone()
+            .ok_or(SocketError::NotConnected.into())
     }
 
     fn rx_buffer_range(rx_buf: &[u8], i: usize) -> Result<Range<usize>> {
