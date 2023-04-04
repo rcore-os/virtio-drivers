@@ -353,6 +353,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                     }
                     break;
                 }
+                // TODO: Update peer_buf_alloc and peer_fwd_cnt for other packets too.
                 x if accepted_ops.contains(&x) => {
                     f(&header)?;
                     break;
