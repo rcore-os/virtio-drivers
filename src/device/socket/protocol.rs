@@ -76,8 +76,8 @@ impl Default for VirtioVsockHdr {
 
 impl VirtioVsockHdr {
     /// Returns the length of the data.
-    pub fn len(&self) -> usize {
-        u32::from(self.len) as usize
+    pub fn len(&self) -> u32 {
+        u32::from(self.len)
     }
 
     pub fn op(&self) -> error::Result<VirtioVsockOp> {
@@ -95,7 +95,7 @@ impl<'a> VirtioVsockPacket<'a> {
     pub fn read_from(buffer: &'a [u8]) -> error::Result<Self> {
         let hdr = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
         let data_end = size_of::<VirtioVsockHdr>()
-            .checked_add(hdr.len())
+            .checked_add(hdr.len() as usize)
             .ok_or(SocketError::InvalidNumber)?;
         let data = buffer
             .get(size_of::<VirtioVsockHdr>()..data_end)

@@ -28,8 +28,22 @@ const QUEUE_SIZE: usize = 8;
 struct ConnectionInfo {
     dst: VsockAddr,
     src_port: u32,
+    /// The last `buf_alloc` value the peer sent to us, indicating how much receive buffer space in
+    /// bytes it has allocated for packet bodies.
     peer_buf_alloc: u32,
+    /// The last `fwd_cnt` value the peer sent to us, indicating how many bytes of packet bodies it
+    /// has finished processing.
     peer_fwd_cnt: u32,
+    /// The number of bytes of packet bodies which we have sent to the peer.
+    tx_cnt: u32,
+    /// The number of bytes of packet bodies which we have received from the peer and handled.
+    fwd_cnt: u32,
+}
+
+impl ConnectionInfo {
+    fn peer_free(&self) -> u32 {
+        self.peer_buf_alloc - (self.tx_cnt - self.peer_fwd_cnt)
+    }
 }
 
 /// Driver for a VirtIO socket device.
@@ -166,7 +180,7 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
             ..Default::default()
         });
         debug!("Connection established: {:?}", self.connection_info);
-        self.update_credit()
+        Ok(())
     }
 
     /// Requests the credit and updates the peer credit in the current connection info.
@@ -184,37 +198,24 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], |_| Ok(()))
     }
 
-    /// Sends the socket's credit information to the peer.
-    pub fn update_credit(&mut self) -> Result {
-        let connection_info = self.connection_info()?;
-        let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
-            op: VirtioVsockOp::CreditUpdate.into(),
-            buf_alloc: usize_to_le32(self.total_rx_buf_alloc())?,
-            ..Default::default()
-        };
-        self.send_packet_to_tx_queue(&header, &[])
-    }
-
     /// Sends the buffer to the destination.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
         self.check_peer_buffer_is_sufficient(buffer.len())?;
 
         let connection_info = self.connection_info()?;
-        // TODO: Send the correct fwd_cnt.
+        let len = buffer.len() as u32;
         let header = VirtioVsockHdr {
             src_cid: self.guest_cid.into(),
             dst_cid: connection_info.dst.cid.into(),
             src_port: connection_info.src_port.into(),
             dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::Rw.into(),
-            len: usize_to_le32(buffer.len())?,
-            buf_alloc: usize_to_le32(self.total_rx_buf_alloc())?,
+            len: len.into(),
+            buf_alloc: 0.into(),
+            fwd_cnt: connection_info.fwd_cnt.into(),
             ..Default::default()
         };
+        self.connection_info.as_mut().unwrap().tx_cnt += len;
         self.send_packet_to_tx_queue(&header, buffer)
     }
 
@@ -233,16 +234,33 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
     /// Receives the buffer from the destination.
     /// Returns the actual size of the message.
     pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
-        let mut len: usize = 0;
+        let connection_info = self.connection_info()?;
+
+        // Tell the peer that we have space to recieve some data.
+        let header = VirtioVsockHdr {
+            src_cid: self.guest_cid.into(),
+            dst_cid: connection_info.dst.cid.into(),
+            src_port: connection_info.src_port.into(),
+            dst_port: connection_info.dst.port.into(),
+            op: VirtioVsockOp::CreditUpdate.into(),
+            buf_alloc: (buffer.len() as u32).into(),
+            fwd_cnt: connection_info.fwd_cnt.into(),
+            ..Default::default()
+        };
+        self.send_packet_to_tx_queue(&header, &[])?;
+
+        // Wait to receive some data.
+        let mut len: u32 = 0;
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Rw], |packet| {
             buffer
-                .get_mut(0..packet.hdr.len())
-                .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len()))?
+                .get_mut(0..packet.hdr.len() as usize)
+                .ok_or(SocketError::OutputBufferTooShort(packet.hdr.len() as usize))?
                 .copy_from_slice(packet.data);
             len = packet.hdr.len();
             Ok(())
         })?;
-        Ok(len)
+        self.connection_info.as_mut().unwrap().fwd_cnt += len;
+        Ok(len as usize)
     }
 
     /// Shuts down the connection.
@@ -359,12 +377,6 @@ impl<'a, H: Hal, T: Transport> VirtIOSocket<'a, H, T> {
 
     fn connection_info(&self) -> Result<ConnectionInfo> {
         self.connection_info.ok_or(SocketError::NotConnected.into())
-    }
-
-    /// Returns the total receive buffer space, in bytes, for this socket.
-    /// Only payload bytes are counted and header bytes are not included.
-    fn total_rx_buf_alloc(&self) -> usize {
-        self.rx_buf.len() - size_of::<VirtioVsockHdr>() * QUEUE_SIZE
     }
 
     fn rx_buffer_range(rx_buf: &[u8], i: usize) -> Result<Range<usize>> {
