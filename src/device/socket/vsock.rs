@@ -11,7 +11,7 @@ use crate::volatile::volread;
 use crate::Result;
 use core::ptr::NonNull;
 use core::{convert::TryFrom, mem::size_of};
-use log::{debug, info, trace};
+use log::{debug, info};
 use zerocopy::{AsBytes, FromBytes};
 
 const RX_QUEUE_IDX: u16 = 0;
@@ -313,10 +313,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                 || header.dst_cid.get() != our_cid
                 || header.dst_port.get() != connection_info.src_port
             {
-                trace!(
+                debug!(
                     "Skipping {:?} as connection is {:?}",
-                    header,
-                    connection_info
+                    header, connection_info
                 );
                 continue;
             }
