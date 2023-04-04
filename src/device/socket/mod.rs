@@ -5,4 +5,4 @@ mod protocol;
 mod vsock;
 
 pub use error::SocketError;
-pub use vsock::VirtIOSocket;
+pub use vsock::{DisconnectReason, VirtIOSocket, VsockEvent, VsockEventType};
