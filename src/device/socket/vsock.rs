@@ -290,7 +290,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         Ok(event)
     }
 
-    /// Request to shut down the connection.
+    /// Request to shut down the connection cleanly.
     ///
     /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
@@ -302,6 +302,18 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])
+    }
+
+    /// Forcibly closes the connection without waiting for the peer.
+    pub fn force_close(&mut self) -> Result {
+        let connection_info = self.connection_info()?;
+        let header = VirtioVsockHdr {
+            op: VirtioVsockOp::Rst.into(),
+            ..connection_info.new_header(self.guest_cid)
+        };
+        self.send_packet_to_tx_queue(&header, &[])?;
+        self.connection_info = None;
+        Ok(())
     }
 
     fn send_packet_to_tx_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
