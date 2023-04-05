@@ -194,13 +194,14 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let port = 1221;
     info!("Connecting to host on port {port}...");
     socket.connect(host_cid, port, port)?;
+    socket.wait_for_connect()?;
     info!("Connected to the host");
 
     const EXCHANGE_NUM: usize = 2;
     let messages = ["0-Ack. Hello from guest.", "1-Ack. Received again."];
     for k in 0..EXCHANGE_NUM {
         let mut buffer = [0u8; 24];
-        let socket_event = socket.poll_recv(&mut buffer)?;
+        let socket_event = socket.wait_for_recv(&mut buffer)?;
         let VsockEventType::Received {length, ..} = socket_event.event_type else {
             panic!("Received unexpected socket event {:?}", socket_event);
         };

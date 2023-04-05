@@ -9,6 +9,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
+use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::NonNull;
 use log::{debug, info};
@@ -224,6 +225,17 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         Ok(())
     }
 
+    /// Blocks until the peer either accepts our connection request (with a
+    /// `VIRTIO_VSOCK_OP_RESPONSE`) or rejects it (with a
+    /// `VIRTIO_VSOCK_OP_RST`).
+    pub fn wait_for_connect(&mut self) -> Result {
+        match self.wait_for_recv(&mut [])?.event_type {
+            VsockEventType::Connected => Ok(()),
+            VsockEventType::Disconnected { .. } => Err(SocketError::ConnectionFailed.into()),
+            VsockEventType::Received { .. } => Err(SocketError::InvalidOperation.into()),
+        }
+    }
+
     /// Requests the peer to send us a credit update for the current connection.
     fn request_credit(&mut self) -> Result {
         let connection_info = self.connection_info()?;
@@ -288,6 +300,20 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         }
 
         Ok(event)
+    }
+
+    /// Blocks until we get some event from the vsock device.
+    ///
+    /// A buffer must be provided to put the data in if there is some to
+    /// receive.
+    pub fn wait_for_recv(&mut self, buffer: &mut [u8]) -> Result<VsockEvent> {
+        loop {
+            if let Some(event) = self.poll_recv(buffer)? {
+                return Ok(event);
+            } else {
+                spin_loop();
+            }
+        }
     }
 
     /// Request to shut down the connection cleanly.
