@@ -33,6 +33,8 @@ pub enum SocketError {
     InsufficientBufferSpaceInPeer,
     /// Recycled a wrong buffer.
     RecycledWrongBuffer,
+    /// The received packet has wrong length.
+    WrongPacketLength,
 }
 
 impl fmt::Display for SocketError {
@@ -62,6 +64,7 @@ impl fmt::Display for SocketError {
             Self::UnexpectedDataInPacket => write!(f, "No data is expected in the packet"),
             Self::InsufficientBufferSpaceInPeer => write!(f, "Peer has insufficient buffer space, try again later"),
             Self::RecycledWrongBuffer => write!(f, "Recycled a wrong buffer"),
+            Self::WrongPacketLength => write!(f, "The received packet has wrong length"),
         }
     }
 }

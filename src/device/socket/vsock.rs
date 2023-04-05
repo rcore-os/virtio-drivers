@@ -9,8 +9,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::Result;
-use core::ptr::NonNull;
-use core::{convert::TryFrom, mem::size_of};
+use core::{convert::TryInto, mem::size_of, ptr::NonNull};
 use log::{debug, info};
 use zerocopy::{AsBytes, FromBytes};
 
@@ -193,12 +192,8 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     fn request_credit(&mut self) -> Result {
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::CreditRequest.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])?;
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], &mut [], |_| {
@@ -223,18 +218,15 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     }
 
     fn check_peer_buffer_is_sufficient(&mut self, buffer_len: usize) -> Result {
-        if usize::try_from(self.connection_info()?.peer_free())
-            .map_err(|_| SocketError::InvalidNumber)?
-            >= buffer_len
-        {
+        let buffer_len = buffer_len
+            .try_into()
+            .map_err(|_| SocketError::InvalidNumber)?;
+        if self.connection_info()?.peer_free() >= buffer_len {
             Ok(())
         } else {
             // Update cached peer credit and try again.
             self.request_credit()?;
-            if usize::try_from(self.connection_info()?.peer_free())
-                .map_err(|_| SocketError::InvalidNumber)?
-                >= buffer_len
-            {
+            if self.connection_info()?.peer_free() >= buffer_len {
                 Ok(())
             } else {
                 Err(SocketError::InsufficientBufferSpaceInPeer.into())
@@ -302,9 +294,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     {
         let our_cid = self.guest_cid;
         let mut result = Ok(());
+        let mut connection_info = self.connection_info.clone().unwrap_or_default();
         loop {
             self.wait_one_in_rx_queue();
-            let mut connection_info = self.connection_info.clone().unwrap_or_default();
             let header = self.pop_packet_from_rx_queue(body)?;
             let op = header.op()?;
 
@@ -319,16 +311,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                 );
                 continue;
             }
-
+            connection_info.peer_buf_alloc = header.buf_alloc.into();
+            connection_info.peer_fwd_cnt = header.fwd_cnt.into();
             match op {
                 VirtioVsockOp::CreditUpdate => {
                     header.check_data_is_empty()?;
-
-                    connection_info.peer_buf_alloc = header.buf_alloc.into();
-                    connection_info.peer_fwd_cnt = header.fwd_cnt.into();
-                    self.connection_info.replace(connection_info);
-                    debug!("Connection info updated: {:?}", self.connection_info);
-
                     if accepted_ops.contains(&op) {
                         break;
                     } else {
@@ -351,9 +338,8 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                         assert_eq!(VirtioVsockOp::Shutdown, op);
                         result = Err(SocketError::PeerSocketShutdown.into());
                     }
-                    break;
+                    return result;
                 }
-                // TODO: Update peer_buf_alloc and peer_fwd_cnt for other packets too.
                 x if accepted_ops.contains(&x) => {
                     f(&header)?;
                     break;
@@ -364,10 +350,8 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                 }
             };
         }
-
-        if self.rx.should_notify() {
-            self.transport.notify(RX_QUEUE_IDX);
-        }
+        self.connection_info.replace(connection_info);
+        debug!("Connection info updated: {:?}", self.connection_info);
         result
     }
 
@@ -398,28 +382,34 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         // buffer back to the RX queue then we don't access it again until next time it is popped.
         let header = unsafe {
             let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf_dma.raw_slice(), token.into())?;
-            let _len = self.rx.pop_used(token, &[], &mut [buffer])?;
+            let packet_len = self.rx.pop_used(token, &[], &mut [buffer])?;
 
             // Read the header and body from the buffer. Don't check the result yet, because we need
             // to add the buffer back to the queue either way.
-            let header_result = read_header_and_body(buffer, body);
+            let header_result = read_header_and_body(buffer, body, packet_len);
 
             // Add the buffer back to the RX queue.
             let new_token = self.rx.add(&[], &mut [buffer])?;
             // If the RX buffer somehow gets assigned a different token, then our safety assumptions
             // are broken and we can't safely continue to do anything with the device.
-            assert_eq!(new_token, token);
-
+            if token != new_token {
+                return Err(SocketError::RecycledWrongBuffer.into());
+            }
             header_result
         }?;
+
+        // Notifies the RX queue after adding back the buffer.
+        if self.rx.should_notify() {
+            self.transport.notify(RX_QUEUE_IDX);
+        }
 
         debug!("Received packet {:?}. Op {:?}", header, header.op());
         Ok(header)
     }
 
-    fn connection_info(&self) -> Result<ConnectionInfo> {
+    fn connection_info(&self) -> Result<&ConnectionInfo> {
         self.connection_info
-            .clone()
+            .as_ref()
             .ok_or(SocketError::NotConnected.into())
     }
 
@@ -454,8 +444,15 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     }
 }
 
-fn read_header_and_body(buffer: &[u8], body: &mut [u8]) -> Result<VirtioVsockHdr> {
+fn read_header_and_body(
+    buffer: &[u8],
+    body: &mut [u8],
+    expected_packet_len: u32,
+) -> Result<VirtioVsockHdr> {
     let header = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
+    if expected_packet_len != header.packet_len()? {
+        return Err(SocketError::WrongPacketLength.into());
+    }
     let body_length = header.len() as usize;
     let data_end = size_of::<VirtioVsockHdr>()
         .checked_add(body_length)

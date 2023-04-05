@@ -5,6 +5,7 @@ use crate::volatile::ReadOnly;
 use core::{
     convert::{TryFrom, TryInto},
     fmt,
+    mem::size_of,
 };
 use zerocopy::{
     byteorder::{LittleEndian, U16, U32, U64},
@@ -77,6 +78,12 @@ impl VirtioVsockHdr {
     /// Returns the length of the data.
     pub fn len(&self) -> u32 {
         u32::from(self.len)
+    }
+
+    pub fn packet_len(&self) -> error::Result<u32> {
+        self.len()
+            .checked_add(size_of::<VirtioVsockHdr>() as u32)
+            .ok_or(SocketError::InvalidNumber)
     }
 
     pub fn op(&self) -> error::Result<VirtioVsockOp> {
