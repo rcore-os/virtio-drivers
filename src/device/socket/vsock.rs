@@ -199,27 +199,23 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         if self.connection_info.is_some() {
             return Err(SocketError::ConnectionExists.into());
         }
-        let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: dst_cid.into(),
-            src_port: src_port.into(),
-            dst_port: dst_port.into(),
-            op: VirtioVsockOp::Request.into(),
+        let new_connection_info = ConnectionInfo {
+            dst: VsockAddr {
+                cid: dst_cid,
+                port: dst_port,
+            },
+            src_port,
             ..Default::default()
+        };
+        let header = VirtioVsockHdr {
+            op: VirtioVsockOp::Request.into(),
+            ..new_connection_info.new_header(self.guest_cid)
         };
         // Sends a header only packet to the tx queue to connect the device to the listening
         // socket at the given destination.
         self.send_packet_to_tx_queue(&header, &[])?;
 
-        let dst = VsockAddr {
-            cid: dst_cid,
-            port: dst_port,
-        };
-        self.connection_info.replace(ConnectionInfo {
-            dst,
-            src_port,
-            ..Default::default()
-        });
+        self.connection_info = Some(new_connection_info);
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::Response], &mut [], |header| {
             header.check_data_is_empty().map_err(|e| e.into())
         })?;
@@ -231,12 +227,8 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     fn request_credit(&mut self) -> Result {
         let connection_info = self.connection_info()?;
         let header = VirtioVsockHdr {
-            src_cid: self.guest_cid.into(),
-            dst_cid: connection_info.dst.cid.into(),
-            src_port: connection_info.src_port.into(),
-            dst_port: connection_info.dst.port.into(),
             op: VirtioVsockOp::CreditRequest.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])?;
         self.poll_and_filter_packet_from_rx_queue(&[VirtioVsockOp::CreditUpdate], &mut [], |_| {
