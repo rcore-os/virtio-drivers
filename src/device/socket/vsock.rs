@@ -35,6 +35,11 @@ struct ConnectionInfo {
     tx_cnt: u32,
     /// The number of bytes of packet bodies which we have received from the peer and handled.
     fwd_cnt: u32,
+    /// Whether we have recently requested credit from the peer.
+    ///
+    /// This is set to true when we send a `VIRTIO_VSOCK_OP_CREDIT_REQUEST`, and false when we
+    /// receive a `VIRTIO_VSOCK_OP_CREDIT_UPDATE`.
+    has_pending_credit_request: bool,
 }
 
 impl ConnectionInfo {
@@ -248,9 +253,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
     /// Sends the buffer to the destination.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
-        let connection_info = self.connection_info()?;
+        let mut connection_info = self.connection_info()?;
 
-        self.check_peer_buffer_is_sufficient(&connection_info, buffer.len())?;
+        let result = self.check_peer_buffer_is_sufficient(&mut connection_info, buffer.len());
+        self.connection_info = Some(connection_info.clone());
+        result?;
 
         let len = buffer.len() as u32;
         let header = VirtioVsockHdr {
@@ -265,14 +272,18 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
     fn check_peer_buffer_is_sufficient(
         &mut self,
-        connection_info: &ConnectionInfo,
+        connection_info: &mut ConnectionInfo,
         buffer_len: usize,
     ) -> Result {
         if connection_info.peer_free() as usize >= buffer_len {
             Ok(())
         } else {
-            // Request an update of the cached peer credit, and tell the caller to try again later.
-            self.request_credit()?;
+            // Request an update of the cached peer credit, if we haven't already done so, and tell
+            // the caller to try again later.
+            if !connection_info.has_pending_credit_request {
+                self.request_credit()?;
+                connection_info.has_pending_credit_request = true;
+            }
             Err(SocketError::InsufficientBufferSpaceInPeer.into())
         }
     }
@@ -400,6 +411,10 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                 }
                 VirtioVsockOp::CreditUpdate => {
                     header.check_data_is_empty()?;
+                    connection_info.has_pending_credit_request = false;
+                    if self.connection_info.is_some() {
+                        self.connection_info = Some(connection_info.clone());
+                    }
 
                     // Virtio v1.1 5.10.6.3
                     // The driver can also receive a VIRTIO_VSOCK_OP_CREDIT_UPDATE packet without previously
