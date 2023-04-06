@@ -397,9 +397,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
             match op {
                 VirtioVsockOp::Request => {
+                    header.check_data_is_empty()?;
                     // TODO: Send a Rst, or support listening.
                 }
                 VirtioVsockOp::Response => {
+                    header.check_data_is_empty()?;
                     return Ok(Some(VsockEvent {
                         source: connection_info.dst,
                         destination: VsockAddr {
@@ -456,6 +458,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
                     }));
                 }
                 VirtioVsockOp::CreditRequest => {
+                    header.check_data_is_empty()?;
                     // TODO: Send a credit update.
                 }
                 VirtioVsockOp::Invalid => {
