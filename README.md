@@ -17,6 +17,7 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 | GPU     | ✅        |
 | Input   | ✅        |
 | Console | ✅        |
+| Socket  | ✅        |
 | ...     | ❌        |
 
 ### Transports
