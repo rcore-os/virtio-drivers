@@ -1,0 +1,29 @@
+[package]
+name = "x86_64"
+version = "0.1.0"
+authors = ["Yuekai Jia <equation618@gmail.com>"]
+edition = "2021"
+
+[features]
+tcp = ["smoltcp"]
+default = ["tcp"]
+
+[dependencies]
+log = "0.4.17"
+spin = "0.9"
+x86_64 = "0.14"
+uart_16550 = "0.2"
+linked_list_allocator = "0.10"
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+virtio-drivers = { path = "../.." }
+
+[dependencies.smoltcp]
+version = "0.9.1"
+optional = true
+default-features = false
+features = [
+  "alloc", "log",   # no std
+  "medium-ethernet",
+  "proto-ipv4",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",
+]

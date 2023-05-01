@@ -44,7 +44,12 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 
 ## Examples & Tests
 
-- x86_64 (TODO)
+### [x86_64](./examples/x86_64)
+
+```bash
+cd examples/x86_64
+make qemu
+```
 
 ### [aarch64](./examples/aarch64)
 
