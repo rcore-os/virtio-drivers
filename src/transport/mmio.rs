@@ -338,9 +338,12 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn max_queue_size(&self) -> u32 {
+    fn max_queue_size(&mut self, queue: u16) -> u32 {
         // Safe because self.header points to a valid VirtIO MMIO region.
-        unsafe { volread!(self.header, queue_num_max) }
+        unsafe {
+            volwrite!(self.header, queue_sel, queue.into());
+            volread!(self.header, queue_num_max)
+        }
     }
 
     fn notify(&mut self, queue: u16) {

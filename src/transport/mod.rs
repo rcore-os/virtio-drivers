@@ -20,8 +20,8 @@ pub trait Transport {
     /// Writes device features.
     fn write_driver_features(&mut self, driver_features: u64);
 
-    /// Gets the max size of queue.
-    fn max_queue_size(&self) -> u32;
+    /// Gets the max size of the given queue.
+    fn max_queue_size(&mut self, queue: u16) -> u32;
 
     /// Notifies the given queue on the device.
     fn notify(&mut self, queue: u16);
@@ -65,6 +65,7 @@ pub trait Transport {
     ///
     /// Ref: virtio 3.1.1 Device Initialization
     fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) {
+        self.set_status(DeviceStatus::empty());
         self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
 
         let features = self.read_device_features();
@@ -91,7 +92,7 @@ pub trait Transport {
 }
 
 bitflags! {
-    /// The device status field.
+    /// The device status field. Writing 0 into this field resets the device.
     #[derive(Default)]
     pub struct DeviceStatus: u32 {
         /// Indicates that the guest OS has found the device and recognized it
