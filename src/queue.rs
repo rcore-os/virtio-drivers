@@ -60,7 +60,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         }
         if !SIZE.is_power_of_two()
             || SIZE > u16::MAX.into()
-            || transport.max_queue_size() < SIZE as u32
+            || transport.max_queue_size(idx) < SIZE as u32
         {
             return Err(Error::InvalidParam);
         }
