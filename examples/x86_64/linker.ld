@@ -1,4 +1,4 @@
-OUTPUT_ARCH(riscv)
+OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 
 BASE_ADDRESS = 0x200000;
@@ -43,5 +43,5 @@ SECTIONS
     }
 
     . = ALIGN(4K);
-    PROVIDE(end = .);
+    PROVIDE(dma_region = .);
 }

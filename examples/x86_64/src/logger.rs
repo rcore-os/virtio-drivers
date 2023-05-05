@@ -15,8 +15,7 @@ struct Logger {
 
 /// Initialises UART logger.
 pub fn init(max_level: LevelFilter) -> Result<(), SetLoggerError> {
-    // Safe because BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as device
-    // memory.
+    // Safe because `0x3f8` is COM1 I/O port.
     let mut uart = unsafe { SerialPort::new(0x3f8) };
     uart.init();
     LOGGER.uart.lock().replace(uart);

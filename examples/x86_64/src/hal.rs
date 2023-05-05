@@ -7,11 +7,12 @@ use log::trace;
 use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 
 extern "C" {
-    fn end();
+    static dma_region: u8;
 }
 
 lazy_static! {
-    static ref DMA_PADDR: AtomicUsize = AtomicUsize::new(end as usize);
+    static ref DMA_PADDR: AtomicUsize =
+        AtomicUsize::new(unsafe { &dma_region as *const u8 as usize });
 }
 
 pub struct HalImpl;
