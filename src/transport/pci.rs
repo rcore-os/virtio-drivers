@@ -231,10 +231,13 @@ impl Transport for PciTransport {
         }
     }
 
-    fn max_queue_size(&self) -> u32 {
+    fn max_queue_size(&mut self, queue: u16) -> u32 {
         // Safe because the common config pointer is valid and we checked in get_bar_region that it
         // was aligned.
-        unsafe { volread!(self.common_cfg, queue_size) }.into()
+        unsafe {
+            volwrite!(self.common_cfg, queue_select, queue);
+            volread!(self.common_cfg, queue_size).into()
+        }
     }
 
     fn notify(&mut self, queue: u16) {

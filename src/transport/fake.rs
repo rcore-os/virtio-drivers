@@ -30,7 +30,7 @@ impl<C> Transport for FakeTransport<C> {
         self.state.lock().unwrap().driver_features = driver_features;
     }
 
-    fn max_queue_size(&self) -> u32 {
+    fn max_queue_size(&mut self, _queue: u16) -> u32 {
         self.max_queue_size
     }
 
