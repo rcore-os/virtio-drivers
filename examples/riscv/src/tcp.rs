@@ -9,7 +9,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 use smoltcp::{socket::tcp, time::Instant};
-use virtio_drivers::device::net::{RxBuffer, VirtIONet};
+use virtio_drivers::device::net::{NetBuffer, VirtIONet};
 use virtio_drivers::{transport::Transport, Error};
 
 use super::{HalImpl, NET_QUEUE_SIZE};
@@ -64,7 +64,7 @@ impl<T: Transport> Device for DeviceWrapper<T> {
     }
 }
 
-struct VirtioRxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>, RxBuffer);
+struct VirtioRxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>, NetBuffer);
 struct VirtioTxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>);
 
 impl<T: Transport> RxToken for VirtioRxToken<T> {
@@ -90,10 +90,10 @@ impl<T: Transport> TxToken for VirtioTxToken<T> {
         F: FnOnce(&mut [u8]) -> R,
     {
         let mut dev = self.0.borrow_mut();
-        let mut tx_buf = dev.new_tx_buffer(len);
+        let mut tx_buf = dev.new_tx_buffer(len).unwrap();
         let result = f(tx_buf.packet_mut());
         trace!("SEND {} bytes: {:02X?}", len, tx_buf.packet());
-        dev.send(tx_buf).unwrap();
+        dev.transmit_wait(tx_buf).unwrap();
         result
     }
 }

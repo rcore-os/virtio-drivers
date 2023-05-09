@@ -137,7 +137,7 @@ fn virtio_device(transport: impl Transport) {
     match transport.device_type() {
         DeviceType::Block => virtio_blk(transport),
         DeviceType::GPU => virtio_gpu(transport),
-        // DeviceType::Network => virtio_net(transport), // currently is unsupported without alloc
+        DeviceType::Network => virtio_net(transport),
         DeviceType::Console => virtio_console(transport),
         DeviceType::Socket => match virtio_socket(transport) {
             Ok(()) => info!("virtio-socket test finished successfully"),
@@ -190,6 +190,21 @@ fn virtio_gpu<T: Transport>(transport: T) {
     }
 
     info!("virtio-gpu test finished");
+}
+
+fn virtio_net<T: Transport>(transport: T) {
+    let mut net =
+        VirtIONetRaw::<HalImpl, T, 16>::new(transport).expect("failed to create net driver");
+    let mut buf = [0u8; 2048];
+    let (hdr_len, pkt_len) = net.receive_wait(&mut buf).expect("failed to recv");
+    info!(
+        "recv {} bytes: {:02x?}",
+        pkt_len,
+        &buf[hdr_len..hdr_len + pkt_len]
+    );
+    net.transmit_wait(&buf[..hdr_len + pkt_len])
+        .expect("failed to send");
+    info!("virtio-net test finished");
 }
 
 fn virtio_console<T: Transport>(transport: T) {
