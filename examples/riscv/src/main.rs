@@ -13,7 +13,7 @@ use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput, net::VirtIONet},
+    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput},
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
@@ -26,7 +26,6 @@ mod virtio_impl;
 #[cfg(feature = "tcp")]
 mod tcp;
 
-const NET_BUFFER_LEN: usize = 2048;
 const NET_QUEUE_SIZE: usize = 16;
 
 #[no_mangle]
@@ -146,29 +145,34 @@ fn virtio_input<T: Transport>(transport: T) {
 }
 
 fn virtio_net<T: Transport>(transport: T) {
-    let net = VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(transport, NET_BUFFER_LEN)
-        .expect("failed to create net driver");
-    info!("MAC address: {:02x?}", net.mac_address());
-
     #[cfg(not(feature = "tcp"))]
     {
-        let mut net = net;
-        loop {
-            match net.receive() {
-                Ok(buf) => {
-                    info!("RECV {} bytes: {:02x?}", buf.packet_len(), buf.packet());
-                    let tx_buf = virtio_drivers::device::net::TxBuffer::from(buf.packet());
-                    net.send(tx_buf).expect("failed to send");
-                    net.recycle_rx_buffer(buf).unwrap();
-                    break;
-                }
-                Err(virtio_drivers::Error::NotReady) => continue,
-                Err(err) => panic!("failed to recv: {:?}", err),
-            }
-        }
+        let mut net =
+            virtio_drivers::device::net::VirtIONetRaw::<HalImpl, T, NET_QUEUE_SIZE>::new(transport)
+                .expect("failed to create net driver");
+        info!("MAC address: {:02x?}", net.mac_address());
+
+        let mut buf = [0u8; 2048];
+        let (hdr_len, pkt_len) = net.receive_wait(&mut buf).expect("failed to recv");
+        info!(
+            "recv {} bytes: {:02x?}",
+            pkt_len,
+            &buf[hdr_len..hdr_len + pkt_len]
+        );
+        net.transmit_wait(&buf[..hdr_len + pkt_len])
+            .expect("failed to send");
         info!("virtio-net test finished");
     }
 
     #[cfg(feature = "tcp")]
-    tcp::test_echo_server(net);
+    {
+        const NET_BUFFER_LEN: usize = 2048;
+        let net = virtio_drivers::device::net::VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(
+            transport,
+            NET_BUFFER_LEN,
+        )
+        .expect("failed to create net driver");
+        info!("MAC address: {:02x?}", net.mac_address());
+        tcp::test_echo_server(net);
+    }
 }

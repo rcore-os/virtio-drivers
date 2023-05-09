@@ -3,7 +3,8 @@ target := x86_64-unknown-none
 mode := release
 kernel := target/$(target)/$(mode)/$(arch)
 img := target/$(target)/$(mode)/img
-accel := on
+accel ?= on
+tcp ?= off
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=$(arch)
@@ -14,9 +15,10 @@ ifeq ($(mode), release)
 	BUILD_ARGS += --release
 endif
 
-VSOCK_BUILD_ARGS =
-ifeq ($(mode), release)
-	VSOCK_BUILD_ARGS += --release
+ifeq ($(tcp), on)
+	BUILD_ARGS += --features tcp
+else
+	BUILD_ARGS += --no-default-features
 endif
 
 QEMU_ARGS += \
