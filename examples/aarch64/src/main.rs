@@ -51,7 +51,7 @@ pub const UART_BASE_ADDRESS: usize = 0x3f8;
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
 
-static mut HEAP: [u8; 65536] = [0; 65536];
+static mut HEAP: [u8; 0x1000000] = [0; 0x1000000];
 
 #[no_mangle]
 extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
