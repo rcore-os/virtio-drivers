@@ -163,7 +163,7 @@ fn virtio_gpu<T: Transport>(transport: T) {
     gpu.flush().expect("failed to flush");
     //delay some time
     info!("virtio-gpu show graphics....");
-    for _ in 0..100000 {
+    for _ in 0..1000 {
         for _ in 0..100000 {
             unsafe {
                 core::arch::asm!("nop");
