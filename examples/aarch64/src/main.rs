@@ -21,7 +21,7 @@ use core::{
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
-use psci::system_off;
+use smccc::{psci::system_off, Hvc};
 use virtio_drivers::{
     device::{
         blk::VirtIOBlk,
@@ -112,7 +112,7 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
         enumerate_pci(pcie_node, Cam::Ecam);
     }
 
-    system_off().unwrap();
+    system_off::<Hvc>().unwrap();
 }
 
 fn virtio_device(transport: impl Transport) {
@@ -419,6 +419,6 @@ fn allocate_bars(
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     error!("{}", info);
-    system_off().unwrap();
+    system_off::<Hvc>().unwrap();
     loop {}
 }
