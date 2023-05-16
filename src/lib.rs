@@ -24,12 +24,14 @@
 //!
 //! ```
 //! # use virtio_drivers::Hal;
+//! # #[cfg(feature = "alloc")]
 //! use virtio_drivers::{
 //!     device::console::VirtIOConsole,
 //!     transport::{mmio::MmioTransport, DeviceType, Transport},
 //! };
 
 //!
+//! # #[cfg(feature = "alloc")]
 //! # fn example<HalImpl: Hal>(transport: MmioTransport) {
 //! if transport.device_type() == DeviceType::Console {
 //!     let mut console = VirtIOConsole::<HalImpl, _>::new(transport).unwrap();
