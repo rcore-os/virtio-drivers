@@ -3,6 +3,7 @@
 pub mod blk;
 #[cfg(feature = "alloc")]
 pub mod console;
+#[cfg(feature = "alloc")]
 pub mod gpu;
 #[cfg(feature = "alloc")]
 pub mod input;

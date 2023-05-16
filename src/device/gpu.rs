@@ -4,7 +4,8 @@ use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
-use crate::{pages, Error, Result};
+use crate::{pages, Error, Result, PAGE_SIZE};
+use alloc::boxed::Box;
 use bitflags::bitflags;
 use log::info;
 use zerocopy::{AsBytes, FromBytes};
@@ -18,7 +19,7 @@ const QUEUE_SIZE: u16 = 2;
 /// a gpu with 3D support on the host machine.
 /// In 2D mode the virtio-gpu device provides support for ARGB Hardware cursors
 /// and multiple scanouts (aka heads).
-pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
+pub struct VirtIOGpu<H: Hal, T: Transport> {
     transport: T,
     rect: Option<Rect>,
     /// DMA area of frame buffer.
@@ -29,17 +30,13 @@ pub struct VirtIOGpu<'a, H: Hal, T: Transport> {
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     /// Queue for sending cursor commands.
     cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    /// DMA region for sending data to the device.
-    dma_send: Dma<H>,
-    /// DMA region for receiving data from the device.
-    dma_recv: Dma<H>,
     /// Send buffer for queue.
-    queue_buf_send: &'a mut [u8],
+    queue_buf_send: Box<[u8]>,
     /// Recv buffer for queue.
-    queue_buf_recv: &'a mut [u8],
+    queue_buf_recv: Box<[u8]>,
 }
 
-impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
+impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
@@ -63,10 +60,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
         let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
         let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR)?;
 
-        let dma_send = Dma::new(1, BufferDirection::DriverToDevice)?;
-        let dma_recv = Dma::new(1, BufferDirection::DeviceToDriver)?;
-        let queue_buf_send = unsafe { dma_send.raw_slice().as_mut() };
-        let queue_buf_recv = unsafe { dma_recv.raw_slice().as_mut() };
+        let queue_buf_send = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
+        let queue_buf_recv = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
 
         transport.finish_init();
 
@@ -77,8 +72,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
             rect: None,
             control_queue,
             cursor_queue,
-            dma_send,
-            dma_recv,
             queue_buf_send,
             queue_buf_recv,
         })
@@ -177,8 +170,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
-            &[self.queue_buf_send],
-            &mut [self.queue_buf_recv],
+            &[&self.queue_buf_send],
+            &mut [&mut self.queue_buf_recv],
             &mut self.transport,
         )?;
         Ok(Rsp::read_from_prefix(&*self.queue_buf_recv).unwrap())
@@ -188,7 +181,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
         self.cursor_queue.add_notify_wait_pop(
-            &[self.queue_buf_send],
+            &[&self.queue_buf_send],
             &mut [],
             &mut self.transport,
         )?;
@@ -286,7 +279,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<'_, H, T> {
     }
 }
 
-impl<H: Hal, T: Transport> Drop for VirtIOGpu<'_, H, T> {
+impl<H: Hal, T: Transport> Drop for VirtIOGpu<H, T> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
