@@ -4,11 +4,12 @@
 use super::error::SocketError;
 use super::protocol::{VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::device::common::Feature;
-use crate::hal::{BufferDirection, Dma, Hal};
+use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
-use crate::Result;
+use crate::{Result, PAGE_SIZE};
+use alloc::boxed::Box;
 use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::NonNull;
@@ -108,7 +109,7 @@ pub struct VirtIOSocket<H: Hal, T: Transport> {
     /// The guest_cid field contains the guest’s context ID, which uniquely identifies
     /// the device for its lifetime. The upper 32 bits of the CID are reserved and zeroed.
     guest_cid: u64,
-    rx_buf_dma: Dma<H>,
+    rx_buf: NonNull<[u8; PAGE_SIZE]>,
 
     /// Currently the device is only allowed to be connected to one destination at a time.
     connection_info: Option<ConnectionInfo>,
@@ -121,6 +122,10 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
         self.transport.queue_unset(RX_QUEUE_IDX);
         self.transport.queue_unset(TX_QUEUE_IDX);
         self.transport.queue_unset(EVENT_QUEUE_IDX);
+
+        // Safe because we obtained the rx_buf pointer from Box::into_raw, and it won't be used
+        // anywhere else after the driver is destroyed.
+        unsafe { drop(Box::from_raw(self.rx_buf.as_ptr())) };
     }
 }
 
@@ -147,12 +152,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
         let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
 
-        // Allocates 4 KiB memory as the rx buffer.
-        let rx_buf_dma = Dma::new(
-            1, // pages
-            BufferDirection::DeviceToDriver,
-        )?;
-        let rx_buf = rx_buf_dma.raw_slice();
+        // Allocates 4 KiB memory for the RX buffer.
+        let rx_buf: NonNull<[u8; PAGE_SIZE]> =
+            NonNull::new(Box::into_raw(FromBytes::new_box_zeroed())).unwrap();
         // Safe because `rx_buf` lives as long as the `rx` queue.
         unsafe {
             Self::fill_rx_queue(&mut rx, rx_buf, &mut transport)?;
@@ -165,7 +167,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             tx,
             event,
             guest_cid,
-            rx_buf_dma,
+            rx_buf,
             connection_info: None,
         })
     }
@@ -482,7 +484,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         // buffer to `pop_used` as we previously passed to `add` for the token. Once we add the
         // buffer back to the RX queue then we don't access it again until next time it is popped.
         let header = unsafe {
-            let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf_dma.raw_slice(), token.into())?;
+            let buffer = Self::as_mut_sub_rx_buffer(self.rx_buf, token.into())?;
             let _len = self.rx.pop_used(token, &[], &mut [buffer])?;
 
             // Read the header and body from the buffer. Don't check the result yet, because we need
