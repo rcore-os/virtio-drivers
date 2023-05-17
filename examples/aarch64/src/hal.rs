@@ -1,32 +1,33 @@
-use core::{
-    ptr::NonNull,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-use lazy_static::lazy_static;
+use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
+use core::{alloc::Layout, ptr::NonNull};
 use log::trace;
 use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
-
-extern "C" {
-    static dma_region: u8;
-}
-
-lazy_static! {
-    static ref DMA_PADDR: AtomicUsize =
-        AtomicUsize::new(unsafe { &dma_region as *const u8 as usize });
-}
 
 pub struct HalImpl;
 
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
-        let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
+        let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
+        // Safe because the layout has a non-zero size.
+        let vaddr = unsafe { alloc_zeroed(layout) };
+        let vaddr = if let Some(vaddr) = NonNull::new(vaddr) {
+            vaddr
+        } else {
+            handle_alloc_error(layout)
+        };
+        let paddr = virt_to_phys(vaddr.as_ptr() as _);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
-        let vaddr = NonNull::new(paddr as _).unwrap();
         (paddr, vaddr)
     }
 
-    unsafe fn dma_dealloc(paddr: PhysAddr, _vaddr: NonNull<u8>, pages: usize) -> i32 {
+    unsafe fn dma_dealloc(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
         trace!("dealloc DMA: paddr={:#x}, pages={}", paddr, pages);
+        let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
+        // Safe because the memory was allocated by `dma_alloc` above using the same allocator, and
+        // the layout is the same as was used then.
+        unsafe {
+            dealloc(vaddr.as_ptr(), layout);
+        }
         0
     }
 

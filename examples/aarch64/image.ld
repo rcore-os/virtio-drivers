@@ -66,7 +66,6 @@ SECTIONS
 	} >image
 
 	. = ALIGN(4K);
-	PROVIDE(dma_region = .);
 
 	/*
 	 * Remove unused sections from the image.

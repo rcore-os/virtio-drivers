@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 mod exceptions;
 mod hal;
 mod logger;
@@ -13,6 +15,7 @@ mod uart8250;
 #[cfg(platform = "crosvm")]
 use uart8250 as uart;
 
+use buddy_system_allocator::LockedHeap;
 use core::{
     mem::size_of,
     panic::PanicInfo,
@@ -47,6 +50,11 @@ pub const UART_BASE_ADDRESS: usize = 0x900_0000;
 #[cfg(platform = "crosvm")]
 pub const UART_BASE_ADDRESS: usize = 0x3f8;
 
+#[global_allocator]
+static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
+
+static mut HEAP: [u8; 0x1000000] = [0; 0x1000000];
+
 #[no_mangle]
 extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
     logger::init(LevelFilter::Debug).unwrap();
@@ -55,6 +63,14 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
         "x0={:#018x}, x1={:#018x}, x2={:#018x}, x3={:#018x}",
         x0, x1, x2, x3
     );
+
+    // Safe because `HEAP` is only used here and `entry` is only called once.
+    unsafe {
+        // Give the allocator some memory to allocate.
+        HEAP_ALLOCATOR
+            .lock()
+            .init(HEAP.as_mut_ptr() as usize, HEAP.len());
+    }
 
     info!("Loading FDT from {:#018x}", x0);
     // Safe because the pointer is a valid pointer to unaliased memory.
