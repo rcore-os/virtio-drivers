@@ -262,6 +262,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> Drop for VirtIONet<H, T, QUE
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         /// Device handles packets with partial checksum.
         /// This "checksum offload" is a common feature on modern network cards.
@@ -323,6 +324,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Status: u16 {
         const LINK_UP = 1;
         const ANNOUNCE = 2;
@@ -330,6 +332,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct InterruptStatus : u32 {
         const USED_RING_UPDATE = 1 << 0;
         const CONFIGURATION_CHANGE = 1 << 1;
@@ -364,10 +367,12 @@ pub struct VirtioNetHdr {
     // payload starts from here
 }
 
+#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
+#[repr(transparent)]
+struct Flags(u8);
+
 bitflags! {
-    #[repr(transparent)]
-    #[derive(AsBytes, Default, FromBytes)]
-    struct Flags: u8 {
+    impl Flags: u8 {
         const NEEDS_CSUM = 1;
         const DATA_VALID = 2;
         const RSC_INFO   = 4;

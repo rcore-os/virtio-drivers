@@ -417,6 +417,7 @@ impl Default for BlkResp {
 pub const SECTOR_SIZE: usize = 512;
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct BlkFeature: u64 {
         /// Device supports request barriers. (legacy)
         const BARRIER       = 1 << 0;
