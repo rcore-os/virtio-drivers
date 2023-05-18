@@ -4,6 +4,7 @@ mode := release
 kernel := target/$(target)/$(mode)/$(arch)
 img := target/$(target)/$(mode)/img
 accel := on
+tcp ?= off
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=$(arch)
@@ -12,6 +13,11 @@ objcopy := $(shell find $(sysroot) -name llvm-objcopy)
 BUILD_ARGS += --target $(target)
 ifeq ($(mode), release)
 	BUILD_ARGS += --release
+endif
+ifeq ($(tcp), on)
+	BUILD_ARGS += --features tcp
+else
+	BUILD_ARGS += --no-default-features
 endif
 
 VSOCK_BUILD_ARGS =

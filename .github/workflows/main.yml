@@ -66,6 +66,7 @@ jobs:
         example:
           - aarch64
           - riscv
+          - x86_64
         include:
           - example: aarch64
             toolchain: stable
@@ -75,6 +76,10 @@ jobs:
             toolchain: nightly-2022-11-03
             target: riscv64imac-unknown-none-elf
             packages: qemu-system-misc
+          - example: x86_64
+            toolchain: nightly
+            target: x86_64-unknown-none
+            packages: qemu-system-x86
     steps:
       - uses: actions/checkout@v2
       - name: Install QEMU
@@ -93,4 +98,4 @@ jobs:
         run: make kernel
       - name: Run
         working-directory: examples/${{ matrix.example }}
-        run: QEMU_ARGS="-display none" make qemu
+        run: QEMU_ARGS="-display none" make qemu accel="off"
