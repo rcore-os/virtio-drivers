@@ -207,15 +207,12 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
     /// `VsockEventType::Connected` event indicating that the peer has accepted the connection
     /// before sending data.
-    pub fn connect(&mut self, dst_cid: u64, src_port: u32, dst_port: u32) -> Result {
+    pub fn connect(&mut self, destination: VsockAddr, src_port: u32) -> Result {
         if self.connection_info.is_some() {
             return Err(SocketError::ConnectionExists.into());
         }
         let new_connection_info = ConnectionInfo {
-            dst: VsockAddr {
-                cid: dst_cid,
-                port: dst_port,
-            },
+            dst: destination,
             src_port,
             ..Default::default()
         };
@@ -607,6 +604,10 @@ mod tests {
         let guest_cid = 66;
         let host_port = 1234;
         let guest_port = 4321;
+        let host_address = VsockAddr {
+            cid: host_cid,
+            port: host_port,
+        };
         let hello_from_guest = "Hello from guest";
         let hello_from_host = "Hello from host";
 
@@ -807,7 +808,7 @@ mod tests {
             );
         });
 
-        socket.connect(host_cid, guest_port, host_port).unwrap();
+        socket.connect(host_address, guest_port).unwrap();
         socket.wait_for_connect().unwrap();
         socket.send(hello_from_guest.as_bytes()).unwrap();
         let mut buffer = [0u8; 64];
