@@ -35,6 +35,9 @@ pub struct ConnectionInfo {
     peer_fwd_cnt: u32,
     /// The number of bytes of packet bodies which we have sent to the peer.
     tx_cnt: u32,
+    /// The number of bytes of buffer space we have allocated to receive packet bodies from the
+    /// peer.
+    pub buf_alloc: u32,
     /// The number of bytes of packet bodies which we have received from the peer and handled.
     fwd_cnt: u32,
     /// Whether we have recently requested credit from the peer.
@@ -82,6 +85,7 @@ impl ConnectionInfo {
             dst_cid: self.dst.cid.into(),
             src_port: self.src_port.into(),
             dst_port: self.dst.port.into(),
+            buf_alloc: self.buf_alloc.into(),
             fwd_cnt: self.fwd_cnt.into(),
             ..Default::default()
         }
@@ -341,7 +345,6 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         let header = VirtioVsockHdr {
             op: VirtioVsockOp::Rw.into(),
             len: len.into(),
-            buf_alloc: 0.into(),
             ..connection_info.new_header(self.guest_cid)
         };
         connection_info.tx_cnt += len;
@@ -367,10 +370,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     }
 
     /// Tells the peer how much buffer space we have to receive data.
-    pub fn credit_update(&mut self, connection_info: &ConnectionInfo, buffer_size: u32) -> Result {
+    pub fn credit_update(&mut self, connection_info: &ConnectionInfo) -> Result {
         let header = VirtioVsockHdr {
             op: VirtioVsockOp::CreditUpdate.into(),
-            buf_alloc: buffer_size.into(),
             ..connection_info.new_header(self.guest_cid)
         };
         self.send_packet_to_tx_queue(&header, &[])

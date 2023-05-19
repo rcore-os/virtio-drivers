@@ -1,6 +1,8 @@
 //! This module implements the virtio vsock device.
 
 mod error;
+#[cfg(feature = "alloc")]
+mod multiconnectionmanager;
 mod protocol;
 #[cfg(feature = "alloc")]
 mod singleconnectionmanager;

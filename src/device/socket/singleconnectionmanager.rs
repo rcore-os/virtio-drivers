@@ -48,12 +48,12 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
 
     /// Sends the buffer to the destination.
     pub fn send(&mut self, buffer: &[u8]) -> Result {
-        self.driver.send(
-            buffer,
-            self.connection_info
-                .as_mut()
-                .ok_or(SocketError::NotConnected)?,
-        )
+        let connection_info = self
+            .connection_info
+            .as_mut()
+            .ok_or(SocketError::NotConnected)?;
+        connection_info.buf_alloc = 0;
+        self.driver.send(buffer, connection_info)
     }
 
     /// Polls the vsock device to receive data or other updates.
@@ -61,13 +61,13 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
     /// A buffer must be provided to put the data in if there is some to
     /// receive.
     pub fn poll_recv(&mut self, buffer: &mut [u8]) -> Result<Option<VsockEvent>> {
-        let Some(connection_info) = &self.connection_info else {
+        let Some(connection_info) = &mut self.connection_info else {
             return Err(SocketError::NotConnected.into());
         };
 
         // Tell the peer that we have space to receive some data.
-        self.driver
-            .credit_update(connection_info, buffer.len() as u32)?;
+        connection_info.buf_alloc = buffer.len() as u32;
+        self.driver.credit_update(connection_info)?;
 
         self.poll_rx_queue(buffer)
     }
@@ -134,20 +134,24 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
     /// shutdown.
     pub fn shutdown(&mut self) -> Result {
-        self.driver.shutdown(
-            self.connection_info
-                .as_ref()
-                .ok_or(SocketError::NotConnected)?,
-        )
+        let connection_info = self
+            .connection_info
+            .as_mut()
+            .ok_or(SocketError::NotConnected)?;
+        connection_info.buf_alloc = 0;
+
+        self.driver.shutdown(connection_info)
     }
 
     /// Forcibly closes the connection without waiting for the peer.
     pub fn force_close(&mut self) -> Result {
-        self.driver.force_close(
-            self.connection_info
-                .as_ref()
-                .ok_or(SocketError::NotConnected)?,
-        )?;
+        let connection_info = self
+            .connection_info
+            .as_mut()
+            .ok_or(SocketError::NotConnected)?;
+        connection_info.buf_alloc = 0;
+
+        self.driver.force_close(connection_info)?;
         self.connection_info = None;
         Ok(())
     }
