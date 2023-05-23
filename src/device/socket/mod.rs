@@ -10,6 +10,8 @@ mod singleconnectionmanager;
 mod vsock;
 
 pub use error::SocketError;
+#[cfg(feature = "alloc")]
+pub use multiconnectionmanager::VsockConnectionManager;
 pub use protocol::VsockAddr;
 #[cfg(feature = "alloc")]
 pub use singleconnectionmanager::SingleConnectionManager;

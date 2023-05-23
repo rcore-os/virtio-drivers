@@ -30,7 +30,7 @@ use virtio_drivers::{
         blk::VirtIOBlk,
         console::VirtIOConsole,
         gpu::VirtIOGpu,
-        socket::{SingleConnectionManager, VirtIOSocket, VsockAddr, VsockEventType},
+        socket::{VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType},
     },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
@@ -204,30 +204,33 @@ fn virtio_console<T: Transport>(transport: T) {
 }
 
 fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
-    let mut socket = SingleConnectionManager::new(
+    let mut socket = VsockConnectionManager::new(
         VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver"),
     );
     let host_cid = 2;
     let port = 1221;
-    info!("Connecting to host on port {port}...");
-    socket.connect(
-        VsockAddr {
-            cid: host_cid,
-            port,
-        },
+    let host_address = VsockAddr {
+        cid: host_cid,
         port,
-    )?;
-    socket.wait_for_connect()?;
+    };
+    info!("Connecting to host on port {port}...");
+    socket.connect(host_address, port)?;
+    let event = socket.wait_for_event()?;
+    assert_eq!(event.source, host_address);
+    assert_eq!(event.destination.port, port);
+    assert_eq!(event.event_type, VsockEventType::Connected);
     info!("Connected to the host");
 
     const EXCHANGE_NUM: usize = 2;
     let messages = ["0-Ack. Hello from guest.", "1-Ack. Received again."];
     for k in 0..EXCHANGE_NUM {
         let mut buffer = [0u8; 24];
-        let socket_event = socket.wait_for_recv(&mut buffer)?;
+        let socket_event = socket.wait_for_event()?;
         let VsockEventType::Received {length, ..} = socket_event.event_type else {
             panic!("Received unexpected socket event {:?}", socket_event);
         };
+        let read_length = socket.recv(host_address, port, &mut buffer)?;
+        assert_eq!(length, read_length);
         info!(
             "Received message: {:?}({:?}), len: {:?}",
             buffer,
@@ -236,10 +239,10 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
         );
 
         let message = messages[k % messages.len()];
-        socket.send(message.as_bytes())?;
+        socket.send(host_address, port, message.as_bytes())?;
         info!("Sent message: {:?}", message);
     }
-    socket.shutdown()?;
+    socket.shutdown(host_address, port)?;
     info!("Shutdown the connection");
     Ok(())
 }
