@@ -252,3 +252,240 @@ impl RingBuffer {
         bytes_read
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        device::socket::{
+            protocol::{SocketType, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp},
+            vsock::{VsockBufferStatus, QUEUE_SIZE, RX_QUEUE_IDX, TX_QUEUE_IDX},
+        },
+        hal::fake::FakeHal,
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceStatus, DeviceType,
+        },
+        volatile::ReadOnly,
+    };
+    use alloc::{sync::Arc, vec};
+    use core::{mem::size_of, ptr::NonNull};
+    use std::{sync::Mutex, thread};
+    use zerocopy::{AsBytes, FromBytes};
+
+    #[test]
+    fn send_recv() {
+        let host_cid = 2;
+        let guest_cid = 66;
+        let host_port = 1234;
+        let guest_port = 4321;
+        let host_address = VsockAddr {
+            cid: host_cid,
+            port: host_port,
+        };
+        let hello_from_guest = "Hello from guest";
+        let hello_from_host = "Hello from host";
+
+        let mut config_space = VirtioVsockConfig {
+            guest_cid_low: ReadOnly::new(66),
+            guest_cid_high: ReadOnly::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![
+                QueueStatus::default(),
+                QueueStatus::default(),
+                QueueStatus::default(),
+            ],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Socket,
+            max_queue_size: 32,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut socket = VsockConnectionManager::new(
+            VirtIOSocket::<FakeHal, FakeTransport<VirtioVsockConfig>>::new(transport).unwrap(),
+        );
+
+        // Start a thread to simulate the device.
+        let handle = thread::spawn(move || {
+            // Wait for connection request.
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+            assert_eq!(
+                VirtioVsockHdr::read_from(
+                    state
+                        .lock()
+                        .unwrap()
+                        .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX)
+                        .as_slice()
+                )
+                .unwrap(),
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::Request.into(),
+                    src_cid: guest_cid.into(),
+                    dst_cid: host_cid.into(),
+                    src_port: guest_port.into(),
+                    dst_port: host_port.into(),
+                    len: 0.into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 0.into(),
+                    fwd_cnt: 0.into(),
+                }
+            );
+
+            // Accept connection and give the peer enough credit to send the message.
+            state.lock().unwrap().write_to_queue::<QUEUE_SIZE>(
+                RX_QUEUE_IDX,
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::Response.into(),
+                    src_cid: host_cid.into(),
+                    dst_cid: guest_cid.into(),
+                    src_port: host_port.into(),
+                    dst_port: guest_port.into(),
+                    len: 0.into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 50.into(),
+                    fwd_cnt: 0.into(),
+                }
+                .as_bytes(),
+            );
+
+            // Expect the guest to send some data.
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+            let request = state
+                .lock()
+                .unwrap()
+                .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX);
+            assert_eq!(
+                request.len(),
+                size_of::<VirtioVsockHdr>() + hello_from_guest.len()
+            );
+            assert_eq!(
+                VirtioVsockHdr::read_from_prefix(request.as_slice()).unwrap(),
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::Rw.into(),
+                    src_cid: guest_cid.into(),
+                    dst_cid: host_cid.into(),
+                    src_port: guest_port.into(),
+                    dst_port: host_port.into(),
+                    len: (hello_from_guest.len() as u32).into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 1024.into(),
+                    fwd_cnt: 0.into(),
+                }
+            );
+            assert_eq!(
+                &request[size_of::<VirtioVsockHdr>()..],
+                hello_from_guest.as_bytes()
+            );
+
+            println!("Host sending");
+
+            // Send a response.
+            let mut response = vec![0; size_of::<VirtioVsockHdr>() + hello_from_host.len()];
+            VirtioVsockHdr {
+                op: VirtioVsockOp::Rw.into(),
+                src_cid: host_cid.into(),
+                dst_cid: guest_cid.into(),
+                src_port: host_port.into(),
+                dst_port: guest_port.into(),
+                len: (hello_from_host.len() as u32).into(),
+                socket_type: SocketType::Stream.into(),
+                flags: 0.into(),
+                buf_alloc: 50.into(),
+                fwd_cnt: (hello_from_guest.len() as u32).into(),
+            }
+            .write_to_prefix(response.as_mut_slice());
+            response[size_of::<VirtioVsockHdr>()..].copy_from_slice(hello_from_host.as_bytes());
+            state
+                .lock()
+                .unwrap()
+                .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
+
+            // Expect a shutdown.
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+            assert_eq!(
+                VirtioVsockHdr::read_from(
+                    state
+                        .lock()
+                        .unwrap()
+                        .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX)
+                        .as_slice()
+                )
+                .unwrap(),
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::Shutdown.into(),
+                    src_cid: guest_cid.into(),
+                    dst_cid: host_cid.into(),
+                    src_port: guest_port.into(),
+                    dst_port: host_port.into(),
+                    len: 0.into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 1024.into(),
+                    fwd_cnt: (hello_from_host.len() as u32).into(),
+                }
+            );
+        });
+
+        socket.connect(host_address, guest_port).unwrap();
+        assert_eq!(
+            socket.wait_for_event().unwrap(),
+            VsockEvent {
+                source: host_address,
+                destination: VsockAddr {
+                    cid: guest_cid,
+                    port: guest_port,
+                },
+                event_type: VsockEventType::Connected,
+                buffer_status: VsockBufferStatus {
+                    buffer_allocation: 50,
+                    forward_count: 0,
+                },
+            }
+        );
+        println!("Guest sending");
+        socket
+            .send(host_address, guest_port, "Hello from guest".as_bytes())
+            .unwrap();
+        println!("Guest waiting to receive.");
+        assert_eq!(
+            socket.wait_for_event().unwrap(),
+            VsockEvent {
+                source: host_address,
+                destination: VsockAddr {
+                    cid: guest_cid,
+                    port: guest_port,
+                },
+                event_type: VsockEventType::Received {
+                    length: hello_from_host.len()
+                },
+                buffer_status: VsockBufferStatus {
+                    buffer_allocation: 50,
+                    forward_count: hello_from_guest.len() as u32,
+                },
+            }
+        );
+        println!("Guest getting received data.");
+        let mut buffer = [0u8; 64];
+        assert_eq!(
+            socket.recv(host_address, guest_port, &mut buffer).unwrap(),
+            hello_from_host.len()
+        );
+        assert_eq!(
+            &buffer[0..hello_from_host.len()],
+            hello_from_host.as_bytes()
+        );
+        socket.shutdown(host_address, guest_port).unwrap();
+
+        handle.join().unwrap();
+    }
+}
