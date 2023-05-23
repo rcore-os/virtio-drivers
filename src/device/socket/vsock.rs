@@ -108,6 +108,77 @@ impl VsockEvent {
             && self.destination.cid == guest_cid
             && self.destination.port == connection_info.src_port
     }
+
+    fn from_header(header: &VirtioVsockHdr) -> Result<Option<Self>> {
+        let op = header.op()?;
+        let buffer_status = VsockBufferStatus {
+            buffer_allocation: header.buf_alloc.into(),
+            forward_count: header.fwd_cnt.into(),
+        };
+        let source = header.source();
+        let destination = header.destination();
+
+        match op {
+            VirtioVsockOp::Request => {
+                header.check_data_is_empty()?;
+                // TODO: Send a Rst, or support listening.
+                Ok(None)
+            }
+            VirtioVsockOp::Response => {
+                header.check_data_is_empty()?;
+                Ok(Some(VsockEvent {
+                    source,
+                    destination,
+                    buffer_status,
+                    event_type: VsockEventType::Connected,
+                }))
+            }
+            VirtioVsockOp::CreditUpdate => {
+                header.check_data_is_empty()?;
+                Ok(Some(VsockEvent {
+                    source,
+                    destination,
+                    buffer_status,
+                    event_type: VsockEventType::CreditUpdate,
+                }))
+            }
+            VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
+                header.check_data_is_empty()?;
+
+                info!("Disconnected from the peer");
+
+                let reason = if op == VirtioVsockOp::Rst {
+                    DisconnectReason::Reset
+                } else {
+                    DisconnectReason::Shutdown
+                };
+                Ok(Some(VsockEvent {
+                    source,
+                    destination,
+                    buffer_status,
+                    event_type: VsockEventType::Disconnected { reason },
+                }))
+            }
+            VirtioVsockOp::Rw => Ok(Some(VsockEvent {
+                source,
+                destination,
+                buffer_status,
+                event_type: VsockEventType::Received {
+                    length: header.len() as usize,
+                },
+            })),
+            VirtioVsockOp::CreditRequest => {
+                header.check_data_is_empty()?;
+                Ok(Some(VsockEvent {
+                    source,
+                    destination,
+                    buffer_status,
+                    event_type: VsockEventType::CreditRequest,
+                }))
+            }
+            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -361,74 +432,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             return Ok(None);
         };
 
-        let op = header.op()?;
-
-        let buffer_status = VsockBufferStatus {
-            buffer_allocation: header.buf_alloc.into(),
-            forward_count: header.fwd_cnt.into(),
-        };
-        let source = header.source();
-        let destination = header.destination();
-
-        match op {
-            VirtioVsockOp::Request => {
-                header.check_data_is_empty()?;
-                // TODO: Send a Rst, or support listening.
-                Ok(None)
-            }
-            VirtioVsockOp::Response => {
-                header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::Connected,
-                }))
-            }
-            VirtioVsockOp::CreditUpdate => {
-                header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::CreditUpdate,
-                }))
-            }
-            VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
-                header.check_data_is_empty()?;
-
-                info!("Disconnected from the peer");
-
-                let reason = if op == VirtioVsockOp::Rst {
-                    DisconnectReason::Reset
-                } else {
-                    DisconnectReason::Shutdown
-                };
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::Disconnected { reason },
-                }))
-            }
-            VirtioVsockOp::Rw => Ok(Some(VsockEvent {
-                source,
-                destination,
-                buffer_status,
-                event_type: VsockEventType::Received {
-                    length: header.len() as usize,
-                },
-            })),
-            VirtioVsockOp::CreditRequest => {
-                header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::CreditRequest,
-                }))
-            }
-            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
+        // TODO: Add buffer back immediately on error or None
+        if let Some(event) = VsockEvent::from_header(&header)? {
+            Ok(Some(event))
+        } else {
+            Ok(None)
         }
     }
 
