@@ -40,7 +40,7 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
 
         let new_connection_info = ConnectionInfo::new(destination, src_port);
 
-        self.driver.connect(destination, src_port)?;
+        self.driver.connect(&new_connection_info)?;
         debug!("Connection requested: {:?}", new_connection_info);
         self.connection_info = Some(new_connection_info);
         Ok(())

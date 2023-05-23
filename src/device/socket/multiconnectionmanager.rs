@@ -55,7 +55,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         let mut new_connection_info = ConnectionInfo::new(destination, src_port);
         new_connection_info.buf_alloc = PER_CONNECTION_BUFFER_CAPACITY.try_into().unwrap();
 
-        self.driver.connect(destination, src_port)?;
+        self.driver.connect(&new_connection_info)?;
         debug!("Connection requested: {:?}", new_connection_info);
         self.connections.push(Connection {
             info: new_connection_info,
@@ -334,7 +334,7 @@ mod tests {
                     len: 0.into(),
                     socket_type: SocketType::Stream.into(),
                     flags: 0.into(),
-                    buf_alloc: 0.into(),
+                    buf_alloc: 1024.into(),
                     fwd_cnt: 0.into(),
                 }
             );

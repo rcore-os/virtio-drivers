@@ -312,17 +312,13 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
     /// `VsockEventType::Connected` event indicating that the peer has accepted the connection
     /// before sending data.
-    pub fn connect(&mut self, destination: VsockAddr, src_port: u32) -> Result {
+    pub fn connect(&mut self, connection_info: &ConnectionInfo) -> Result {
         let header = VirtioVsockHdr {
             op: VirtioVsockOp::Request.into(),
-            src_cid: self.guest_cid.into(),
-            dst_cid: destination.cid.into(),
-            src_port: src_port.into(),
-            dst_port: destination.port.into(),
-            ..Default::default()
+            ..connection_info.new_header(self.guest_cid)
         };
-        // Sends a header only packet to the tx queue to connect the device to the listening
-        // socket at the given destination.
+        // Sends a header only packet to the TX queue to connect the device to the listening socket
+        // at the given destination.
         self.send_packet_to_tx_queue(&header, &[])?;
 
         Ok(())
