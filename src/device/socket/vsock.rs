@@ -598,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn send() {
+    fn send_recv() {
         let host_cid = 2;
         let guest_cid = 66;
         let host_port = 1234;
@@ -734,6 +734,55 @@ mod tests {
                 "Hello from guest".as_bytes()
             );
 
+            // Send a response.
+            let mut response = vec![0; size_of::<VirtioVsockHdr>() + 15];
+            VirtioVsockHdr {
+                op: VirtioVsockOp::Rw.into(),
+                src_cid: host_cid.into(),
+                dst_cid: guest_cid.into(),
+                src_port: host_port.into(),
+                dst_port: guest_port.into(),
+                len: 15.into(),
+                socket_type: SocketType::Stream.into(),
+                flags: 0.into(),
+                buf_alloc: 50.into(),
+                fwd_cnt: 16.into(),
+            }
+            .write_to_prefix(response.as_mut_slice());
+            response[size_of::<VirtioVsockHdr>()..].copy_from_slice("Hello from host".as_bytes());
+            state
+                .lock()
+                .unwrap()
+                .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
+
+            // Expect a credit update.
+            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
+            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            assert_eq!(
+                VirtioVsockHdr::read_from(
+                    state
+                        .lock()
+                        .unwrap()
+                        .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX)
+                        .as_slice()
+                )
+                .unwrap(),
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::CreditUpdate.into(),
+                    src_cid: guest_cid.into(),
+                    dst_cid: host_cid.into(),
+                    src_port: guest_port.into(),
+                    dst_port: host_port.into(),
+                    len: 0.into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 64.into(),
+                    fwd_cnt: 0.into(),
+                }
+            );
+
             // Expect a shutdown.
             while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
                 thread::sleep(Duration::from_millis(10));
@@ -758,7 +807,7 @@ mod tests {
                     socket_type: SocketType::Stream.into(),
                     flags: 0.into(),
                     buf_alloc: 0.into(),
-                    fwd_cnt: 0.into(),
+                    fwd_cnt: 15.into(),
                 }
             );
         });
@@ -766,6 +815,25 @@ mod tests {
         socket.connect(host_cid, guest_port, host_port).unwrap();
         socket.wait_for_connect().unwrap();
         socket.send("Hello from guest".as_bytes()).unwrap();
+        let mut buffer = [0u8; 64];
+        let event = socket.wait_for_recv(&mut buffer).unwrap();
+        assert_eq!(
+            event,
+            VsockEvent {
+                source: VsockAddr {
+                    cid: host_cid,
+                    port: host_port,
+                },
+                destination: VsockAddr {
+                    cid: guest_cid,
+                    port: guest_port,
+                },
+                event_type: VsockEventType::Received {
+                    length: "Hello from host".len()
+                }
+            }
+        );
+        assert_eq!(&buffer[0..15], "Hello from host".as_bytes());
         socket.shutdown().unwrap();
 
         handle.join().unwrap();
