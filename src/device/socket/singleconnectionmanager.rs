@@ -87,22 +87,21 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
     }
 
     fn poll_rx_queue(&mut self, body: &mut [u8]) -> Result<Option<VsockEvent>> {
-        loop {
-            let Some(event) = self.driver.poll_recv(body)? else {
-                return Ok(None)
-            };
+        let guest_cid = self.driver.guest_cid();
+        let self_connection_info = &mut self.connection_info;
 
-            let Some(connection_info) = &mut self.connection_info else {
-                continue;
+        self.driver.poll_recv(|event, borrowed_body| {
+            let Some(connection_info) = self_connection_info else {
+                return Ok(None);
             };
 
             // Skip packets which don't match our current connection.
-            if !event.matches_connection(connection_info, self.driver.guest_cid()) {
+            if !event.matches_connection(connection_info, guest_cid) {
                 debug!(
                     "Skipping {:?} as connection is {:?}",
                     event, connection_info
                 );
-                continue;
+                return Ok(None);
             }
 
             // Update stored connection info.
@@ -111,9 +110,12 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
             match event.event_type {
                 VsockEventType::Connected => {}
                 VsockEventType::Disconnected { .. } => {
-                    self.connection_info = None;
+                    *self_connection_info = None;
                 }
                 VsockEventType::Received { length } => {
+                    body.get_mut(0..length)
+                        .ok_or_else(|| SocketError::OutputBufferTooShort(length))?
+                        .copy_from_slice(borrowed_body);
                     connection_info.done_forwarding(length);
                 }
                 VsockEventType::CreditRequest => {
@@ -122,8 +124,8 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
                 VsockEventType::CreditUpdate => {}
             }
 
-            return Ok(Some(event));
-        }
+            Ok(Some(event))
+        })
     }
 
     /// Requests to shut down the connection cleanly.
