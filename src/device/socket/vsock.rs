@@ -185,6 +185,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         })
     }
 
+    /// Returns the CID which has been assigned to this guest.
+    pub fn guest_cid(&self) -> u64 {
+        self.guest_cid
+    }
+
     /// Sends a request to connect to the given destination.
     ///
     /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
@@ -548,7 +553,7 @@ mod tests {
         };
         let socket =
             VirtIOSocket::<FakeHal, FakeTransport<VirtioVsockConfig>>::new(transport).unwrap();
-        assert_eq!(socket.guest_cid, 0x00_0000_0042);
+        assert_eq!(socket.guest_cid(), 0x00_0000_0042);
     }
 
     #[test]
