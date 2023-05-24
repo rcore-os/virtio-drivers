@@ -11,7 +11,7 @@ use crate::Result;
 use alloc::boxed::Box;
 use core::mem::size_of;
 use core::ptr::{null_mut, NonNull};
-use log::{debug, info};
+use log::debug;
 use zerocopy::{AsBytes, FromBytes};
 
 pub(crate) const RX_QUEUE_IDX: u16 = 0;
@@ -137,7 +137,7 @@ impl VsockEvent {
             }
             VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
                 header.check_data_is_empty()?;
-                info!("Disconnected from the peer");
+                debug!("Disconnected from the peer");
                 let reason = if op == VirtioVsockOp::Rst {
                     DisconnectReason::Reset
                 } else {
@@ -238,19 +238,19 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     pub fn new(mut transport: T) -> Result<Self> {
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
-            info!("Device features: {:?}", features);
+            debug!("Device features: {:?}", features);
             // negotiate these flags only
             let supported_features = Feature::empty();
             (features & supported_features).bits()
         });
 
         let config = transport.config_space::<VirtioVsockConfig>()?;
-        info!("config: {:?}", config);
+        debug!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
         let guest_cid = unsafe {
             volread!(config, guest_cid_low) as u64 | (volread!(config, guest_cid_high) as u64) << 32
         };
-        info!("guest cid: {guest_cid:?}");
+        debug!("guest cid: {guest_cid:?}");
 
         let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
         let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
