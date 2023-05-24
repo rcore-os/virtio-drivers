@@ -107,7 +107,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         let guest_cid = self.driver.guest_cid();
         let connections = &mut self.connections;
 
-        self.driver.poll(|event, body| {
+        let result = self.driver.poll(|event, body| {
             let connection = connections
                 .iter_mut()
                 .find(|connection| event.matches_connection(&connection.info, guest_cid));
@@ -135,14 +135,34 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
                         return Err(SocketError::OutputBufferTooShort(length).into());
                     }
                 }
-                VsockEventType::CreditRequest => {
-                    // TODO: Send a credit update.
-                }
+                VsockEventType::CreditRequest => {}
                 VsockEventType::CreditUpdate => {}
             }
 
             Ok(Some(event))
-        })
+        })?;
+
+        // If the peer requested credit, send an update.
+        if let Some(VsockEvent {
+            source,
+            destination,
+            event_type: VsockEventType::CreditRequest,
+            ..
+        }) = result
+        {
+            let connection = self
+                .connections
+                .iter()
+                .find(|connection| {
+                    connection.info.dst == source && connection.info.src_port == destination.port
+                })
+                .unwrap();
+            self.driver.credit_update(&connection.info)?;
+            // No need to pass the request on to the client, we've already handled it.
+            Ok(None)
+        } else {
+            Ok(result)
+        }
     }
 
     /// Reads data received from the given connection.

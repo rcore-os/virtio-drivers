@@ -123,7 +123,8 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
                     connection_info.done_forwarding(length);
                 }
                 VsockEventType::CreditRequest => {
-                    // TODO: Send a credit update.
+                    // No point sending a credit update until `poll_recv` is called with a buffer,
+                    // as otherwise buf_alloc would just be 0 anyway.
                 }
                 VsockEventType::CreditUpdate => {}
             }
