@@ -75,6 +75,8 @@ impl ConnectionInfo {
         self.fwd_cnt += length as u32;
     }
 
+    /// Returns the number of bytes of RX buffer space the peer has available to receive packet body
+    /// data from us.
     fn peer_free(&self) -> u32 {
         self.peer_buf_alloc - (self.tx_cnt - self.peer_fwd_cnt)
     }
@@ -203,7 +205,10 @@ pub enum VsockEventType {
     CreditUpdate,
 }
 
-/// Driver for a VirtIO socket device.
+/// Low-level driver for a VirtIO socket device.
+///
+/// You probably want to use [`VsockConnectionManager`](super::VsockConnectionManager) rather than
+/// using this directly.
 pub struct VirtIOSocket<H: Hal, T: Transport> {
     transport: T,
     /// Virtqueue to receive packets.

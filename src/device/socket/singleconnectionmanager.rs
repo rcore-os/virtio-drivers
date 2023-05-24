@@ -6,9 +6,10 @@ use crate::{transport::Transport, Hal, Result};
 use core::hint::spin_loop;
 use log::debug;
 
-/// A higher level interface for vsock devices.
+/// A higher level interface for VirtIO socket (vsock) devices.
 ///
-/// This keeps track of a single vsock connection.
+/// This can only keep track of a single vsock connection. If you want to support multiple
+/// simultaneous connections, try [`VsockConnectionManager`](super::VsockConnectionManager).
 pub struct SingleConnectionManager<H: Hal, T: Transport> {
     driver: VirtIOSocket<H, T>,
     connection_info: Option<ConnectionInfo>,

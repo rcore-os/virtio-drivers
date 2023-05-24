@@ -12,9 +12,34 @@ use zerocopy::FromBytes;
 
 const PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
 
-/// A higher level interface for vsock devices.
+/// A higher level interface for VirtIO socket (vsock) devices.
 ///
-/// This keeps track of a single vsock connection.
+/// This keeps track of multiple vsock connections.
+///
+/// # Example
+///
+/// ```
+/// # use virtio_drivers::{Error, Hal};
+/// # use virtio_drivers::transport::Transport;
+/// use virtio_drivers::device::socket::{VirtIOSocket, VsockAddr, VsockConnectionManager};
+///
+/// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
+/// let mut socket = VsockConnectionManager::new(VirtIOSocket::<HalImpl, _>::new(transport)?);
+///
+/// // Start a thread to call `socket.poll()` and handle events.
+///
+/// let remote_address = VsockAddr { cid: 2, port: 42 };
+/// let local_port = 1234;
+/// socket.connect(remote_address, local_port)?;
+///
+/// // Wait until `socket.poll()` returns an event indicating that the socket is connected.
+///
+/// socket.send(remote_address, local_port, "Hello world".as_bytes())?;
+///
+/// socket.shutdown(remote_address, local_port)?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct VsockConnectionManager<H: Hal, T: Transport> {
     driver: VirtIOSocket<H, T>,
     connections: Vec<Connection>,

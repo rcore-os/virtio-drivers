@@ -1,4 +1,11 @@
-//! This module implements the virtio vsock device.
+//! Driver for VirtIO socket devices.
+//!
+//! To use the driver, you should first create a [`VirtIOSocket`] instance with your VirtIO
+//! transport, and then create a [`VsockConnectionManager`] wrapping it to keep track of
+//! connections. If you only want to have a single outgoing vsock connection at once, you can use
+//! [`SingleConnectionManager`] for a slightly simpler interface.
+//!
+//! See [`VsockConnectionManager`] for a usage example.
 
 mod error;
 #[cfg(feature = "alloc")]
