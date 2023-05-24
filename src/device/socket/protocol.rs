@@ -40,7 +40,7 @@ pub struct VirtioVsockConfig {
 
 /// The message header for data packets sent on the tx/rx queues
 #[repr(packed)]
-#[derive(AsBytes, Clone, Copy, Debug, FromBytes)]
+#[derive(AsBytes, Clone, Copy, Debug, Eq, FromBytes, PartialEq)]
 pub struct VirtioVsockHdr {
     pub src_cid: U64<LittleEndian>,
     pub dst_cid: U64<LittleEndian>,
