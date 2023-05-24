@@ -96,6 +96,9 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
             connection.info.update_for_event(&event);
 
             match event.event_type {
+                VsockEventType::ConnectionRequest => {
+                    // TODO: Send Rst or handle incoming connections.
+                }
                 VsockEventType::Connected => {}
                 VsockEventType::Disconnected { .. } => {
                     // TODO: Wait until client reads all data before removing connection.

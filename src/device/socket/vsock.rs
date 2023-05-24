@@ -113,7 +113,7 @@ impl VsockEvent {
             && self.destination.port == connection_info.src_port
     }
 
-    fn from_header(header: &VirtioVsockHdr) -> Result<Option<Self>> {
+    fn from_header(header: &VirtioVsockHdr) -> Result<Self> {
         let op = header.op()?;
         let buffer_status = VsockBufferStatus {
             buffer_allocation: header.buf_alloc.into(),
@@ -122,66 +122,45 @@ impl VsockEvent {
         let source = header.source();
         let destination = header.destination();
 
-        match op {
+        let event_type = match op {
             VirtioVsockOp::Request => {
                 header.check_data_is_empty()?;
-                // TODO: Send a Rst, or support listening.
-                Ok(None)
+                VsockEventType::ConnectionRequest
             }
             VirtioVsockOp::Response => {
                 header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::Connected,
-                }))
+                VsockEventType::Connected
             }
             VirtioVsockOp::CreditUpdate => {
                 header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::CreditUpdate,
-                }))
+                VsockEventType::CreditUpdate
             }
             VirtioVsockOp::Rst | VirtioVsockOp::Shutdown => {
                 header.check_data_is_empty()?;
-
                 info!("Disconnected from the peer");
-
                 let reason = if op == VirtioVsockOp::Rst {
                     DisconnectReason::Reset
                 } else {
                     DisconnectReason::Shutdown
                 };
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::Disconnected { reason },
-                }))
+                VsockEventType::Disconnected { reason }
             }
-            VirtioVsockOp::Rw => Ok(Some(VsockEvent {
-                source,
-                destination,
-                buffer_status,
-                event_type: VsockEventType::Received {
-                    length: header.len() as usize,
-                },
-            })),
+            VirtioVsockOp::Rw => VsockEventType::Received {
+                length: header.len() as usize,
+            },
             VirtioVsockOp::CreditRequest => {
                 header.check_data_is_empty()?;
-                Ok(Some(VsockEvent {
-                    source,
-                    destination,
-                    buffer_status,
-                    event_type: VsockEventType::CreditRequest,
-                }))
+                VsockEventType::CreditRequest
             }
-            VirtioVsockOp::Invalid => Err(SocketError::InvalidOperation.into()),
-        }
+            VirtioVsockOp::Invalid => return Err(SocketError::InvalidOperation.into()),
+        };
+
+        Ok(VsockEvent {
+            source,
+            destination,
+            buffer_status,
+            event_type,
+        })
     }
 }
 
@@ -204,6 +183,8 @@ pub enum DisconnectReason {
 /// Details of the type of an event received from a VirtIO socket.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VsockEventType {
+    /// The peer requests to establish a connection with us.
+    ConnectionRequest,
     /// The connection was successfully established.
     Connected,
     /// The connection was closed.
@@ -384,10 +365,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             return Ok(None);
         };
 
-        let result = match VsockEvent::from_header(&header) {
-            Ok(Some(event)) => handler(event, body),
-            other => other,
-        };
+        let result = VsockEvent::from_header(&header).and_then(|event| handler(event, body));
 
         unsafe {
             // TODO: What about if both handler and this give errors?

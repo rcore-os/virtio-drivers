@@ -108,6 +108,9 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
             connection_info.update_for_event(&event);
 
             match event.event_type {
+                VsockEventType::ConnectionRequest => {
+                    // TODO: Send Rst or handle incoming connections.
+                }
                 VsockEventType::Connected => {}
                 VsockEventType::Disconnected { .. } => {
                     *self_connection_info = None;
@@ -167,7 +170,9 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
                     return Err(SocketError::ConnectionFailed.into())
                 }
                 VsockEventType::Received { .. } => return Err(SocketError::InvalidOperation.into()),
-                VsockEventType::CreditRequest | VsockEventType::CreditUpdate => {}
+                VsockEventType::ConnectionRequest
+                | VsockEventType::CreditRequest
+                | VsockEventType::CreditUpdate => {}
             }
         }
     }
