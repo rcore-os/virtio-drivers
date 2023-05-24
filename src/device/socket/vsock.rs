@@ -20,7 +20,7 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 pub(crate) const QUEUE_SIZE: usize = 8;
 
-/// The size in bytes of each buffer used in the RX virtqueue.
+/// The size in bytes of each buffer used in the RX virtqueue. This must be bigger than size_of::<VirtioVsockHdr>().
 const RX_BUFFER_SIZE: usize = 512;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -487,11 +487,15 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 }
 
 fn read_header_and_body(buffer: &[u8]) -> Result<(VirtioVsockHdr, &[u8])> {
-    let header = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
+    // Shouldn't panic, because we know `RX_BUFFER_SIZE > size_of::<VirtioVsockHdr>()`.
+    let header = VirtioVsockHdr::read_from_prefix(buffer).unwrap();
     let body_length = header.len() as usize;
+
+    // This could fail if the device returns an unreasonably long body length.
     let data_end = size_of::<VirtioVsockHdr>()
         .checked_add(body_length)
         .ok_or(SocketError::InvalidNumber)?;
+    // This could fail if the device returns a body length longer than the buffer we gave it.
     let data = buffer
         .get(size_of::<VirtioVsockHdr>()..data_end)
         .ok_or(SocketError::BufferTooShort)?;
