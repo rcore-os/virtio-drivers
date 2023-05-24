@@ -603,6 +603,8 @@ mod tests {
         let guest_cid = 66;
         let host_port = 1234;
         let guest_port = 4321;
+        let hello_from_guest = "Hello from guest";
+        let hello_from_host = "Hello from host";
 
         let mut config_space = VirtioVsockConfig {
             guest_cid_low: ReadOnly::new(66),
@@ -712,7 +714,7 @@ mod tests {
                 .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX);
             assert_eq!(
                 request.len(),
-                size_of::<VirtioVsockHdr>() + "Hello from guest".len()
+                size_of::<VirtioVsockHdr>() + hello_from_guest.len()
             );
             assert_eq!(
                 VirtioVsockHdr::read_from_prefix(request.as_slice()).unwrap(),
@@ -722,7 +724,7 @@ mod tests {
                     dst_cid: host_cid.into(),
                     src_port: guest_port.into(),
                     dst_port: host_port.into(),
-                    len: 16.into(),
+                    len: (hello_from_guest.len() as u32).into(),
                     socket_type: SocketType::Stream.into(),
                     flags: 0.into(),
                     buf_alloc: 0.into(),
@@ -731,25 +733,25 @@ mod tests {
             );
             assert_eq!(
                 &request[size_of::<VirtioVsockHdr>()..],
-                "Hello from guest".as_bytes()
+                hello_from_guest.as_bytes()
             );
 
             // Send a response.
-            let mut response = vec![0; size_of::<VirtioVsockHdr>() + 15];
+            let mut response = vec![0; size_of::<VirtioVsockHdr>() + hello_from_host.len()];
             VirtioVsockHdr {
                 op: VirtioVsockOp::Rw.into(),
                 src_cid: host_cid.into(),
                 dst_cid: guest_cid.into(),
                 src_port: host_port.into(),
                 dst_port: guest_port.into(),
-                len: 15.into(),
+                len: (hello_from_host.len() as u32).into(),
                 socket_type: SocketType::Stream.into(),
                 flags: 0.into(),
                 buf_alloc: 50.into(),
-                fwd_cnt: 16.into(),
+                fwd_cnt: (hello_from_guest.len() as u32).into(),
             }
             .write_to_prefix(response.as_mut_slice());
-            response[size_of::<VirtioVsockHdr>()..].copy_from_slice("Hello from host".as_bytes());
+            response[size_of::<VirtioVsockHdr>()..].copy_from_slice(hello_from_host.as_bytes());
             state
                 .lock()
                 .unwrap()
@@ -807,14 +809,14 @@ mod tests {
                     socket_type: SocketType::Stream.into(),
                     flags: 0.into(),
                     buf_alloc: 0.into(),
-                    fwd_cnt: 15.into(),
+                    fwd_cnt: (hello_from_host.len() as u32).into(),
                 }
             );
         });
 
         socket.connect(host_cid, guest_port, host_port).unwrap();
         socket.wait_for_connect().unwrap();
-        socket.send("Hello from guest".as_bytes()).unwrap();
+        socket.send(hello_from_guest.as_bytes()).unwrap();
         let mut buffer = [0u8; 64];
         let event = socket.wait_for_recv(&mut buffer).unwrap();
         assert_eq!(
@@ -829,11 +831,14 @@ mod tests {
                     port: guest_port,
                 },
                 event_type: VsockEventType::Received {
-                    length: "Hello from host".len()
+                    length: hello_from_host.len()
                 }
             }
         );
-        assert_eq!(&buffer[0..15], "Hello from host".as_bytes());
+        assert_eq!(
+            &buffer[0..hello_from_host.len()],
+            hello_from_host.as_bytes()
+        );
         socket.shutdown().unwrap();
 
         handle.join().unwrap();
