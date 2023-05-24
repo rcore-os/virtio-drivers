@@ -91,7 +91,7 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
         let guest_cid = self.driver.guest_cid();
         let self_connection_info = &mut self.connection_info;
 
-        self.driver.poll_recv(|event, borrowed_body| {
+        self.driver.poll(|event, borrowed_body| {
             let Some(connection_info) = self_connection_info else {
                 return Ok(None);
             };

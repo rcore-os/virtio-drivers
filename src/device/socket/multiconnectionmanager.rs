@@ -107,7 +107,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         let guest_cid = self.driver.guest_cid();
         let connections = &mut self.connections;
 
-        self.driver.poll_recv(|event, body| {
+        self.driver.poll(|event, body| {
             let connection = connections
                 .iter_mut()
                 .find(|connection| event.matches_connection(&connection.info, guest_cid));

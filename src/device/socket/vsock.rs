@@ -295,7 +295,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
     /// Sends a request to connect to the given destination.
     ///
-    /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
     /// `VsockEventType::Connected` event indicating that the peer has accepted the connection
     /// before sending data.
     pub fn connect(&mut self, connection_info: &ConnectionInfo) -> Result {
@@ -362,7 +362,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
     /// Polls the RX virtqueue for the next event, and calls the given handler function to handle
     /// it.
-    pub fn poll_recv(
+    pub fn poll(
         &mut self,
         handler: impl FnOnce(VsockEvent, &[u8]) -> Result<Option<VsockEvent>>,
     ) -> Result<Option<VsockEvent>> {
@@ -382,7 +382,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
     /// Requests to shut down the connection cleanly.
     ///
-    /// This returns as soon as the request is sent; you should wait until `poll_recv` returns a
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
     /// shutdown.
     pub fn shutdown(&mut self, connection_info: &ConnectionInfo) -> Result {
