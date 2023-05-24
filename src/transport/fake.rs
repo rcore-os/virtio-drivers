@@ -4,8 +4,8 @@ use crate::{
     PhysAddr, Result,
 };
 use alloc::{sync::Arc, vec::Vec};
-use core::{any::TypeId, ptr::NonNull};
-use std::sync::Mutex;
+use core::{any::TypeId, ptr::NonNull, time::Duration};
+use std::{sync::Mutex, thread};
 
 /// A fake implementation of [`Transport`] for unit tests.
 #[derive(Debug)]
@@ -167,6 +167,14 @@ impl State {
             queue.device_area as *mut u8,
             handler,
         )
+    }
+
+    /// Waits until the given queue is notified.
+    pub fn wait_until_queue_notified(state: &Mutex<Self>, queue_index: u16) {
+        while !state.lock().unwrap().queues[usize::from(queue_index)].notified {
+            thread::sleep(Duration::from_millis(10));
+        }
+        state.lock().unwrap().queues[usize::from(queue_index)].notified = false;
     }
 }
 

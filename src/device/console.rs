@@ -246,7 +246,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;
-    use std::{sync::Mutex, thread, time::Duration};
+    use std::{sync::Mutex, thread};
 
     #[test]
     fn receive() {
@@ -323,9 +323,7 @@ mod tests {
         // Start a thread to simulate the device waiting for characters.
         let handle = thread::spawn(move || {
             println!("Device waiting for a character.");
-            while !state.lock().unwrap().queues[usize::from(QUEUE_TRANSMITQ_PORT_0)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
+            State::wait_until_queue_notified(&state, QUEUE_TRANSMITQ_PORT_0);
             println!("Transmit queue was notified.");
 
             let data = state

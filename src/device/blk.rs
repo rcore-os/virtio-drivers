@@ -478,7 +478,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::{mem::size_of, ptr::NonNull};
-    use std::{sync::Mutex, thread, time::Duration};
+    use std::{sync::Mutex, thread};
 
     #[test]
     fn config() {
@@ -551,9 +551,7 @@ mod tests {
         // Start a thread to simulate the device waiting for a read request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
+            State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
             state
@@ -626,9 +624,7 @@ mod tests {
         // Start a thread to simulate the device waiting for a write request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
+            State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
             state

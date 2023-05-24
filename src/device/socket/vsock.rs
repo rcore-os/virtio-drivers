@@ -569,7 +569,7 @@ mod tests {
         volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
-    use core::{ptr::NonNull, time::Duration};
+    use core::ptr::NonNull;
     use std::{sync::Mutex, thread};
 
     #[test]
@@ -630,10 +630,7 @@ mod tests {
         // Start a thread to simulate the device.
         let handle = thread::spawn(move || {
             // Wait for connection request.
-            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
-            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
                     state
@@ -676,10 +673,7 @@ mod tests {
             );
 
             // Expect a credit update.
-            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
-            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
                     state
@@ -704,10 +698,7 @@ mod tests {
             );
 
             // Expect the guest to send some data.
-            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
-            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             let request = state
                 .lock()
                 .unwrap()
@@ -758,10 +749,7 @@ mod tests {
                 .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
 
             // Expect a credit update.
-            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
-            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
                     state
@@ -786,10 +774,7 @@ mod tests {
             );
 
             // Expect a shutdown.
-            while !state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
-            state.lock().unwrap().queues[usize::from(TX_QUEUE_IDX)].notified = false;
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
                     state
