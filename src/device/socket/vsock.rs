@@ -305,9 +305,16 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         };
         // Sends a header only packet to the TX queue to connect the device to the listening socket
         // at the given destination.
-        self.send_packet_to_tx_queue(&header, &[])?;
+        self.send_packet_to_tx_queue(&header, &[])
+    }
 
-        Ok(())
+    /// Accepts the given connection from a peer.
+    pub fn accept(&mut self, connection_info: &ConnectionInfo) -> Result {
+        let header = VirtioVsockHdr {
+            op: VirtioVsockOp::Response.into(),
+            ..connection_info.new_header(self.guest_cid)
+        };
+        self.send_packet_to_tx_queue(&header, &[])
     }
 
     /// Requests the peer to send us a credit update for the given connection.
