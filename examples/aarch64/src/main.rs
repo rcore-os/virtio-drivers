@@ -30,7 +30,7 @@ use virtio_drivers::{
         blk::VirtIOBlk,
         console::VirtIOConsole,
         gpu::VirtIOGpu,
-        socket::{VirtIOSocket, VsockEventType},
+        socket::{VirtIOSocket, VsockAddr, VsockEventType},
     },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
@@ -209,7 +209,13 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let host_cid = 2;
     let port = 1221;
     info!("Connecting to host on port {port}...");
-    socket.connect(host_cid, port, port)?;
+    socket.connect(
+        VsockAddr {
+            cid: host_cid,
+            port,
+        },
+        port,
+    )?;
     socket.wait_for_connect()?;
     info!("Connected to the host");
 
