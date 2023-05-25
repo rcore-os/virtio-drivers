@@ -1,6 +1,6 @@
 use super::{
-    protocol::VsockAddr, vsock::ConnectionInfo, SocketError, VirtIOSocket, VsockEvent,
-    VsockEventType,
+    protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket,
+    VsockEvent, VsockEventType,
 };
 use crate::{transport::Transport, Hal, Result};
 use alloc::{boxed::Box, vec::Vec};
@@ -50,6 +50,9 @@ pub struct VsockConnectionManager<H: Hal, T: Transport> {
 struct Connection {
     info: ConnectionInfo,
     buffer: RingBuffer,
+    /// The peer sent a SHUTDOWN request, but we haven't yet responded with a RST because there is
+    /// still data in the buffer.
+    peer_requested_shutdown: bool,
 }
 
 impl Connection {
@@ -59,6 +62,7 @@ impl Connection {
         Self {
             info,
             buffer: RingBuffer::new(PER_CONNECTION_BUFFER_CAPACITY),
+            peer_requested_shutdown: false,
         }
     }
 }
@@ -188,8 +192,16 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
                 }
             }
             VsockEventType::Connected => {}
-            VsockEventType::Disconnected { .. } => {
-                // TODO: Wait until client reads all data before removing connection.
+            VsockEventType::Disconnected { reason } => {
+                // Wait until client reads all data before removing connection.
+                if connection.buffer.is_empty() {
+                    if reason == DisconnectReason::Shutdown {
+                        self.driver.force_close(&connection.info)?;
+                    }
+                    self.connections.swap_remove(connection_index);
+                } else {
+                    connection.peer_requested_shutdown = true;
+                }
             }
             VsockEventType::Received { .. } => {
                 // Already copied the buffer in the callback above.
@@ -208,16 +220,26 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
 
     /// Reads data received from the given connection.
     pub fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize> {
-        let connection = self
+        let (connection_index, connection) = self
             .connections
             .iter_mut()
-            .find(|connection| connection.info.dst == peer && connection.info.src_port == src_port)
+            .enumerate()
+            .find(|(_, connection)| {
+                connection.info.dst == peer && connection.info.src_port == src_port
+            })
             .ok_or(SocketError::NotConnected)?;
 
         // Copy from ring buffer
         let bytes_read = connection.buffer.read(buffer);
 
         connection.info.done_forwarding(bytes_read);
+
+        // If buffer is now empty and the peer requested shutdown, finish shutting down the
+        // connection.
+        if connection.peer_requested_shutdown && connection.buffer.is_empty() {
+            self.driver.force_close(&connection.info)?;
+            self.connections.swap_remove(connection_index);
+        }
 
         Ok(bytes_read)
     }
@@ -289,6 +311,11 @@ impl RingBuffer {
     /// Returns the number of bytes currently used in the buffer.
     pub fn used(&self) -> usize {
         self.used
+    }
+
+    /// Returns true iff there are currently no bytes in the buffer.
+    pub fn is_empty(&self) -> bool {
+        self.used == 0
     }
 
     /// Returns the number of bytes currently free in the buffer.
