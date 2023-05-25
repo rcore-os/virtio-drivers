@@ -51,6 +51,17 @@ struct Connection {
     buffer: RingBuffer,
 }
 
+impl Connection {
+    fn new(peer: VsockAddr, local_port: u32) -> Self {
+        let mut info = ConnectionInfo::new(peer, local_port);
+        info.buf_alloc = PER_CONNECTION_BUFFER_CAPACITY.try_into().unwrap();
+        Self {
+            info,
+            buffer: RingBuffer::new(PER_CONNECTION_BUFFER_CAPACITY),
+        }
+    }
+}
+
 impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
     /// Construct a new connection manager wrapping the given low-level VirtIO socket driver.
     pub fn new(driver: VirtIOSocket<H, T>) -> Self {
@@ -77,15 +88,11 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
             return Err(SocketError::ConnectionExists.into());
         }
 
-        let mut new_connection_info = ConnectionInfo::new(destination, src_port);
-        new_connection_info.buf_alloc = PER_CONNECTION_BUFFER_CAPACITY.try_into().unwrap();
+        let new_connection = Connection::new(destination, src_port);
 
-        self.driver.connect(&new_connection_info)?;
-        debug!("Connection requested: {:?}", new_connection_info);
-        self.connections.push(Connection {
-            info: new_connection_info,
-            buffer: RingBuffer::new(PER_CONNECTION_BUFFER_CAPACITY),
-        });
+        self.driver.connect(&new_connection.info)?;
+        debug!("Connection requested: {:?}", new_connection.info);
+        self.connections.push(new_connection);
         Ok(())
     }
 
