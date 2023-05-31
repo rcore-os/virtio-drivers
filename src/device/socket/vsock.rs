@@ -263,13 +263,13 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
 
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];
-        for i in 0..QUEUE_SIZE {
+        for (i, rx_queue_buffer) in rx_queue_buffers.iter_mut().enumerate() {
             let mut buffer: Box<[u8; RX_BUFFER_SIZE]> = FromBytes::new_box_zeroed();
             // Safe because the buffer lives as long as the queue, as specified in the function
             // safety requirement, and we don't access it until it is popped.
             let token = unsafe { rx.add(&[], &mut [buffer.as_mut_slice()]) }?;
             assert_eq!(i, token.into());
-            rx_queue_buffers[i] = Box::into_raw(buffer);
+            *rx_queue_buffer = Box::into_raw(buffer);
         }
         let rx_queue_buffers = rx_queue_buffers.map(|ptr| NonNull::new(ptr).unwrap());
 
@@ -466,7 +466,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             // Read the header and body from the buffer. Don't check the result yet, because we need
             // to add the buffer back to the queue either way.
             let header_result = read_header_and_body(buffer);
-            if let Err(_) = header_result {
+            if header_result.is_err() {
                 // If there was an error, add the buffer back immediately. Ignore any errors, as we
                 // need to return the first error.
                 let _ = self.add_buffer_to_rx_queue(token);

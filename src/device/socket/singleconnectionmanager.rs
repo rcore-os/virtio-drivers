@@ -118,7 +118,7 @@ impl<H: Hal, T: Transport> SingleConnectionManager<H, T> {
                 }
                 VsockEventType::Received { length } => {
                     body.get_mut(0..length)
-                        .ok_or_else(|| SocketError::OutputBufferTooShort(length))?
+                        .ok_or(SocketError::OutputBufferTooShort(length))?
                         .copy_from_slice(borrowed_body);
                     connection_info.done_forwarding(length);
                 }
