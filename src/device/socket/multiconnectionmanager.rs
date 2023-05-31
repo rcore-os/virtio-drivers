@@ -330,15 +330,21 @@ impl RingBuffer {
             return false;
         }
 
-        let end = (self.start + self.used) % self.buffer.len();
-        let write_before_wraparound = min(bytes.len(), self.buffer.len() - end);
-        let write_after_wraparound = bytes
+        // The index of the first available position in the buffer.
+        let first_available = (self.start + self.used) % self.buffer.len();
+        // The number of bytes to copy from `bytes` to `buffer` between `first_available` and
+        // `buffer.len()`.
+        let copy_length_before_wraparound = min(bytes.len(), self.buffer.len() - first_available);
+        // The number of bytes to copy from `bytes` to `buffer` after wrapping back around to the
+        // start of `buffer`.
+        let copy_length_after_wraparound = bytes
             .len()
-            .checked_sub(write_before_wraparound)
+            .checked_sub(copy_length_before_wraparound)
             .unwrap_or_default();
-        self.buffer[end..end + write_before_wraparound]
-            .copy_from_slice(&bytes[0..write_before_wraparound]);
-        self.buffer[0..write_after_wraparound].copy_from_slice(&bytes[write_before_wraparound..]);
+        self.buffer[first_available..first_available + copy_length_before_wraparound]
+            .copy_from_slice(&bytes[0..copy_length_before_wraparound]);
+        self.buffer[0..copy_length_after_wraparound]
+            .copy_from_slice(&bytes[copy_length_before_wraparound..]);
         self.used += bytes.len();
 
         true
