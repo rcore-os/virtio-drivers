@@ -7,7 +7,7 @@ use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
-use crate::Result;
+use crate::{Error, Result};
 use alloc::boxed::Box;
 use core::mem::size_of;
 use core::ptr::{null_mut, NonNull};
@@ -429,7 +429,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         // Safe because the buffer lives as long as the queue, and the caller guarantees that it's
         // not currently in the queue or referred to anywhere else until it is popped.
         unsafe {
-            let buffer = self.rx_queue_buffers[usize::from(index)].as_mut();
+            let buffer = self
+                .rx_queue_buffers
+                .get_mut(usize::from(index))
+                .ok_or(Error::WrongToken)?
+                .as_mut();
             let new_token = self.rx.add(&[], &mut [buffer])?;
             // If the RX buffer somehow gets assigned a different token, then our safety assumptions
             // are broken and we can't safely continue to do anything with the device.
