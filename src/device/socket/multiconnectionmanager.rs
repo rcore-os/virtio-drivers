@@ -151,7 +151,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
 
             if let VsockEventType::Received { length } = event.event_type {
                 // Copy to buffer
-                if !connection.buffer.write(body) {
+                if !connection.buffer.add(body) {
                     return Err(SocketError::OutputBufferTooShort(length).into());
                 }
             }
@@ -212,7 +212,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         let (connection_index, connection) = get_connection(&mut self.connections, peer, src_port)?;
 
         // Copy from ring buffer
-        let bytes_read = connection.buffer.read(buffer);
+        let bytes_read = connection.buffer.drain(buffer);
 
         connection.info.done_forwarding(bytes_read);
 
@@ -325,7 +325,7 @@ impl RingBuffer {
     /// Adds the given bytes to the buffer if there is enough capacity for them all.
     ///
     /// Returns true if they were added, or false if they were not.
-    pub fn write(&mut self, bytes: &[u8]) -> bool {
+    pub fn add(&mut self, bytes: &[u8]) -> bool {
         if bytes.len() > self.available() {
             return false;
         }
@@ -346,7 +346,7 @@ impl RingBuffer {
 
     /// Reads and removes as many bytes as possible from the buffer, up to the length of the given
     /// buffer.
-    pub fn read(&mut self, out: &mut [u8]) -> usize {
+    pub fn drain(&mut self, out: &mut [u8]) -> usize {
         let bytes_read = min(self.used, out.len());
 
         // The number of bytes to copy out between `start` and the end of the buffer.
