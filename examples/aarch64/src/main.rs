@@ -146,7 +146,7 @@ fn virtio_device(transport: impl Transport) {
 }
 
 fn virtio_blk<T: Transport>(transport: T) {
-    let mut blk = VirtIOBlk::<HalImpl, T>::new(transport).expect("failed to create blk driver");
+    let mut blk = VirtIOBlk::<HalImpl, T>::new(transport, true).expect("failed to create blk driver");
     assert!(!blk.readonly());
     let mut input = [0xffu8; 512];
     let mut output = [0; 512];
