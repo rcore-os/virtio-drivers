@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{nonnull_slice_from_raw_parts, pages, Error, Result};

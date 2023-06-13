@@ -1,4 +1,5 @@
 //! Driver for VirtIO block devices.
+extern crate alloc;
 
 use crate::hal::Hal;
 use crate::virtio_queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
