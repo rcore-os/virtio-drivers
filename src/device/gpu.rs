@@ -1,7 +1,7 @@
 //! Driver for VirtIO GPU devices.
 
 use crate::hal::{BufferDirection, Dma, Hal};
-use crate::queue::VirtQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
@@ -27,9 +27,9 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     /// DMA area of cursor image buffer.
     cursor_buffer_dma: Option<Dma<H>>,
     /// Queue for sending control commands.
-    control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    control_queue: SplitQueue<H, { QUEUE_SIZE as usize }>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    cursor_queue: SplitQueue<H, { QUEUE_SIZE as usize }>,
     /// Send buffer for queue.
     queue_buf_send: Box<[u8]>,
     /// Recv buffer for queue.
@@ -39,6 +39,9 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        // TODO: 
+        let indirect_desc = false;
+
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -57,8 +60,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             );
         }
 
-        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
-        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR)?;
+        let control_queue = SplitQueue::new(&mut transport, QUEUE_TRANSMIT, indirect_desc)?;
+        let cursor_queue = SplitQueue::new(&mut transport, QUEUE_CURSOR, indirect_desc)?;
 
         let queue_buf_send = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
@@ -169,7 +172,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Send a request to the device and block for a response.
     fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
-        self.control_queue.add_notify_wait_pop(
+        self.control_queue.add_notify_wait_pop_old(
             &[&self.queue_buf_send],
             &mut [&mut self.queue_buf_recv],
             &mut self.transport,
@@ -180,7 +183,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Send a mouse cursor operation request to the device and block for a response.
     fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
-        self.cursor_queue.add_notify_wait_pop(
+        self.cursor_queue.add_notify_wait_pop_old(
             &[&self.queue_buf_send],
             &mut [],
             &mut self.transport,

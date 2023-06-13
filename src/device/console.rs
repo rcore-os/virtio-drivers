@@ -1,7 +1,7 @@
 //! Driver for VirtIO console devices.
 
 use crate::hal::Hal;
-use crate::queue::VirtQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};
@@ -42,8 +42,8 @@ const QUEUE_SIZE: usize = 2;
 pub struct VirtIOConsole<H: Hal, T: Transport> {
     transport: T,
     config_space: NonNull<Config>,
-    receiveq: VirtQueue<H, QUEUE_SIZE>,
-    transmitq: VirtQueue<H, QUEUE_SIZE>,
+    receiveq: SplitQueue<H, QUEUE_SIZE>,
+    transmitq: SplitQueue<H, QUEUE_SIZE>,
     queue_buf_rx: Box<[u8; PAGE_SIZE]>,
     cursor: usize,
     pending_len: usize,
@@ -65,6 +65,9 @@ pub struct ConsoleInfo {
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        // TODO: 
+        let indirect_desc = false;
+
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -72,8 +75,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0)?;
-        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0)?;
+        let receiveq = SplitQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, indirect_desc)?;
+        let transmitq = SplitQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, indirect_desc)?;
 
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
         // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer
@@ -120,7 +123,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
                 self.receiveq
                     .add(&[], &mut [self.queue_buf_rx.as_mut_slice()])
             }?);
-            if self.receiveq.should_notify() {
+            if self.receiveq.should_notify_old() {
                 self.transport.notify(QUEUE_RECEIVEQ_PORT_0);
             }
         }
@@ -187,7 +190,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         self.transmitq
-            .add_notify_wait_pop(&[&buf], &mut [], &mut self.transport)?;
+            .add_notify_wait_pop_old(&[&buf], &mut [], &mut self.transport)?;
         Ok(())
     }
 }

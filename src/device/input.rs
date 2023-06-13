@@ -2,7 +2,7 @@
 
 use super::common::Feature;
 use crate::hal::Hal;
-use crate::queue::VirtQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
@@ -18,8 +18,8 @@ use zerocopy::{AsBytes, FromBytes};
 /// making pass-through implementations on top of evdev easy.
 pub struct VirtIOInput<H: Hal, T: Transport> {
     transport: T,
-    event_queue: VirtQueue<H, QUEUE_SIZE>,
-    status_queue: VirtQueue<H, QUEUE_SIZE>,
+    event_queue: SplitQueue<H, QUEUE_SIZE>,
+    status_queue: SplitQueue<H, QUEUE_SIZE>,
     event_buf: Box<[InputEvent; 32]>,
     config: NonNull<Config>,
 }
@@ -38,8 +38,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
         let config = transport.config_space::<Config>()?;
 
-        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT)?;
-        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS)?;
+        let mut event_queue = SplitQueue::new(&mut transport, QUEUE_EVENT)?;
+        let status_queue = SplitQueue::new(&mut transport, QUEUE_STATUS)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };

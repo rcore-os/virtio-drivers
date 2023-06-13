@@ -1,7 +1,7 @@
 //! Driver for VirtIO network devices.
 
 use crate::hal::Hal;
-use crate::queue::VirtQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly};
 use crate::{Error, Result};
@@ -104,14 +104,17 @@ impl RxBuffer {
 pub struct VirtIONet<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
     transport: T,
     mac: EthernetAddress,
-    recv_queue: VirtQueue<H, QUEUE_SIZE>,
-    send_queue: VirtQueue<H, QUEUE_SIZE>,
+    recv_queue: SplitQueue<H, QUEUE_SIZE>,
+    send_queue: SplitQueue<H, QUEUE_SIZE>,
     rx_buffers: [Option<RxBuffer>; QUEUE_SIZE],
 }
 
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T, buf_len: usize) -> Result<Self> {
+        // TODO: 
+        let indirect_desc = false;
+
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
@@ -139,8 +142,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             return Err(Error::InvalidParam);
         }
 
-        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
-        let mut recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
+        let send_queue = SplitQueue::new(&mut transport, QUEUE_TRANSMIT, indirect_desc)?;
+        let mut recv_queue = SplitQueue::new(&mut transport, QUEUE_RECEIVE, indirect_desc)?;
 
         const NONE_BUF: Option<RxBuffer> = None;
         let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];
@@ -152,7 +155,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             *rx_buf_place = Some(rx_buf);
         }
 
-        if recv_queue.should_notify() {
+        if recv_queue.should_notify_old() {
             transport.notify(QUEUE_RECEIVE);
         }
 
@@ -378,7 +381,6 @@ bitflags! {
         const RSC_INFO   = 4;
     }
 }
-
 #[repr(transparent)]
 #[derive(AsBytes, Debug, Copy, Clone, Default, Eq, FromBytes, PartialEq)]
 struct GsoType(u8);

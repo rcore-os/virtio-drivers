@@ -1,16 +1,29 @@
 //! Driver for VirtIO block devices.
 
 use crate::hal::Hal;
-use crate::queue::VirtQueue;
+use crate::packed_queue::PackedQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
+use crate::NonNull;
+use crate::VirtQueue;
 use crate::{Error, Result};
 use bitflags::bitflags;
-use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
+
+use core::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
+use spin::Mutex;
+
+use log::{debug, info};
+
 const QUEUE: u16 = 0;
-const QUEUE_SIZE: u16 = 16;
+const QUEUE_SIZE: u16 = 64;
 
 /// Driver for a VirtIO block device.
 ///
@@ -38,55 +51,194 @@ const QUEUE_SIZE: u16 = 16;
 /// # Ok(())
 /// # }
 /// ```
+///
+///
+///
+struct VirtIoBlkInner<H: Hal> {
+    queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    /// Asynchronous IO
+    blkinfos: Box<[BlkInfo]>,
+}
+/// aaa
 pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
-    queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    capacity: u64,
-    readonly: bool,
+    config: Blkconfiglocal,
+    features_neg: BlkFeature,
+    inner: Arc<Mutex<VirtIoBlkInner<H>>>,
 }
 
-impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
+// TODO: The ability of Used Buffer Notification Suppression is not fully exploited (Ref: Section 2.7.7.1)
+impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
-    pub fn new(mut transport: T) -> Result<Self> {
-        let mut readonly = false;
+    pub fn new(mut transport: T, notification_supress: bool) -> Result<Self> {
+        let mut features_neg = BlkFeature::empty();
 
         transport.begin_init(|features| {
-            let features = BlkFeature::from_bits_truncate(features);
-            info!("device features: {:?}", features);
-            readonly = features.contains(BlkFeature::RO);
+            // 剔除 device 不支持的feature
+
+            features_neg = BlkFeature::from_bits_truncate(features);
+
             // negotiate these flags only
-            let supported_features = BlkFeature::empty();
-            (features & supported_features).bits()
+            if notification_supress {
+                features_neg.remove(BlkFeature::VIRTIO_F_EVENT_IDX);
+            }
+
+            features_neg.bits()
         });
 
         // read configuration space
         let config = transport.config_space::<BlkConfig>()?;
-        info!("config: {:?}", config);
-        // Safe because config is a valid pointer to the device configuration space.
-        let capacity = unsafe {
-            volread!(config, capacity_low) as u64 | (volread!(config, capacity_high) as u64) << 32
-        };
-        info!("found a block device of size {}KB", capacity / 2);
+        let config = Self::read_config(&config);
+        debug!("found a block device of size {}KB", config.capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, QUEUE)?;
+        let mut indirect_desc = false;
+        if features_neg.contains(BlkFeature::VIRTIO_F_INDIRECT_DESC) {
+            indirect_desc = true;
+        }
+        if features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX) {
+            debug!("===__===");
+        }
+
+        // let queue = VirtQueue::new(&mut transport, QUEUE)?;
+        let queue;
+        if features_neg.contains(BlkFeature::VIRTIO_F_RING_PACKED) {
+            queue = VirtQueue::Packedqueue(PackedQueue::<H, { QUEUE_SIZE as usize }>::new(
+                &mut transport,
+                QUEUE,
+                indirect_desc,
+            )?);
+        } else {
+            queue = VirtQueue::Splitqueue(SplitQueue::<H, { QUEUE_SIZE as usize }>::new(
+                &mut transport,
+                QUEUE,
+                indirect_desc,
+            )?);
+        }
+
+        let blkinfos = {
+            let mut vec = Vec::<BlkInfo>::with_capacity(QUEUE_SIZE as usize);
+            vec.resize_with(QUEUE_SIZE as usize, || NULLINFO);
+            vec.into_boxed_slice()
+        };
+
         transport.finish_init();
 
         Ok(VirtIOBlk {
+            config,
             transport,
-            queue,
-            capacity,
-            readonly,
+            features_neg,
+            inner: Arc::new(Mutex::new(VirtIoBlkInner { queue, blkinfos })),
         })
+    }
+
+    fn read_config(config: &NonNull<BlkConfig>) -> Blkconfiglocal {
+        Blkconfiglocal {
+            /// The capacity (in 512-byte sectors).
+            capacity: unsafe {
+                volread!(config, capacity_low) as u64
+                    | (volread!(config, capacity_high) as u64) << 32
+            },
+
+            /// The maximum segment size (if VIRTIO_BLK_F_SIZE_MAX)
+            size_max: unsafe { volread!(config, size_max) },
+
+            /// The maximum number of segments (if VIRTIO_BLK_F_SEG_MAX)
+            seg_max: unsafe { volread!(config, seg_max) },
+
+            /// geometry of the device (if VIRTIO_BLK_F_GEOMETRY)
+            cylinders: unsafe { volread!(config, cylinders) },
+            heads: unsafe { volread!(config, heads) },
+            sectors: unsafe { volread!(config, sectors) },
+
+            /// block size of device (if VIRTIO_BLK_F_BLK_SIZE)
+            blk_size: unsafe { volread!(config, blk_size) },
+
+            /// the next 4 entries are guarded by VIRTIO_BLK_F_TOPOLOGY
+            /// exponent for physical block per logical block.
+            physical_block_exp: unsafe { volread!(config, physical_block_exp) },
+
+            /// alignment offset in logical blocks.
+            alignment_offset: unsafe { volread!(config, alignment_offset) },
+
+            /// minimum I/O size without performance penalty in logical blocks.
+            min_io_size: unsafe { volread!(config, min_io_size) },
+
+            /// optimal sustained I/O size in logical blocks.
+            opt_io_size: unsafe { volread!(config, opt_io_size) },
+
+            /// writeback mode (if VIRTIO_BLK_F_CONFIG_WCE)
+            wce: unsafe { volread!(config, wce) },
+
+            /// number of vqs, only available when VIRTIO_BLK_F_MQ is set
+            num_queues: unsafe { volread!(config, num_queues) },
+
+            /// the next 3 entries are guarded by VIRTIO_BLK_F_DISCARD
+            ///
+            /// The maximum discard sectors (in 512-byte sectors) for
+            /// one segment.
+            max_discard_sectors: unsafe { volread!(config, max_discard_sectors) },
+
+            /// The maximum number of discard segments in a discard command.
+            max_discard_seg: unsafe { volread!(config, max_discard_seg) },
+
+            /// Discard commands must be aligned to this number of sectors.
+            discard_sector_alignment: unsafe { volread!(config, discard_sector_alignment) },
+
+            /// the next 3 entries are guarded by VIRTIO_BLK_F_WRITE_ZEROES.
+            /// The maximum number of write zeroes sectors (in 512-byte sectors) in one segment.
+            max_write_zeroes_sectors: unsafe { volread!(config, max_write_zeroes_sectors) },
+
+            /// The maximum number of segments in a write zeroes command.
+            max_write_zeroes_seg: unsafe { volread!(config, max_write_zeroes_seg) },
+
+            /// Set if a VIRTIO_BLK_T_WRITE_ZEROES request may result in the deallocation of one or more of the sectors.
+            write_zeroes_may_unmap: unsafe { volread!(config, write_zeroes_may_unmap) },
+        }
     }
 
     /// Gets the capacity of the block device, in 512 byte ([`SECTOR_SIZE`]) sectors.
     pub fn capacity(&self) -> u64 {
-        self.capacity
+        self.config.capacity
     }
 
     /// Returns true if the block device is read-only, or false if it allows writes.
     pub fn readonly(&self) -> bool {
-        self.readonly
+        self.features_neg.contains(BlkFeature::VIRTIO_BLK_F_RO)
+    }
+
+    /// Return (max_discard_seg, max_discard_sectors)
+    pub fn discard_parameters(&self) -> (u32, u32) {
+        (self.config.max_discard_seg, self.config.max_discard_sectors)
+    }
+
+    /// Return (max_write_zeroes_seg, max_write_zeroes_sectors)
+    pub fn writezeros_parameters(&self) -> (u32, u32) {
+        (
+            self.config.max_write_zeroes_seg,
+            self.config.max_write_zeroes_sectors,
+        )
+    }
+
+    /// Support discard single range?
+    pub fn support_discard(&self) -> bool {
+        self.features_neg.contains(BlkFeature::VIRTIO_BLK_F_DISCARD)
+    }
+
+    /// Support VIRTIO_BLK_F_WRITE_ZEROES ?
+    pub fn support_writezeros(&self) -> bool {
+        self.features_neg
+            .contains(BlkFeature::VIRTIO_BLK_F_WRITE_ZEROES)
+    }
+
+    /// Support indirect dictionary
+    pub fn support_indirect(&self) -> bool {
+        self.features_neg
+            .contains(BlkFeature::VIRTIO_F_INDIRECT_DESC)
+    }
+
+    /// Support event?
+    fn support_event(&self) -> bool {
+        self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX)
     }
 
     /// Acknowledges a pending interrupt, if any.
@@ -96,207 +248,20 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.transport.ack_interrupt()
     }
 
-    /// Reads a block into the given buffer.
-    ///
-    /// Blocks until the read completes or there is an error.
-    pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
-        assert_eq!(buf.len(), SECTOR_SIZE);
-        let req = BlkReq {
-            type_: ReqType::In,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let mut resp = BlkResp::default();
-        self.queue.add_notify_wait_pop(
-            &[req.as_bytes()],
-            &mut [buf, resp.as_bytes_mut()],
-            &mut self.transport,
-        )?;
-        resp.status.into()
-    }
-
-    /// Submits a request to read a block, but returns immediately without waiting for the read to
-    /// complete.
-    ///
-    /// # Arguments
-    ///
-    /// * `block_id` - The identifier of the block to read.
-    /// * `req` - A buffer which the driver can use for the request to send to the device. The
-    ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
-    ///   call.
-    /// * `buf` - The buffer in memory into which the block should be read.
-    /// * `resp` - A mutable reference to a variable provided by the caller
-    ///   to contain the status of the request. The caller can safely
-    ///   read the variable only after the request is complete.
-    ///
-    /// # Usage
-    ///
-    /// It will submit request to the VirtIO block device and return a token identifying
-    /// the position of the first Descriptor in the chain. If there are not enough
-    /// Descriptors to allocate, then it returns [`Error::QueueFull`].
-    ///
-    /// The caller can then call `peek_used` with the returned token to check whether the device has
-    /// finished handling the request. Once it has, the caller must call `complete_read_block` with
-    /// the same buffers before reading the response.
-    ///
-    /// ```
-    /// # use virtio_drivers::{Error, Hal};
-    /// # use virtio_drivers::device::blk::VirtIOBlk;
-    /// # use virtio_drivers::transport::Transport;
-    /// use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus};
-    ///
-    /// # fn example<H: Hal, T: Transport>(blk: &mut VirtIOBlk<H, T>) -> Result<(), Error> {
-    /// let mut request = BlkReq::default();
-    /// let mut buffer = [0; 512];
-    /// let mut response = BlkResp::default();
-    /// let token = unsafe { blk.read_block_nb(42, &mut request, &mut buffer, &mut response) }?;
-    ///
-    /// // Wait for an interrupt to tell us that the request completed...
-    /// assert_eq!(blk.peek_used(), Some(token));
-    ///
-    /// unsafe {
-    ///   blk.complete_read_block(token, &request, &mut buffer, &mut response)?;
-    /// }
-    /// if response.status() == RespStatus::OK {
-    ///   println!("Successfully read block.");
-    /// } else {
-    ///   println!("Error {:?} reading block.", response.status());
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Safety
-    ///
-    /// `req`, `buf` and `resp` are still borrowed by the underlying VirtIO block device even after
-    /// this method returns. Thus, it is the caller's responsibility to guarantee that they are not
-    /// accessed before the request is completed in order to avoid data races.
-    pub unsafe fn read_block_nb(
-        &mut self,
-        block_id: usize,
-        req: &mut BlkReq,
-        buf: &mut [u8],
-        resp: &mut BlkResp,
-    ) -> Result<u16> {
-        assert_eq!(buf.len(), SECTOR_SIZE);
-        *req = BlkReq {
-            type_: ReqType::In,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let token = self
-            .queue
-            .add(&[req.as_bytes()], &mut [buf, resp.as_bytes_mut()])?;
-        if self.queue.should_notify() {
-            self.transport.notify(QUEUE);
-        }
-        Ok(token)
-    }
-
-    /// Completes a read operation which was started by `read_block_nb`.
-    ///
-    /// # Safety
-    ///
-    /// The same buffers must be passed in again as were passed to `read_block_nb` when it returned
-    /// the token.
-    pub unsafe fn complete_read_block(
+    /// pop used  
+    pub unsafe fn pop_used(
         &mut self,
         token: u16,
-        req: &BlkReq,
-        buf: &mut [u8],
-        resp: &mut BlkResp,
-    ) -> Result<()> {
-        self.queue
-            .pop_used(token, &[req.as_bytes()], &mut [buf, resp.as_bytes_mut()])?;
-        resp.status.into()
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
+    ) -> Result<u32> {
+        self.inner.lock().queue.pop_used(token, inputs, outputs)
     }
 
-    /// Writes the contents of the given buffer to a block.
-    ///
-    /// Blocks until the write is complete or there is an error.
-    pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
-        assert_eq!(buf.len(), SECTOR_SIZE);
-        let req = BlkReq {
-            type_: ReqType::Out,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let mut resp = BlkResp::default();
-        self.queue.add_notify_wait_pop(
-            &[req.as_bytes(), buf],
-            &mut [resp.as_bytes_mut()],
-            &mut self.transport,
-        )?;
-        resp.status.into()
-    }
-
-    /// Submits a request to write a block, but returns immediately without waiting for the write to
-    /// complete.
-    ///
-    /// # Arguments
-    ///
-    /// * `block_id` - The identifier of the block to write.
-    /// * `req` - A buffer which the driver can use for the request to send to the device. The
-    ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
-    ///   call.
-    /// * `buf` - The buffer in memory containing the data to write to the block.
-    /// * `resp` - A mutable reference to a variable provided by the caller
-    ///   to contain the status of the request. The caller can safely
-    ///   read the variable only after the request is complete.
-    ///
-    /// # Usage
-    ///
-    /// See [VirtIOBlk::read_block_nb].
-    ///
-    /// # Safety
-    ///
-    /// See  [VirtIOBlk::read_block_nb].
-    pub unsafe fn write_block_nb(
-        &mut self,
-        block_id: usize,
-        req: &mut BlkReq,
-        buf: &[u8],
-        resp: &mut BlkResp,
-    ) -> Result<u16> {
-        assert_eq!(buf.len(), SECTOR_SIZE);
-        *req = BlkReq {
-            type_: ReqType::Out,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let token = self
-            .queue
-            .add(&[req.as_bytes(), buf], &mut [resp.as_bytes_mut()])?;
-        if self.queue.should_notify() {
-            self.transport.notify(QUEUE);
-        }
-        Ok(token)
-    }
-
-    /// Completes a write operation which was started by `write_block_nb`.
-    ///
-    /// # Safety
-    ///
-    /// The same buffers must be passed in again as were passed to `write_block_nb` when it returned
-    /// the token.
-    pub unsafe fn complete_write_block(
-        &mut self,
-        token: u16,
-        req: &BlkReq,
-        buf: &[u8],
-        resp: &mut BlkResp,
-    ) -> Result<()> {
-        self.queue
-            .pop_used(token, &[req.as_bytes(), buf], &mut [resp.as_bytes_mut()])?;
-        resp.status.into()
-    }
-
-    /// Fetches the token of the next completed request from the used ring and returns it, without
-    /// removing it from the used ring. If there are no pending completed requests returns `None`.
-    pub fn peek_used(&mut self) -> Option<u16> {
-        self.queue.peek_used()
+    /// pop used  
+    // TODO: will be deleted in the further
+    pub unsafe fn pop_used_async(&mut self, token: u16) -> Result<u32> {
+        self.inner.lock().queue.pop_used_async(token)
     }
 
     /// Returns the size of the device's VirtQueue.
@@ -305,9 +270,648 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     pub fn virt_queue_size(&self) -> u16 {
         QUEUE_SIZE
     }
+
+    /// Flush
+    pub fn flush(&mut self) -> Result {
+        // assert_eq!(buf.len(), SECTOR_SIZE);
+        let req = BlkReq {
+            type_: ReqType::Flush,
+            reserved: 0,
+            sector: 0,
+        };
+        let mut resp = BlkResp::default();
+        let support_event = self.support_event();
+        let mut inner = self.inner.lock();
+        inner.queue.add_notify_wait_pop(
+            &[req.as_bytes()],
+            &mut [resp.as_bytes_mut()],
+            &mut self.transport,
+            support_event,
+        )?;
+
+        resp.status.into()
+    }
+
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub fn write_blocks(&mut self, block_id: usize, bufs: &[&[u8]]) -> Result {
+        assert_eq!(self.readonly(), false);
+
+        let req = BlkReq {
+            type_: ReqType::Out,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+
+        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut index = 1;
+        for x in bufs.iter() {
+            inputs[index] = *x;
+            index += 1;
+        }
+        let support_event = self.support_event();
+        let mut inner = self.inner.lock();
+        inner.queue.add_notify_wait_pop(
+            inputs.as_slice(),
+            &mut [resp.as_bytes_mut()],
+            &mut self.transport,
+            support_event,
+        )?;
+        resp.status.into()
+    }
+
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub fn read_blocks(&mut self, block_id: usize, bufs: &mut [&mut [u8]]) -> Result {
+        assert_eq!(self.readonly(), false);
+
+        let req = BlkReq {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut resp = BlkResp::default();
+
+        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
+        let mut outputs: Vec<&mut [u8]> = Vec::new();
+        for x in bufs.iter_mut() {
+            outputs.push(*x);
+        }
+        outputs.push(resp.as_bytes_mut());
+
+        let support_event = self.support_event();
+        let mut inner = self.inner.lock();
+        inner.queue.add_notify_wait_pop(
+            &[req.as_bytes()],
+            &mut outputs.as_mut_slice(),
+            &mut self.transport,
+            support_event,
+        )?;
+        resp.status.into()
+    }
+
+    /// get the device id
+    pub fn get_device_id(&mut self, buf: &mut [u8]) -> Result {
+        let req = BlkReq {
+            type_: ReqType::GetID,
+            reserved: 0,
+            sector: 0,
+        };
+
+        let mut resp = BlkResp::default();
+        let support_event = self.support_event();
+        let mut inner = self.inner.lock();
+        inner.queue.add_notify_wait_pop(
+            &[req.as_bytes()],
+            &mut [buf, resp.as_bytes_mut()],
+            &mut self.transport,
+            support_event,
+        )?;
+        resp.status.into()
+    }
+
+    /// discard nu_block blocks starting from start_block
+    pub fn discard_ranges(
+        &mut self,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+    ) -> Result {
+        let req = BlkReq {
+            type_: ReqType::Discard,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap = false;
+        self.erase_ranges(&req, start_sectors, nr_sectors, unmap, true)
+    }
+
+    /// wirtezeros nu_block blocks starting from start_block
+    pub fn writezeros_ranges(
+        &mut self,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+    ) -> Result {
+        let req = BlkReq {
+            type_: ReqType::WriteZeroes,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap  = false;
+        self.erase_ranges(&req, start_sectors, nr_sectors, unmap, false)
+    }
+
+    /// erase nu_block blocks starting from start_block without blocking
+    fn erase_ranges(
+        &mut self,
+        req: &BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        unmap: bool,
+        is_discard: bool,
+    ) -> Result {
+        assert_eq!(start_sectors.len(), nr_sectors.len());
+
+        let (input, nr_seg_used) =
+            self.prepare_erase_ranges(start_sectors, nr_sectors, unmap, is_discard);
+
+        let input_f = unsafe {
+            core::slice::from_raw_parts(
+                input.as_ptr() as *const u8,
+                core::mem::size_of::<Range>() * nr_seg_used,
+            )
+        };
+        let support_event = self.support_event();
+        let mut resp = BlkResp::default();
+        let mut inner = self.inner.lock();
+
+        inner.queue.add_notify_wait_pop(
+            &[req.as_bytes(), input_f],
+            &mut [resp.as_bytes_mut()],
+            &mut self.transport,
+            support_event,
+        )?;
+        resp.status.into()
+    }
+
+    /// prepare for erase
+    fn prepare_erase_ranges(
+        &mut self,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        unmap: bool,
+        is_discard: bool,
+    ) -> (alloc::vec::Vec<Range>, usize) {
+        assert_eq!(start_sectors.len(), nr_sectors.len());
+
+        use alloc::vec;
+        let discard_sector_alignment = self.config.discard_sector_alignment;
+        let num_seg = start_sectors.len();
+        let mut input = vec![
+            Range {
+                sector: 1,
+                num_sector: 1,
+                flags: 0
+            };
+            num_seg * 2
+        ];
+
+        let mut nr_seg_used = 0;
+        let mut start_sectors = start_sectors.iter();
+        for nr_sector in nr_sectors.iter() {
+            let start_sector = *start_sectors.next().unwrap();
+            let flag = match unmap {true => 1, false => 0,};
+            if is_discard && *nr_sector % discard_sector_alignment != 0 {
+                let nr_first_sector = nr_sector % discard_sector_alignment;
+                assert!((nr_sector - nr_first_sector) < self.config.max_discard_sectors);
+                input[nr_seg_used].flags = flag;
+                input[nr_seg_used].num_sector = nr_first_sector;
+                input[nr_seg_used].sector = start_sector;
+                nr_seg_used += 1;
+                input[nr_seg_used].flags = flag;
+                input[nr_seg_used].num_sector = nr_sector - nr_first_sector;
+                input[nr_seg_used].sector = start_sector + nr_first_sector as u64;
+                nr_seg_used += 1;
+            } else {
+                if is_discard {
+                    assert!(*nr_sector < self.config.max_discard_sectors);
+                } else {
+                    assert!(*nr_sector < self.config.max_write_zeroes_sectors);
+                }
+                input[nr_seg_used].flags = flag;
+                input[nr_seg_used].num_sector = *nr_sector;
+                input[nr_seg_used].sector = start_sector;
+                nr_seg_used += 1;
+            }
+        }
+        if is_discard {
+            assert!(
+                nr_seg_used <= self.config.max_discard_seg as usize,
+                "The device does not support two many discarded segments in a single request"
+            )
+        } else {
+            assert!(
+                nr_seg_used <= self.config.max_write_zeroes_seg as usize,
+                "The device does not support two many writezeros segments in a single request"
+            )
+        }
+        (input, nr_seg_used)
+    }
 }
 
-impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
+impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub unsafe fn write_blocks_nb_sync(
+        &mut self,
+        block_id: usize,
+        req: &mut BlkReq,
+        bufs: &[&[u8]],
+        resp: &mut BlkResp,
+    ) -> Result<u16> {
+        assert_eq!(self.readonly(), true);
+        *req = BlkReq {
+            type_: ReqType::Out,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+
+        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut index = 1;
+        for x in bufs.iter() {
+            inputs[index] = *x;
+            index += 1;
+        }
+        let mut inner = self.inner.lock();
+        let token = inner
+            .queue
+            .add(inputs.as_slice(), &mut [resp.as_bytes_mut()])?;
+        if inner
+            .queue
+            .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+        {
+            self.transport.notify(QUEUE);
+        }
+        Ok(token)
+    }
+
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub unsafe fn write_blocks_nb_async(
+        &mut self,
+        block_id: usize,
+        req: &mut BlkReq,
+        bufs: &[&[u8]],
+    ) -> Pin<Box<BlkFuture<H>>> {
+        assert_eq!(self.readonly(), true);
+        *req = BlkReq {
+            type_: ReqType::Out,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+
+        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut index = 1;
+        for x in bufs.iter() {
+            inputs[index] = *x;
+            index += 1;
+        }
+        let mut inner = self.inner.lock();
+        let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
+
+        match inner
+            .queue
+            .add(inputs.as_slice(), &mut [future.resp.as_bytes_mut()])
+        {
+            Ok(n) => {
+                future.head = n;
+                if inner
+                    .queue
+                    .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+                {
+                    self.transport.notify(QUEUE);
+                }
+            }
+            Err(e) => future.err = Some(e),
+        }
+
+        future
+    }
+
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub unsafe fn read_blocks_nb_async(
+        &mut self,
+        block_id: usize,
+        bufs: &mut [&mut [u8]],
+    ) -> Pin<Box<BlkFuture<H>>> {
+        assert_eq!(self.readonly(), false);
+
+        let req = BlkReq {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+        let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
+        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
+        let mut outputs: Vec<&mut [u8]> = Vec::new();
+        for x in bufs.iter_mut() {
+            outputs.push(*x);
+        }
+        outputs.push(future.resp.as_bytes_mut());
+
+        let mut inner = self.inner.lock();
+        match inner
+            .queue
+            .add(&[req.as_bytes()], &mut outputs.as_mut_slice())
+        {
+            Ok(n) => {
+                future.head = n;
+                if inner
+                    .queue
+                    .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+                {
+                    self.transport.notify(QUEUE);
+                }
+            }
+            Err(e) => future.err = Some(e),
+        }
+        future
+    }
+
+    /// Submits a request to write **multiple** blocks, but returns immediately without waiting for the read to
+    /// complete.
+    pub unsafe fn read_blocks_nb_sync(
+        &mut self,
+        block_id: usize,
+        bufs: &mut [&mut [u8]],
+        resp: &mut BlkResp,
+    ) -> Result<u16> {
+        assert_eq!(self.readonly(), false);
+
+        let req = BlkReq {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: block_id as u64,
+        };
+
+        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
+        let mut outputs: Vec<&mut [u8]> = Vec::new();
+        for x in bufs.iter_mut() {
+            outputs.push(*x);
+        }
+        outputs.push(resp.as_bytes_mut());
+
+        let mut inner = self.inner.lock();
+        let token = inner
+            .queue
+            .add(&[req.as_bytes()], &mut outputs.as_mut_slice())?;
+        if inner
+            .queue
+            .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+        {
+            self.transport.notify(QUEUE);
+        }
+        Ok(token)
+    }
+
+    /// discard nu_block blocks starting from start_block
+    pub unsafe fn discard_ranges_nb_sync(
+        &mut self,
+        req: &mut BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        resp: &mut BlkResp,
+    ) -> Result<u16> {
+        *req = BlkReq {
+            type_: ReqType::Discard,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap = false;
+        self.erase_ranges_nb_sync(req, start_sectors, nr_sectors, unmap, resp, true)
+    }
+
+    /// discard nu_block blocks starting from start_block
+    pub unsafe fn discard_ranges_nb_async(
+        &mut self,
+        req: &mut BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+    ) -> Pin<Box<BlkFuture<H>>> {
+        *req = BlkReq {
+            type_: ReqType::Discard,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap = false;
+        self.erase_ranges_nb_async(req, start_sectors, nr_sectors, unmap, true)
+    }
+
+    /// discard nu_block blocks starting from start_block
+    pub unsafe fn writezeros_ranges_nb_sync(
+        &mut self,
+        req: &mut BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        resp: &mut BlkResp,
+    ) -> Result<u16> {
+        *req = BlkReq {
+            type_: ReqType::WriteZeroes,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap = false;
+        self.erase_ranges_nb_sync(req, start_sectors, nr_sectors, unmap, resp, false)
+    }
+    /// discard nu_block blocks starting from start_block
+    pub unsafe fn writezeros_ranges_nb_async(
+        &mut self,
+        req: &mut BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+    ) -> Pin<Box<BlkFuture<H>>> {
+        *req = BlkReq {
+            type_: ReqType::WriteZeroes,
+            reserved: 0,
+            sector: 0,
+        };
+        let unmap = false;
+        self.erase_ranges_nb_async(req, start_sectors, nr_sectors, unmap, false)
+    }
+
+    /// get the device id
+    pub unsafe fn get_device_id_nb_sync(
+        &mut self,
+        req: &mut BlkReq,
+        buf: &mut [u8],
+        resp: &mut BlkResp,
+    ) -> Result<u16> {
+        *req = BlkReq {
+            type_: ReqType::GetID,
+            reserved: 0,
+            sector: 0,
+        };
+
+        let mut inner = self.inner.lock();
+        let token = inner
+            .queue
+            .add(&[req.as_bytes()], &mut [buf, resp.as_bytes_mut()])?;
+        if inner
+            .queue
+            .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+        {
+            self.transport.notify(QUEUE);
+        }
+        Ok(token)
+    }
+
+    /// get the device id
+    pub unsafe fn get_device_id_nb_async(
+        &mut self,
+        req: &mut BlkReq,
+        buf: &mut [u8],
+    ) -> Pin<Box<BlkFuture<H>>> {
+        *req = BlkReq {
+            type_: ReqType::GetID,
+            reserved: 0,
+            sector: 0,
+        };
+
+        let mut inner = self.inner.lock();
+        let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
+
+        match inner
+            .queue
+            .add(&[req.as_bytes()], &mut [buf, future.resp.as_bytes_mut()])
+        {
+            Ok(n) => {
+                future.head = n;
+                if inner
+                    .queue
+                    .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+                {
+                    self.transport.notify(QUEUE);
+                }
+            }
+            Err(e) => future.err = Some(e),
+        }
+        future
+    }
+
+    /// Flush
+    pub unsafe fn flush_nb_async(&mut self) -> Pin<Box<BlkFuture<H>>> {
+        // assert_eq!(buf.len(), SECTOR_SIZE);
+        let req = BlkReq {
+            type_: ReqType::Flush,
+            reserved: 0,
+            sector: 0,
+        };
+
+        let mut inner = self.inner.lock();
+        let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
+
+        match inner
+            .queue
+            .add(&[req.as_bytes()], &mut [future.resp.as_bytes_mut()])
+        {
+            Ok(n) => {
+                future.head = n;
+                if inner
+                    .queue
+                    .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+                {
+                    self.transport.notify(QUEUE);
+                }
+            }
+            Err(e) => future.err = Some(e),
+        }
+
+        future
+    }
+
+    /// Flush
+    pub unsafe fn flush_nb_sync(&mut self) -> Result {
+        // assert_eq!(buf.len(), SECTOR_SIZE);
+        let req = BlkReq {
+            type_: ReqType::Flush,
+            reserved: 0,
+            sector: 0,
+        };
+        let mut resp = BlkResp::default();
+        let mut inner = self.inner.lock();
+
+        inner
+            .queue
+            .add(&[req.as_bytes()], &mut [resp.as_bytes_mut()])?;
+
+        if inner
+            .queue
+            .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+        {
+            self.transport.notify(QUEUE);
+        }
+
+        resp.status.into()
+    }
+
+    /// erase nu_block blocks starting from start_block without blocking
+    unsafe fn erase_ranges_nb_sync(
+        &mut self,
+        req: &BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        unmap: bool,
+        resp: &mut BlkResp,
+        is_discard: bool,
+    ) -> Result<u16> {
+        assert_eq!(start_sectors.len(), nr_sectors.len());
+
+        let (input, nr_seg_used) =
+            self.prepare_erase_ranges(start_sectors, nr_sectors, unmap, is_discard);
+
+        let input_f = unsafe {
+            core::slice::from_raw_parts(
+                input.as_ptr() as *const u8,
+                core::mem::size_of::<Range>() * nr_seg_used,
+            )
+        };
+        let mut inner = self.inner.lock();
+        let token = inner
+            .queue
+            .add(&[req.as_bytes(), input_f], &mut [resp.as_bytes_mut()])?;
+        if inner
+            .queue
+            .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+        {
+            self.transport.notify(QUEUE);
+        }
+        Ok(token)
+    }
+
+    /// erase nu_block blocks starting from start_block without blocking
+    unsafe fn erase_ranges_nb_async(
+        &mut self,
+        req: &BlkReq,
+        start_sectors: &[u64],
+        nr_sectors: &[u32],
+        unmap: bool,
+        is_discard: bool,
+    ) -> Pin<Box<BlkFuture<H>>> {
+        assert_eq!(start_sectors.len(), nr_sectors.len());
+
+        let (input, nr_seg_used) =
+            self.prepare_erase_ranges(start_sectors, nr_sectors, unmap, is_discard);
+
+        let input_f = unsafe {
+            core::slice::from_raw_parts(
+                input.as_ptr() as *const u8,
+                core::mem::size_of::<Range>() * nr_seg_used,
+            )
+        };
+        let mut inner = self.inner.lock();
+        let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
+
+        match inner.queue.add(
+            &[req.as_bytes(), input_f],
+            &mut [future.resp.as_bytes_mut()],
+        ) {
+            Ok(n) => {
+                future.head = n;
+                if inner
+                    .queue
+                    .should_notify(self.features_neg.contains(BlkFeature::VIRTIO_F_EVENT_IDX))
+                {
+                    self.transport.notify(QUEUE);
+                }
+            }
+            Err(e) => future.err = Some(e),
+        }
+        future
+    }
+}
+
+impl<'a, H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
@@ -315,30 +919,142 @@ impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
     }
 }
 
+///
+/// Ref: linux kernel (virtio_blk.h: virtio_blk_config)
 #[repr(C)]
 struct BlkConfig {
-    /// Number of 512 Bytes sectors
+    /// The capacity (in 512-byte sectors).
     capacity_low: Volatile<u32>,
     capacity_high: Volatile<u32>,
+
+    /// The maximum segment size (if VIRTIO_BLK_F_SIZE_MAX)
     size_max: Volatile<u32>,
+
+    /// The maximum number of segments (if VIRTIO_BLK_F_SEG_MAX)
     seg_max: Volatile<u32>,
+
+    /// geometry of the device (if VIRTIO_BLK_F_GEOMETRY)
     cylinders: Volatile<u16>,
     heads: Volatile<u8>,
     sectors: Volatile<u8>,
-    blk_size: Volatile<u32>,
-    physical_block_exp: Volatile<u8>,
-    alignment_offset: Volatile<u8>,
-    min_io_size: Volatile<u16>,
-    opt_io_size: Volatile<u32>,
-    // ... ignored
-}
 
+    /// block size of device (if VIRTIO_BLK_F_BLK_SIZE)
+    blk_size: Volatile<u32>,
+
+    /// the next 4 entries are guarded by VIRTIO_BLK_F_TOPOLOGY
+    /// exponent for physical block per logical block.
+    physical_block_exp: Volatile<u8>,
+
+    /// alignment offset in logical blocks.
+    alignment_offset: Volatile<u8>,
+
+    /// minimum I/O size without performance penalty in logical blocks.
+    min_io_size: Volatile<u16>,
+
+    /// optimal sustained I/O size in logical blocks.
+    opt_io_size: Volatile<u32>,
+
+    /// writeback mode (if VIRTIO_BLK_F_CONFIG_WCE)
+    wce: Volatile<u8>,
+    unused: Volatile<u8>,
+
+    /// number of vqs, only available when VIRTIO_BLK_F_MQ is set
+    num_queues: Volatile<u16>,
+
+    /// the next 3 entries are guarded by VIRTIO_BLK_F_DISCARD
+    ///
+    /// The maximum discard sectors (in 512-byte sectors) for
+    /// one segment.
+    max_discard_sectors: Volatile<u32>,
+
+    /// The maximum number of discard segments in a discard command.
+    max_discard_seg: Volatile<u32>,
+
+    /// Discard commands must be aligned to this number of sectors.
+    discard_sector_alignment: Volatile<u32>,
+
+    /// the next 3 entries are guarded by VIRTIO_BLK_F_WRITE_ZEROES.
+    /// The maximum number of write zeroes sectors (in 512-byte sectors) in one segment.
+    max_write_zeroes_sectors: Volatile<u32>,
+
+    /// The maximum number of segments in a write zeroes command.
+    max_write_zeroes_seg: Volatile<u32>,
+
+    /// Set if a VIRTIO_BLK_T_WRITE_ZEROES request may result in the deallocation of one or more of the sectors.
+    write_zeroes_may_unmap: Volatile<u8>,
+
+    unused1: [Volatile<u8>; 3],
+}
+struct Blkconfiglocal {
+    /// The capacity (in 512-byte sectors).
+    capacity: u64,
+
+    /// The maximum segment size (if VIRTIO_BLK_F_SIZE_MAX)
+    size_max: u32,
+
+    /// The maximum number of segments (if VIRTIO_BLK_F_SEG_MAX)
+    seg_max: u32,
+
+    /// geometry of the device (if VIRTIO_BLK_F_GEOMETRY)
+    cylinders: u16,
+    heads: u8,
+    sectors: u8,
+
+    /// block size of device (if VIRTIO_BLK_F_BLK_SIZE)
+    blk_size: u32,
+
+    /// the next 4 entries are guarded by VIRTIO_BLK_F_TOPOLOGY
+    /// exponent for physical block per logical block.
+    physical_block_exp: u8,
+
+    /// alignment offset in logical blocks.
+    alignment_offset: u8,
+
+    /// minimum I/O size without performance penalty in logical blocks.
+    min_io_size: u16,
+
+    /// optimal sustained I/O size in logical blocks.
+    opt_io_size: u32,
+
+    /// writeback mode (if VIRTIO_BLK_F_CONFIG_WCE)
+    wce: u8,
+
+    /// number of vqs, only available when VIRTIO_BLK_F_MQ is set
+    num_queues: u16,
+
+    /// the next 3 entries are guarded by VIRTIO_BLK_F_DISCARD
+    ///
+    /// The maximum discard sectors (in 512-byte sectors) for
+    /// one segment.
+    max_discard_sectors: u32,
+
+    /// The maximum number of discard segments in a discard command.
+    max_discard_seg: u32,
+
+    /// Discard commands must be aligned to this number of sectors.
+    discard_sector_alignment: u32,
+
+    /// the next 3 entries are guarded by VIRTIO_BLK_F_WRITE_ZEROES.
+    /// The maximum number of write zeroes sectors (in 512-byte sectors) in one segment.
+    max_write_zeroes_sectors: u32,
+
+    /// The maximum number of segments in a write zeroes command.
+    max_write_zeroes_seg: u32,
+
+    /// Set if a VIRTIO_BLK_T_WRITE_ZEROES request may result in the deallocation of one or more of the sectors.
+    write_zeroes_may_unmap: u8,
+}
 /// A VirtIO block device request.
+///
+/// Ref: virtio_blk.c virtio_blk_outhdr
 #[repr(C)]
 #[derive(AsBytes, Debug)]
 pub struct BlkReq {
+    /// VIRTIO_BLK_T*
     type_: ReqType,
+    /// io priority.
     reserved: u32,
+    /// Sector (ie. 512 byte offset)
     sector: u64,
 }
 
@@ -372,8 +1088,11 @@ enum ReqType {
     In = 0,
     Out = 1,
     Flush = 4,
+    GetID = 8,
+    GetLifeTime = 10,
     Discard = 11,
     WriteZeroes = 13,
+    SecureErase = 14,
 }
 
 /// Status of a VirtIOBlk request.
@@ -417,54 +1136,134 @@ impl Default for BlkResp {
 pub const SECTOR_SIZE: usize = 512;
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct BlkFeature: u64 {
         /// Device supports request barriers. (legacy)
-        const BARRIER       = 1 << 0;
+        const VIRTIO_BLK_F_BARRIER       = 1 << 0;
         /// Maximum size of any single segment is in `size_max`.
-        const SIZE_MAX      = 1 << 1;
+        const VIRTIO_BLK_F_SIZE_MAX      = 1 << 1;
         /// Maximum number of segments in a request is in `seg_max`.
-        const SEG_MAX       = 1 << 2;
+        const VIRTIO_BLK_F_SEG_MAX       = 1 << 2;
         /// Disk-style geometry specified in geometry.
-        const GEOMETRY      = 1 << 4;
+        const VIRTIO_BLK_F_GEOMETRY      = 1 << 4;
         /// Device is read-only.
-        const RO            = 1 << 5;
+        const VIRTIO_BLK_F_RO            = 1 << 5;
         /// Block size of disk is in `blk_size`.
-        const BLK_SIZE      = 1 << 6;
+        const VIRTIO_BLK_F_BLK_SIZE      = 1 << 6;
         /// Device supports scsi packet commands. (legacy)
-        const SCSI          = 1 << 7;
+        const VIRTIO_BLK_F_SCSI          = 1 << 7;
         /// Cache flush command support.
-        const FLUSH         = 1 << 9;
+        const VIRTIO_BLK_F_FLUSH         = 1 << 9;
         /// Device exports information on optimal I/O alignment.
-        const TOPOLOGY      = 1 << 10;
+        const VIRTIO_BLK_F_TOPOLOGY      = 1 << 10;
         /// Device can toggle its cache between writeback and writethrough modes.
-        const CONFIG_WCE    = 1 << 11;
+        const VIRTIO_BLK_F_CONFIG_WCE    = 1 << 11;
         /// Device can support discard command, maximum discard sectors size in
         /// `max_discard_sectors` and maximum discard segment number in
         /// `max_discard_seg`.
-        const DISCARD       = 1 << 13;
+        const VIRTIO_BLK_F_DISCARD       = 1 << 13;
         /// Device can support write zeroes command, maximum write zeroes sectors
         /// size in `max_write_zeroes_sectors` and maximum write zeroes segment
         /// number in `max_write_zeroes_seg`.
-        const WRITE_ZEROES  = 1 << 14;
+        const VIRTIO_BLK_F_WRITE_ZEROES  = 1 << 14;
 
         // device independent
-        const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
-        const ANY_LAYOUT            = 1 << 27; // legacy
-        const RING_INDIRECT_DESC    = 1 << 28;
-        const RING_EVENT_IDX        = 1 << 29;
-        const UNUSED                = 1 << 30; // legacy
-        const VERSION_1             = 1 << 32; // detect legacy
+        const VIRTIO_F_NOTIFY_ON_EMPTY       = 1 << 24; // legacy
+        const VIRTIO_F_ANY_LAYOUT            = 1 << 27; // legacy
+        const VIRTIO_F_INDIRECT_DESC         = 1 << 28;
+        const VIRTIO_F_EVENT_IDX             = 1 << 29;
+        const UNUSED                         = 1 << 30; // legacy
+        const VIRTIO_F_VERSION_1             = 1 << 32; // detect legacy
 
         // the following since virtio v1.1
-        const ACCESS_PLATFORM       = 1 << 33;
-        const RING_PACKED           = 1 << 34;
-        const IN_ORDER              = 1 << 35;
-        const ORDER_PLATFORM        = 1 << 36;
-        const SR_IOV                = 1 << 37;
-        const NOTIFICATION_DATA     = 1 << 38;
+        const VIRTIO_F_ACCESS_PLATFORM       = 1 << 33;
+        const VIRTIO_F_RING_PACKED           = 1 << 34;
+        const VIRTIO_F_IN_ORDER              = 1 << 35;
+        const VIRTIO_F_ORDER_PLATFORM        = 1 << 36;
+        const VIRTIO_F_SR_IOV                = 1 << 37;
+        const VIRTIO_F_NOTIFICATION_DATA     = 1 << 38;
     }
 }
+/// used for discard
+pub struct Range {
+    /// discard/write zeroes start sector
+    sector: u64,
+    /// number of discard/write zeroes sectors
+    num_sector: u32,
+    /// flags for this range
+    flags: u32,
+}
+impl Copy for Range {}
+
+impl Clone for Range {
+    fn clone(&self) -> Range {
+        Range {
+            sector: self.sector,
+            num_sector: self.num_sector,
+            flags: self.flags,
+        }
+    }
+}
+
+const SECTOR_SHIFT: usize = 9;
+
+// +++++++++++++++++++++++++++++++++++++++
+// Async IO
+// +++++++++++++++++++++++++++++++++++++++
+
+#[repr(C)]
+#[derive(Debug)]
+struct BlkInfo {
+    waker: Option<Waker>,
+}
+
+const NULLINFO: BlkInfo = BlkInfo::new();
+
+impl BlkInfo {
+    const fn new() -> Self {
+        BlkInfo { waker: None }
+    }
+}
+
+/// for async IO
+pub struct BlkFuture<H: Hal> {
+    resp: BlkResp,
+    head: u16,
+    queue: Arc<Mutex<VirtIoBlkInner<H>>>,
+    err: Option<Error>,
+}
+
+impl<'a, H: Hal> BlkFuture<H> {
+    /// construct a new BlkFuture
+    fn new(queue: Arc<Mutex<VirtIoBlkInner<H>>>) -> Self {
+        Self {
+            resp: BlkResp::default(),
+            head: u16::MAX,
+            queue: queue,
+            err: None,
+        }
+    }
+}
+
+impl<H: Hal> Future for BlkFuture<H> {
+    type Output = Result;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        if let Some(e) = self.err {
+            return Poll::Ready(Err(e));
+        }
+        match unsafe { core::ptr::read_volatile(&self.resp.status) } {
+            RespStatus::OK => Poll::Ready(Ok(())),
+            RespStatus::NOT_READY => {
+                self.queue.lock().blkinfos[self.head as usize].waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+            _ => Poll::Ready(Err(Error::IoError)),
+        }
+    }
+}
+
+// +++++++++++++++++++++++++++++++++++++++
+// test
+// +++++++++++++++++++++++++++++++++++++++
 
 #[cfg(test)]
 mod tests {
@@ -478,7 +1277,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::{mem::size_of, ptr::NonNull};
-    use std::{sync::Mutex, thread};
+    use std::{sync::Mutex, thread, time::Duration};
 
     #[test]
     fn config() {
@@ -495,22 +1294,32 @@ mod tests {
             alignment_offset: Volatile::new(0),
             min_io_size: Volatile::new(0),
             opt_io_size: Volatile::new(0),
+            wce: Volatile::new(0),
+            unused: Volatile::new(0),
+            max_discard_sectors: Volatile::new(0),
+            num_queues: Volatile::new(0),
+            max_discard_seg: Volatile::new(0),
+            max_write_zeroes_sectors: Volatile::new(0),
+            max_write_zeroes_seg: Volatile::new(0),
+            write_zeroes_may_unmap: Volatile::new(0),
+            discard_sector_alignment: Volatile::new(0),
+            unused1: [Volatile::new(0), Volatile::new(0), Volatile::new(0)],
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default()],
+            queues: vec![QueueStatus::default(); 1],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: BlkFeature::RO.bits(),
+            device_features: BlkFeature::VIRTIO_BLK_F_RO.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+        let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport, false).unwrap();
 
         assert_eq!(blk.capacity(), 0x02_0000_0042);
         assert_eq!(blk.readonly(), true);
@@ -531,13 +1340,23 @@ mod tests {
             alignment_offset: Volatile::new(0),
             min_io_size: Volatile::new(0),
             opt_io_size: Volatile::new(0),
+            wce: Volatile::new(0),
+            unused: Volatile::new(0),
+            max_discard_sectors: Volatile::new(0),
+            num_queues: Volatile::new(0),
+            max_discard_seg: Volatile::new(0),
+            max_write_zeroes_sectors: Volatile::new(0),
+            max_write_zeroes_seg: Volatile::new(0),
+            write_zeroes_may_unmap: Volatile::new(0),
+            discard_sector_alignment: Volatile::new(0),
+            unused1: [Volatile::new(0), Volatile::new(0), Volatile::new(0)],
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default()],
+            queues: vec![QueueStatus::default(); 1],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -546,12 +1365,15 @@ mod tests {
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+        let mut blk =
+            VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport, false).unwrap();
 
         // Start a thread to simulate the device waiting for a read request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            State::wait_until_queue_notified(&state, QUEUE);
+            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
             println!("Transmit queue was notified.");
 
             state
@@ -583,7 +1405,7 @@ mod tests {
 
         // Read a block from the device.
         let mut buffer = [0; 512];
-        blk.read_block(42, &mut buffer).unwrap();
+        blk.read_blocks(42, &mut [&mut buffer]).unwrap();
         assert_eq!(&buffer[0..9], b"Test data");
 
         handle.join().unwrap();
@@ -604,13 +1426,23 @@ mod tests {
             alignment_offset: Volatile::new(0),
             min_io_size: Volatile::new(0),
             opt_io_size: Volatile::new(0),
+            wce: Volatile::new(0),
+            unused: Volatile::new(0),
+            max_discard_sectors: Volatile::new(0),
+            num_queues: Volatile::new(0),
+            max_discard_seg: Volatile::new(0),
+            max_write_zeroes_sectors: Volatile::new(0),
+            max_write_zeroes_seg: Volatile::new(0),
+            write_zeroes_may_unmap: Volatile::new(0),
+            discard_sector_alignment: Volatile::new(0),
+            unused1: [Volatile::new(0), Volatile::new(0), Volatile::new(0)],
         };
         let state = Arc::new(Mutex::new(State {
             status: DeviceStatus::empty(),
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default()],
+            queues: vec![QueueStatus::default(); 1],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -619,12 +1451,15 @@ mod tests {
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+        let mut blk =
+            VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport, false).unwrap();
 
         // Start a thread to simulate the device waiting for a write request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            State::wait_until_queue_notified(&state, QUEUE);
+            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
+                thread::sleep(Duration::from_millis(10));
+            }
             println!("Transmit queue was notified.");
 
             state
@@ -659,7 +1494,7 @@ mod tests {
         // Write a block to the device.
         let mut buffer = [0; 512];
         buffer[0..9].copy_from_slice(b"Test data");
-        blk.write_block(42, &mut buffer).unwrap();
+        blk.write_blocks(42, &[&buffer]).unwrap();
 
         handle.join().unwrap();
     }

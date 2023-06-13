@@ -4,7 +4,7 @@
 use super::error::SocketError;
 use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::hal::Hal;
-use crate::queue::VirtQueue;
+use crate::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::{Error, Result};
@@ -212,10 +212,10 @@ pub enum VsockEventType {
 pub struct VirtIOSocket<H: Hal, T: Transport> {
     transport: T,
     /// Virtqueue to receive packets.
-    rx: VirtQueue<H, { QUEUE_SIZE }>,
-    tx: VirtQueue<H, { QUEUE_SIZE }>,
+    rx: SplitQueue<H, { QUEUE_SIZE }>,
+    tx: SplitQueue<H, { QUEUE_SIZE }>,
     /// Virtqueue to receive events from the device.
-    event: VirtQueue<H, { QUEUE_SIZE }>,
+    event: SplitQueue<H, { QUEUE_SIZE }>,
     /// The guest_cid field contains the guest’s context ID, which uniquely identifies
     /// the device for its lifetime. The upper 32 bits of the CID are reserved and zeroed.
     guest_cid: u64,
@@ -257,9 +257,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         };
         debug!("guest cid: {guest_cid:?}");
 
-        let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
-        let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
-        let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
+        let mut rx = SplitQueue::new(&mut transport, RX_QUEUE_IDX)?;
+        let tx = SplitQueue::new(&mut transport, TX_QUEUE_IDX)?;
+        let event = SplitQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
 
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];
