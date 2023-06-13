@@ -2,7 +2,7 @@
 
 use super::common::Feature;
 use crate::hal::Hal;
-use crate::split_queue::SplitQueue;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
@@ -27,6 +27,9 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        // TODO: 
+        let indirect_desc = false;
+
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
@@ -38,14 +41,14 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
         let config = transport.config_space::<Config>()?;
 
-        let mut event_queue = SplitQueue::new(&mut transport, QUEUE_EVENT)?;
-        let status_queue = SplitQueue::new(&mut transport, QUEUE_STATUS)?;
+        let mut event_queue = SplitQueue::new(&mut transport, QUEUE_EVENT, indirect_desc)?;
+        let status_queue = SplitQueue::new(&mut transport, QUEUE_STATUS, indirect_desc)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };
             assert_eq!(token, i as u16);
         }
-        if event_queue.should_notify() {
+        if event_queue.should_notify_old() {
             transport.notify(QUEUE_EVENT);
         }
 
@@ -85,7 +88,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
                 // was just freed by `pop_used`.
                 assert_eq!(new_token, token);
-                if self.event_queue.should_notify() {
+                if self.event_queue.should_notify_old() {
                     self.transport.notify(QUEUE_EVENT);
                 }
                 return Some(event_saved);

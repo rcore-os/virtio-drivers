@@ -4,7 +4,7 @@
 use super::error::SocketError;
 use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::hal::Hal;
-use crate::split_queue::SplitQueue;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::{Error, Result};
@@ -241,6 +241,9 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
 impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        // TODO: 
+        let indirect_desc = false;
+
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
             debug!("Device features: {:?}", features);
@@ -257,9 +260,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         };
         debug!("guest cid: {guest_cid:?}");
 
-        let mut rx = SplitQueue::new(&mut transport, RX_QUEUE_IDX)?;
-        let tx = SplitQueue::new(&mut transport, TX_QUEUE_IDX)?;
-        let event = SplitQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
+        let mut rx = SplitQueue::new(&mut transport, RX_QUEUE_IDX, indirect_desc)?;
+        let tx = SplitQueue::new(&mut transport, TX_QUEUE_IDX, indirect_desc)?;
+        let event = SplitQueue::new(&mut transport, EVENT_QUEUE_IDX, indirect_desc)?;
 
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];
@@ -274,7 +277,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         let rx_queue_buffers = rx_queue_buffers.map(|ptr| NonNull::new(ptr).unwrap());
 
         transport.finish_init();
-        if rx.should_notify() {
+        if rx.should_notify_old() {
             transport.notify(RX_QUEUE_IDX);
         }
 
@@ -411,7 +414,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     }
 
     fn send_packet_to_tx_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
-        let _len = self.tx.add_notify_wait_pop(
+        let _len = self.tx.add_notify_wait_pop_old(
             &[header.as_bytes(), buffer],
             &mut [],
             &mut self.transport,
@@ -440,7 +443,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             assert_eq!(new_token, index);
         }
 
-        if self.rx.should_notify() {
+        if self.rx.should_notify_old() {
             self.transport.notify(RX_QUEUE_IDX);
         }
 

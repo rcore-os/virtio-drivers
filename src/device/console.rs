@@ -1,7 +1,7 @@
 //! Driver for VirtIO console devices.
 
 use crate::hal::Hal;
-use crate::split_queue::SplitQueue;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};

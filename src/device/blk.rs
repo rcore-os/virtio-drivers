@@ -1,12 +1,10 @@
 //! Driver for VirtIO block devices.
 
 use crate::hal::Hal;
-use crate::packed_queue::PackedQueue;
-use crate::split_queue::SplitQueue;
+use crate::virtio_queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
 use crate::transport::Transport;
 use crate::volatile::{volread, Volatile};
 use crate::NonNull;
-use crate::VirtQueue;
 use crate::{Error, Result};
 use bitflags::bitflags;
 use zerocopy::{AsBytes, FromBytes};
@@ -1310,7 +1308,7 @@ mod tests {
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default(); 1],
+            queues: vec![QueueStatus::default()],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -1356,7 +1354,7 @@ mod tests {
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default(); 1],
+            queues: vec![QueueStatus::default()],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -1371,9 +1369,7 @@ mod tests {
         // Start a thread to simulate the device waiting for a read request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
+            State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
             state
@@ -1442,7 +1438,7 @@ mod tests {
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
-            queues: vec![QueueStatus::default(); 1],
+            queues: vec![QueueStatus::default()],
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -1457,9 +1453,7 @@ mod tests {
         // Start a thread to simulate the device waiting for a write request.
         let handle = thread::spawn(move || {
             println!("Device waiting for a request.");
-            while !state.lock().unwrap().queues[usize::from(QUEUE)].notified {
-                thread::sleep(Duration::from_millis(10));
-            }
+            State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
             state

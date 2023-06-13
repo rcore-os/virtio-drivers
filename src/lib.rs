@@ -51,8 +51,7 @@ extern crate alloc;
 
 pub mod device;
 mod hal;
-mod split_queue;
-mod packed_queue;
+mod virtio_queue;
 pub mod transport;
 mod volatile;
 
@@ -146,3 +145,5 @@ fn pages(size: usize) -> usize {
 fn nonnull_slice_from_raw_parts<T>(data: NonNull<T>, len: usize) -> NonNull<[T]> {
     NonNull::new(ptr::slice_from_raw_parts_mut(data.as_ptr(), len)).unwrap()
 }
+
+

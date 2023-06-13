@@ -1,7 +1,7 @@
 //! Driver for VirtIO GPU devices.
 
 use crate::hal::{BufferDirection, Dma, Hal};
-use crate::split_queue::SplitQueue;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
