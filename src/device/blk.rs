@@ -19,7 +19,7 @@ use core::{
 };
 use spin::Mutex;
 
-use log::{debug, info};
+use log::{debug};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 64;
@@ -39,14 +39,14 @@ const QUEUE_SIZE: u16 = 64;
 /// use virtio_drivers::device::blk::{VirtIOBlk, SECTOR_SIZE};
 ///
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
-/// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport)?;
+/// let mut disk = VirtIOBlk::<HalImpl, _>::new(transport, true)?;
 ///
 /// println!("VirtIO block device: {} kB", disk.capacity() * SECTOR_SIZE as u64 / 2);
 ///
 /// // Read sector 0 and then copy it to sector 1.
 /// let mut buf = [0; SECTOR_SIZE];
-/// disk.read_block(0, &mut buf)?;
-/// disk.write_block(1, &buf)?;
+/// disk.read_blocks(0, &mut[&mut buf])?;
+/// disk.write_blocks(1, &[&buf])?;
 /// # Ok(())
 /// # }
 /// ```
