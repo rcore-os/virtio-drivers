@@ -538,28 +538,6 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
     }
 }
 
-// bitflags! {
-//     /// Descriptor flags
-//     ///
-//     /// Ref: Section 2.7.5 The Virtqueue Descriptor Table
-//     #[derive(Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
-//     struct DescFlags: u16 {
-//         /// This marks a buffer as continuing via the next field.
-//         const VIRTQ_DESC_F_NEXT = 1;
-//         /// This marks a buffer as write-only (otherwise read-only).
-//         const VIRTQ_DESC_F_WRITE = 1 << 1;
-//         /// This means the buffer contains a list of buffer descriptors.
-//         const VIRTQ_DESC_F_INDIRECT = 1 << 2;
-
-//         ///
-//         /// Mark a descriptor as available or used in packed ring.
-//         /// Notice: they are defined as shifts instead of shifted values.
-//         ///
-//         const VIRTQ_DESC_F_AVAIL = 1 << 7;
-//         const VIRTQ_DESC_F_USED = 1 << 15;
-//     }
-// }
-
 /// Descriptor flags
 #[derive(Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
 #[repr(transparent)]
