@@ -1,13 +1,11 @@
 //! VirtIO queues.
 
-pub mod split_queue;
 pub mod packed_queue;
+pub mod split_queue;
 
-
-use crate::Hal;
 use crate::transport::Transport;
+use crate::Hal;
 use crate::Result;
-
 
 pub enum VirtQueue<H: Hal, const SIZE: usize> {
     Packedqueue(packed_queue::PackedQueue<H, SIZE>),
@@ -38,49 +36,32 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         outputs: &'a mut [&'b mut [u8]],
     ) -> Result<u16> {
         match self {
-            Self::Packedqueue(packedqueue) => {
-                packedqueue.add(inputs, outputs)
-            }
-            Self::Splitqueue(splitqueue) => {
-                splitqueue.add(inputs, outputs)
-            }
+            Self::Packedqueue(packedqueue) => packedqueue.add(inputs, outputs),
+            Self::Splitqueue(splitqueue) => splitqueue.add(inputs, outputs),
         }
     }
 
     pub fn should_notify(&self, support_event: bool) -> bool {
         match self {
-            Self::Packedqueue(packedqueue) => {
-                packedqueue.should_notify(support_event)
-            }
-            Self::Splitqueue(splitqueue) => {
-                splitqueue.should_notify(support_event)
-            }
+            Self::Packedqueue(packedqueue) => packedqueue.should_notify(support_event),
+            Self::Splitqueue(splitqueue) => splitqueue.should_notify(support_event),
         }
     }
 
     /// Returns whether there is a used element that can be popped.
     pub fn can_pop(&self) -> bool {
         match self {
-            Self::Packedqueue(packedqueue) => {
-                packedqueue.can_pop()
-            }
-            Self::Splitqueue(splitqueue) => {
-                splitqueue.can_pop()
-            }
+            Self::Packedqueue(packedqueue) => packedqueue.can_pop(),
+            Self::Splitqueue(splitqueue) => splitqueue.can_pop(),
         }
     }
 
-
-    /// pop used 
-    // TODO: will be deleted in the further 
+    /// pop used
+    // TODO: will be deleted in the further
     pub unsafe fn pop_used_async<'a>(&mut self, token: u16) -> Result<u32> {
         match self {
-            Self::Packedqueue(packedqueue) => {
-                packedqueue.pop_used_async(token)
-            }
-            Self::Splitqueue(splitqueue) => {
-                splitqueue.pop_used_async(token)
-            }
+            Self::Packedqueue(packedqueue) => packedqueue.pop_used_async(token),
+            Self::Splitqueue(splitqueue) => splitqueue.pop_used_async(token),
         }
     }
 
@@ -91,12 +72,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         outputs: &'a mut [&'a mut [u8]],
     ) -> Result<u32> {
         match self {
-            Self::Packedqueue(packedqueue) => {
-                packedqueue.pop_used(token, inputs, outputs)
-            }
-            Self::Splitqueue(splitqueue) => {
-                splitqueue.pop_used(token, inputs, outputs)
-            }
+            Self::Packedqueue(packedqueue) => packedqueue.pop_used(token, inputs, outputs),
+            Self::Splitqueue(splitqueue) => splitqueue.pop_used(token, inputs, outputs),
         }
     }
 }

@@ -46,7 +46,6 @@ pub struct PackedQueue<H: Hal, const SIZE: usize> {
     indirect_desc: bool,
 }
 
-
 impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
     /// Create a new VirtQueue.
     ///
@@ -136,8 +135,6 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
                 self.used_wrap_count ^= true;
             }
             self.last_used_idx = next;
-
-            
         } else {
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 let desc_index = next;
@@ -164,7 +161,6 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
             }
         }
         len
-
     }
 
     // TODO: will be deleted in the further
@@ -196,7 +192,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
                 break;
             }
         }
-        return len
+        return len;
     }
 
     /// Copies the descriptor at the given index from `desc_shadow` to `desc`, so it can be seen by
@@ -407,7 +403,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         unsafe { self.pop_used(token, inputs, outputs) }
     }
 
-    // TODO: need modify 
+    // TODO: need modify
     /// Returns whether the driver should notify the device after adding a new buffer to the
     /// virtqueue.
     ///
@@ -426,10 +422,9 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         } else {
             // let event_offset = off_wrap & ((1 << 15) - 1);
             // let event_wrap_counter = off_wrap & (1 << 15);
-            
+
             false
         }
-
     }
 
     /// Returns whether the driver should notify the device after adding a new buffer to the
@@ -471,9 +466,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         let len;
 
         // Safe because the caller ensures the buffers are valid and match the descriptor.
-        len = unsafe {
-            self.recycle_descriptors(index, inputs, outputs)
-        };
+        len = unsafe { self.recycle_descriptors(index, inputs, outputs) };
         if self.indirect_desc {
             self.indirect_desc_vec[index as usize] = None;
         }
@@ -494,9 +487,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         let len;
 
         // Safe because the caller ensures the buffers are valid and match the descriptor.
-        len = unsafe {
-            self.recycle_descriptors_sync(index)
-        };
+        len = unsafe { self.recycle_descriptors_sync(index) };
         // self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok(len as u32)

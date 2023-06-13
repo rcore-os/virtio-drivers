@@ -805,7 +805,6 @@ impl Descriptor {
     }
 }
 
-
 /// Descriptor flags
 #[derive(Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
 #[repr(transparent)]

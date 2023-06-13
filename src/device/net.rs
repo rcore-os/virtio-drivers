@@ -1,8 +1,8 @@
 //! Driver for VirtIO network devices.
 
 use crate::hal::Hal;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly};
 use crate::{Error, Result};
 use alloc::{vec, vec::Vec};
@@ -112,7 +112,7 @@ pub struct VirtIONet<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T, buf_len: usize) -> Result<Self> {
-        // TODO: 
+        // TODO:
         let indirect_desc = false;
 
         transport.begin_init(|features| {

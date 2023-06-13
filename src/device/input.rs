@@ -2,8 +2,8 @@
 
 use super::common::Feature;
 use crate::hal::Hal;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
@@ -27,7 +27,7 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        // TODO: 
+        // TODO:
         let indirect_desc = false;
 
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);

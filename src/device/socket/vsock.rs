@@ -4,8 +4,8 @@
 use super::error::SocketError;
 use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::hal::Hal;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::volread;
 use crate::{Error, Result};
 use alloc::boxed::Box;
@@ -241,7 +241,7 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
 impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        // TODO: 
+        // TODO:
         let indirect_desc = false;
 
         transport.begin_init(|features| {

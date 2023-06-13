@@ -1,8 +1,8 @@
 //! Driver for VirtIO console devices.
 
 use crate::hal::Hal;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};
 use alloc::boxed::Box;
@@ -65,7 +65,7 @@ pub struct ConsoleInfo {
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        // TODO: 
+        // TODO:
         let indirect_desc = false;
 
         transport.begin_init(|features| {

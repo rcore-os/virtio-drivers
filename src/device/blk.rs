@@ -2,8 +2,8 @@
 extern crate alloc;
 
 use crate::hal::Hal;
-use crate::virtio_queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
 use crate::transport::Transport;
+use crate::virtio_queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
 use crate::volatile::{volread, Volatile};
 use crate::NonNull;
 use crate::{Error, Result};
@@ -19,7 +19,7 @@ use core::{
 };
 use spin::Mutex;
 
-use log::{debug};
+use log::debug;
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 64;
@@ -370,11 +370,7 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
     }
 
     /// discard nu_block blocks starting from start_block
-    pub fn discard_ranges(
-        &mut self,
-        start_sectors: &[u64],
-        nr_sectors: &[u32],
-    ) -> Result {
+    pub fn discard_ranges(&mut self, start_sectors: &[u64], nr_sectors: &[u32]) -> Result {
         let req = BlkReq {
             type_: ReqType::Discard,
             reserved: 0,
@@ -385,17 +381,13 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
     }
 
     /// wirtezeros nu_block blocks starting from start_block
-    pub fn writezeros_ranges(
-        &mut self,
-        start_sectors: &[u64],
-        nr_sectors: &[u32],
-    ) -> Result {
+    pub fn writezeros_ranges(&mut self, start_sectors: &[u64], nr_sectors: &[u32]) -> Result {
         let req = BlkReq {
             type_: ReqType::WriteZeroes,
             reserved: 0,
             sector: 0,
         };
-        let unmap  = false;
+        let unmap = false;
         self.erase_ranges(&req, start_sectors, nr_sectors, unmap, false)
     }
 
@@ -457,7 +449,10 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
         let mut start_sectors = start_sectors.iter();
         for nr_sector in nr_sectors.iter() {
             let start_sector = *start_sectors.next().unwrap();
-            let flag = match unmap {true => 1, false => 0,};
+            let flag = match unmap {
+                true => 1,
+                false => 0,
+            };
             if is_discard && *nr_sector % discard_sector_alignment != 0 {
                 let nr_first_sector = nr_sector % discard_sector_alignment;
                 assert!((nr_sector - nr_first_sector) < self.config.max_discard_sectors);

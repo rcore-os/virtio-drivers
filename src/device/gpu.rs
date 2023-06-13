@@ -1,8 +1,8 @@
 //! Driver for VirtIO GPU devices.
 
 use crate::hal::{BufferDirection, Dma, Hal};
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::transport::Transport;
+use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
@@ -39,7 +39,7 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        // TODO: 
+        // TODO:
         let indirect_desc = false;
 
         transport.begin_init(|features| {
