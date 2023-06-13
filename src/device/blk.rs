@@ -1092,8 +1092,8 @@ enum ReqType {
 }
 
 /// Status of a VirtIOBlk request.
-#[repr(transparent)]
 #[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, PartialEq)]
+#[repr(transparent)]
 pub struct RespStatus(u8);
 
 impl RespStatus {
