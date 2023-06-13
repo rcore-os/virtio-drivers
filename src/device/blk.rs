@@ -9,7 +9,7 @@ use crate::{Error, Result};
 use bitflags::bitflags;
 use zerocopy::{AsBytes, FromBytes};
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
 use core::{
     future::Future,
@@ -302,7 +302,7 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let mut resp = BlkResp::default();
 
-        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut inputs = vec![req.as_bytes(); 1 + bufs.len()];
         let mut index = 1;
         for x in bufs.iter() {
             inputs[index] = *x;
@@ -331,7 +331,6 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         let mut resp = BlkResp::default();
 
-        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
         let mut outputs: Vec<&mut [u8]> = Vec::new();
         for x in bufs.iter_mut() {
             outputs.push(*x);
@@ -439,10 +438,9 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
         nr_sectors: &[u32],
         unmap: bool,
         is_discard: bool,
-    ) -> (alloc::vec::Vec<Range>, usize) {
+    ) -> (Vec<Range>, usize) {
         assert_eq!(start_sectors.len(), nr_sectors.len());
 
-        use alloc::vec;
         let discard_sector_alignment = self.config.discard_sector_alignment;
         let num_seg = start_sectors.len();
         let mut input = vec![
@@ -514,7 +512,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
 
-        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut inputs = vec![req.as_bytes(); 1 + bufs.len()];
         let mut index = 1;
         for x in bufs.iter() {
             inputs[index] = *x;
@@ -548,7 +546,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
 
-        let mut inputs = alloc::vec![req.as_bytes(); 1 + bufs.len()];
+        let mut inputs = vec![req.as_bytes(); 1 + bufs.len()];
         let mut index = 1;
         for x in bufs.iter() {
             inputs[index] = *x;
@@ -591,7 +589,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
         let mut future = Box::pin(BlkFuture::new(self.inner.clone()));
-        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
+
         let mut outputs: Vec<&mut [u8]> = Vec::new();
         for x in bufs.iter_mut() {
             outputs.push(*x);
@@ -633,7 +631,6 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             sector: block_id as u64,
         };
 
-        // let mut outputs = alloc::vec![resp.as_bytes_mut() + bufs.len()];
         let mut outputs: Vec<&mut [u8]> = Vec::new();
         for x in bufs.iter_mut() {
             outputs.push(*x);
