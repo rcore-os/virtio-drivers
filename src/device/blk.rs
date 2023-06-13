@@ -1273,7 +1273,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::{mem::size_of, ptr::NonNull};
-    use std::{sync::Mutex, thread, time::Duration};
+    use std::{sync::Mutex, thread};
 
     #[test]
     fn config() {

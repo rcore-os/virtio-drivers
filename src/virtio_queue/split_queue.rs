@@ -473,7 +473,6 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
                 let desc_index = next.expect("Descriptor chain was shorter than expected.");
                 let desc = &mut self.desc_shadow[usize::from(desc_index)];
 
-                let paddr = desc.addr;
                 desc.unset_buf();
                 self.num_used -= 1;
                 next = desc.next();

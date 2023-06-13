@@ -413,19 +413,19 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
     ///
     /// Ref: virtio_ring.c virtqueue_kick_prepare_split
     /// This will be false if the device has supressed notifications.
-    pub fn should_notify(&self, support_event: bool) -> bool {
+    pub fn should_notify(&self, _support_event: bool) -> bool {
         // Read barrier, so we read a fresh value from the device.
         fence(Ordering::SeqCst);
 
         // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
         // instance of UsedRing.
         let flags = unsafe { (*self.device_event_suppression.as_ptr()).flags };
-        let off_wrap = unsafe { (*self.device_event_suppression.as_ptr()).off_wrap };
+        // let off_wrap = unsafe { (*self.device_event_suppression.as_ptr()).off_wrap };
         if flags != PackedQueueFlag::RING_EVENT_FLAGS_DESC.bits() {
             flags != PackedQueueFlag::RING_EVENT_FLAGS_DISABLE.bits()
         } else {
-            let event_offset = off_wrap & ((1 << 15) - 1);
-            let event_wrap_counter = off_wrap & (1 << 15);
+            // let event_offset = off_wrap & ((1 << 15) - 1);
+            // let event_wrap_counter = off_wrap & (1 << 15);
             
             false
         }
