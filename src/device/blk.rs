@@ -96,24 +96,48 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.transport.ack_interrupt()
     }
 
+    /// Sends the given request to the device and waits for a response, with no extra data.
+    fn request(&mut self, request: BlkReq) -> Result {
+        let mut resp = BlkResp::default();
+        self.queue.add_notify_wait_pop(
+            &[request.as_bytes()],
+            &mut [resp.as_bytes_mut()],
+            &mut self.transport,
+        )?;
+        resp.status.into()
+    }
+
+    /// Sends the given request to the device and waits for a response, including the given data.
+    fn request_read(&mut self, request: BlkReq, data: &mut [u8]) -> Result {
+        let mut resp = BlkResp::default();
+        self.queue.add_notify_wait_pop(
+            &[request.as_bytes()],
+            &mut [data, resp.as_bytes_mut()],
+            &mut self.transport,
+        )?;
+        resp.status.into()
+    }
+
+    /// Sends the given request and data to the device and waits for a response.
+    fn request_write(&mut self, request: BlkReq, data: &[u8]) -> Result {
+        let mut resp = BlkResp::default();
+        self.queue.add_notify_wait_pop(
+            &[request.as_bytes(), data],
+            &mut [resp.as_bytes_mut()],
+            &mut self.transport,
+        )?;
+        resp.status.into()
+    }
+
     /// Requests the device to flush any pending writes to storage.
     ///
     /// This will be ignored if the device doesn't support the `VIRTIO_BLK_F_FLUSH` feature.
     pub fn flush(&mut self) -> Result {
         if self.negotiated_features.contains(BlkFeature::FLUSH) {
-            let req = BlkReq {
+            self.request(BlkReq {
                 type_: ReqType::Flush,
-                reserved: 0,
-                sector: 0,
-            };
-            let mut resp = BlkResp::default();
-            self.queue.add_notify_wait_pop(
-                &[req.as_bytes()],
-                &mut [resp.as_bytes_mut()],
-                &mut self.transport,
-            )?;
-
-            resp.status.into()
+                ..Default::default()
+            })
         } else {
             Ok(())
         }
@@ -124,19 +148,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// The ID is written as ASCII into the given buffer, which must be 20 bytes long, and the used
     /// length returned.
     pub fn device_id(&mut self, id: &mut [u8; 20]) -> Result<usize> {
-        let req = BlkReq {
-            type_: ReqType::GetId,
-            reserved: 0,
-            sector: 0,
-        };
-
-        let mut resp = BlkResp::default();
-        self.queue.add_notify_wait_pop(
-            &[req.as_bytes()],
-            &mut [id, resp.as_bytes_mut()],
-            &mut self.transport,
+        self.request_read(
+            BlkReq {
+                type_: ReqType::GetId,
+                ..Default::default()
+            },
+            id,
         )?;
-        Result::from(resp.status)?;
+
         let length = id.iter().position(|&x| x == 0).unwrap_or(20);
         Ok(length)
     }
@@ -146,18 +165,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Blocks until the read completes or there is an error.
     pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
         assert_eq!(buf.len(), SECTOR_SIZE);
-        let req = BlkReq {
-            type_: ReqType::In,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let mut resp = BlkResp::default();
-        self.queue.add_notify_wait_pop(
-            &[req.as_bytes()],
-            &mut [buf, resp.as_bytes_mut()],
-            &mut self.transport,
-        )?;
-        resp.status.into()
+        self.request_read(
+            BlkReq {
+                type_: ReqType::In,
+                reserved: 0,
+                sector: block_id as u64,
+            },
+            buf,
+        )
     }
 
     /// Submits a request to read a block, but returns immediately without waiting for the read to
@@ -262,18 +277,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Blocks until the write is complete or there is an error.
     pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
         assert_eq!(buf.len(), SECTOR_SIZE);
-        let req = BlkReq {
-            type_: ReqType::Out,
-            reserved: 0,
-            sector: block_id as u64,
-        };
-        let mut resp = BlkResp::default();
-        self.queue.add_notify_wait_pop(
-            &[req.as_bytes(), buf],
-            &mut [resp.as_bytes_mut()],
-            &mut self.transport,
-        )?;
-        resp.status.into()
+        self.request_write(
+            BlkReq {
+                type_: ReqType::Out,
+                sector: block_id as u64,
+                ..Default::default()
+            },
+            buf,
+        )
     }
 
     /// Submits a request to write a block, but returns immediately without waiting for the write to
