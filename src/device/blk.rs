@@ -11,6 +11,7 @@ use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
+const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO.union(BlkFeature::FLUSH);
 
 /// Driver for a VirtIO block device.
 ///
@@ -42,24 +43,23 @@ pub struct VirtIOBlk<H: Hal, T: Transport> {
     transport: T,
     queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     capacity: u64,
-    readonly: bool,
+    negotiated_features: BlkFeature,
 }
 
 impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let mut readonly = false;
+        let mut negotiated_features = BlkFeature::empty();
 
         transport.begin_init(|features| {
             let features = BlkFeature::from_bits_truncate(features);
             info!("device features: {:?}", features);
-            readonly = features.contains(BlkFeature::RO);
-            // negotiate these flags only
-            let supported_features = BlkFeature::empty();
-            (features & supported_features).bits()
+            negotiated_features = features & SUPPORTED_FEATURES;
+            // Negotiate these features only.
+            negotiated_features.bits()
         });
 
-        // read configuration space
+        // Read configuration space.
         let config = transport.config_space::<BlkConfig>()?;
         info!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
@@ -75,7 +75,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             transport,
             queue,
             capacity,
-            readonly,
+            negotiated_features,
         })
     }
 
@@ -86,7 +86,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
     /// Returns true if the block device is read-only, or false if it allows writes.
     pub fn readonly(&self) -> bool {
-        self.readonly
+        self.negotiated_features.contains(BlkFeature::RO)
     }
 
     /// Acknowledges a pending interrupt, if any.
@@ -94,6 +94,29 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Returns true if there was an interrupt to acknowledge.
     pub fn ack_interrupt(&mut self) -> bool {
         self.transport.ack_interrupt()
+    }
+
+    /// Requests the device to flush any pending writes to storage.
+    ///
+    /// This will be ignored if the device doesn't support the `VIRTIO_BLK_F_FLUSH` feature.
+    pub fn flush(&mut self) -> Result {
+        if self.negotiated_features.contains(BlkFeature::FLUSH) {
+            let req = BlkReq {
+                type_: ReqType::Flush,
+                reserved: 0,
+                sector: 0,
+            };
+            let mut resp = BlkResp::default();
+            self.queue.add_notify_wait_pop(
+                &[req.as_bytes()],
+                &mut [resp.as_bytes_mut()],
+                &mut self.transport,
+            )?;
+
+            resp.status.into()
+        } else {
+            Ok(())
+        }
     }
 
     /// Reads a block into the given buffer.
@@ -660,6 +683,79 @@ mod tests {
         let mut buffer = [0; 512];
         buffer[0..9].copy_from_slice(b"Test data");
         blk.write_block(42, &mut buffer).unwrap();
+
+        // Request to flush should be ignored as the device doesn't support it.
+        blk.flush().unwrap();
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn flush() {
+        let mut config_space = BlkConfig {
+            capacity_low: Volatile::new(66),
+            capacity_high: Volatile::new(0),
+            size_max: Volatile::new(0),
+            seg_max: Volatile::new(0),
+            cylinders: Volatile::new(0),
+            heads: Volatile::new(0),
+            sectors: Volatile::new(0),
+            blk_size: Volatile::new(0),
+            physical_block_exp: Volatile::new(0),
+            alignment_offset: Volatile::new(0),
+            min_io_size: Volatile::new(0),
+            opt_io_size: Volatile::new(0),
+        };
+        let state = Arc::new(Mutex::new(State {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues: vec![QueueStatus::default()],
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: QUEUE_SIZE.into(),
+            device_features: BlkFeature::FLUSH.bits(),
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+        // Start a thread to simulate the device waiting for a flush request.
+        let handle = thread::spawn(move || {
+            println!("Device waiting for a request.");
+            State::wait_until_queue_notified(&state, QUEUE);
+            println!("Transmit queue was notified.");
+
+            state
+                .lock()
+                .unwrap()
+                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                    assert_eq!(
+                        request,
+                        BlkReq {
+                            type_: ReqType::Flush,
+                            reserved: 0,
+                            sector: 0,
+                        }
+                        .as_bytes()
+                    );
+
+                    let mut response = Vec::new();
+                    response.extend_from_slice(
+                        BlkResp {
+                            status: RespStatus::OK,
+                        }
+                        .as_bytes(),
+                    );
+
+                    response
+                });
+        });
+
+        // Request to flush.
+        blk.flush().unwrap();
 
         handle.join().unwrap();
     }
