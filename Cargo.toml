@@ -22,3 +22,6 @@ zerocopy = "0.6.1"
 [features]
 default = ["alloc"]
 alloc = ["zerocopy/alloc"]
+
+[dev-dependencies]
+zerocopy = { version = "0.6.1", features = ["alloc"] }

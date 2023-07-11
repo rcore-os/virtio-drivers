@@ -4,7 +4,11 @@
 
 use crate::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
-use core::{alloc::Layout, ptr::NonNull};
+use core::{
+    alloc::Layout,
+    ptr::{self, NonNull},
+};
+use zerocopy::FromBytes;
 
 #[derive(Debug)]
 pub struct FakeHal;
@@ -38,18 +42,46 @@ unsafe impl Hal for FakeHal {
         NonNull::new(paddr as _).unwrap()
     }
 
-    unsafe fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
-        let vaddr = buffer.as_ptr() as *mut u8 as usize;
+    unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr {
+        // To ensure that the driver is handling and unsharing buffers properly, allocate a new
+        // buffer and copy to it if appropriate.
+        let mut shared_buffer = u8::new_box_slice_zeroed(buffer.len());
+        if let BufferDirection::DriverToDevice | BufferDirection::Both = direction {
+            unsafe {
+                buffer
+                    .as_ptr()
+                    .cast::<u8>()
+                    .copy_to(shared_buffer.as_mut_ptr(), buffer.len());
+            }
+        }
+        let vaddr = Box::into_raw(shared_buffer) as *mut u8 as usize;
         // Nothing to do, as the host already has access to all memory.
         virt_to_phys(vaddr)
     }
 
-    unsafe fn unshare(_paddr: PhysAddr, _buffer: NonNull<[u8]>, _direction: BufferDirection) {
-        // Nothing to do, as the host already has access to all memory and we didn't copy the buffer
-        // anywhere else.
+    unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection) {
+        let vaddr = phys_to_virt(paddr);
+        let shared_buffer = unsafe {
+            Box::from_raw(ptr::slice_from_raw_parts_mut(
+                vaddr as *mut u8,
+                buffer.len(),
+            ))
+        };
+        if let BufferDirection::DeviceToDriver | BufferDirection::Both = direction {
+            unsafe {
+                buffer
+                    .as_ptr()
+                    .cast::<u8>()
+                    .copy_from(shared_buffer.as_ptr(), buffer.len());
+            }
+        }
     }
 }
 
 fn virt_to_phys(vaddr: usize) -> PhysAddr {
     vaddr
+}
+
+fn phys_to_virt(paddr: PhysAddr) -> usize {
+    paddr
 }
