@@ -71,7 +71,7 @@ qemu: kernel $(img)
 		-kernel $(kernel) \
 		-global virtio-mmio.force-legacy=false \
 		-drive file=$(img),if=none,format=raw,id=x0 \
-		-device virtio-blk-device,drive=x0 \
+		-device virtio-blk-device,packed=on,drive=x0 \
 		-device virtio-gpu-device \
 		-device virtio-mouse-device \
 		-device virtio-net-device,netdev=net0 \

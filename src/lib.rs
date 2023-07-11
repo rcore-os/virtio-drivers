@@ -51,8 +51,8 @@ extern crate alloc;
 
 pub mod device;
 mod hal;
-mod queue;
 pub mod transport;
+mod virtio_queue;
 mod volatile;
 
 use core::{
