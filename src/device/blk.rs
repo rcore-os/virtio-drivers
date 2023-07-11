@@ -395,8 +395,11 @@ enum ReqType {
     In = 0,
     Out = 1,
     Flush = 4,
+    GetId = 8,
+    GetLifetime = 10,
     Discard = 11,
     WriteZeroes = 13,
+    SecureErase = 14,
 }
 
 /// Status of a VirtIOBlk request.
@@ -462,6 +465,8 @@ bitflags! {
         const TOPOLOGY      = 1 << 10;
         /// Device can toggle its cache between writeback and writethrough modes.
         const CONFIG_WCE    = 1 << 11;
+        /// Device supports multiqueue.
+        const MQ            = 1 << 12;
         /// Device can support discard command, maximum discard sectors size in
         /// `max_discard_sectors` and maximum discard segment number in
         /// `max_discard_seg`.
@@ -470,6 +475,10 @@ bitflags! {
         /// size in `max_write_zeroes_sectors` and maximum write zeroes segment
         /// number in `max_write_zeroes_seg`.
         const WRITE_ZEROES  = 1 << 14;
+        /// Device supports providing storage lifetime information.
+        const LIFETIME      = 1 << 15;
+        /// Device can support the secure erase command.
+        const SECURE_ERASE  = 1 << 16;
 
         // device independent
         const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
