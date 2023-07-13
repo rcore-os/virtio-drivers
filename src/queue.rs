@@ -52,6 +52,8 @@ pub struct VirtQueue<H: Hal, const SIZE: usize> {
     /// Our trusted copy of `avail.idx`.
     avail_idx: u16,
     last_used_idx: u16,
+    /// Whether the `VIRTIO_F_EVENT_IDX` feature has been negotiated.
+    event_idx: bool,
     #[cfg(feature = "alloc")]
     indirect: bool,
     #[cfg(feature = "alloc")]
@@ -59,8 +61,19 @@ pub struct VirtQueue<H: Hal, const SIZE: usize> {
 }
 
 impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
-    /// Create a new VirtQueue.
-    pub fn new<T: Transport>(transport: &mut T, idx: u16, indirect: bool) -> Result<Self> {
+    /// Creates a new VirtQueue.
+    ///
+    /// * `indirect`: Whether to use indirect descriptors. This should be set if the
+    ///   `VIRTIO_F_INDIRECT_DESC` feature has been negotiated with the device.
+    /// * `event_idx`: Whether to use the `used_event` and `avail_event` fields for notification
+    ///   suppression. This should be set if the `VIRTIO_F_EVENT_IDX` feature has been negotiated
+    ///   with the device.
+    pub fn new<T: Transport>(
+        transport: &mut T,
+        idx: u16,
+        indirect: bool,
+        event_idx: bool,
+    ) -> Result<Self> {
         if transport.queue_used(idx) {
             return Err(Error::AlreadyUsed);
         }
@@ -115,6 +128,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             desc_shadow,
             avail_idx: 0,
             last_used_idx: 0,
+            event_idx,
             #[cfg(feature = "alloc")]
             indirect,
             #[cfg(feature = "alloc")]
@@ -310,9 +324,16 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         // Read barrier, so we read a fresh value from the device.
         fence(Ordering::SeqCst);
 
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
-        unsafe { (*self.used.as_ptr()).flags & 0x0001 == 0 }
+        if self.event_idx {
+            // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of UsedRing.
+            let avail_event = unsafe { (*self.used.as_ptr()).avail_event };
+            self.avail_idx >= avail_event.wrapping_add(1)
+        } else {
+            // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of UsedRing.
+            unsafe { (*self.used.as_ptr()).flags & 0x0001 == 0 }
+        }
     }
 
     /// Copies the descriptor at the given index from `desc_shadow` to `desc`, so it can be seen by
@@ -735,7 +756,8 @@ struct UsedRing<const SIZE: usize> {
     flags: u16,
     idx: u16,
     ring: [UsedElem; SIZE],
-    avail_event: u16, // unused
+    /// Only used if `VIRTIO_F_EVENT_IDX` is negotiated.
+    avail_event: u16,
 }
 
 #[repr(C)]
@@ -928,7 +950,7 @@ mod tests {
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         // Size not a power of 2.
         assert_eq!(
-            VirtQueue::<FakeHal, 3>::new(&mut transport, 0, false).unwrap_err(),
+            VirtQueue::<FakeHal, 3>::new(&mut transport, 0, false, false).unwrap_err(),
             Error::InvalidParam
         );
     }
@@ -938,7 +960,7 @@ mod tests {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false).unwrap_err(),
+            VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false).unwrap_err(),
             Error::InvalidParam
         );
     }
@@ -947,9 +969,9 @@ mod tests {
     fn queue_already_used() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false).unwrap();
+        VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false).unwrap_err(),
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap_err(),
             Error::AlreadyUsed
         );
     }
@@ -958,7 +980,7 @@ mod tests {
     fn add_empty() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false).unwrap();
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(
             unsafe { queue.add(&[], &mut []) }.unwrap_err(),
             Error::InvalidParam
@@ -969,7 +991,7 @@ mod tests {
     fn add_too_many() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false).unwrap();
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
             unsafe { queue.add(&[&[], &[], &[]], &mut [&mut [], &mut []]) }.unwrap_err(),
@@ -981,7 +1003,7 @@ mod tests {
     fn add_buffers() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false).unwrap();
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
         // Add a buffer chain consisting of two device-readable parts followed by two
@@ -1044,7 +1066,7 @@ mod tests {
 
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
         let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true).unwrap();
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
         // Add a buffer chain consisting of two device-readable parts followed by two

@@ -11,6 +11,7 @@ use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE_SIZE: u16 = 2;
+const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX;
 
 /// A virtio based graphics adapter.
 ///
@@ -39,11 +40,12 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        let mut negotiated_features = Features::empty();
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
-            let supported_features = Features::empty();
-            (features & supported_features).bits()
+            negotiated_features = features & SUPPORTED_FEATURES;
+            negotiated_features.bits()
         });
 
         // read configuration space
@@ -57,8 +59,18 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             );
         }
 
-        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, false)?;
-        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, false)?;
+        let control_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_TRANSMIT,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
+        let cursor_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_CURSOR,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
 
         let queue_buf_send = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromBytes::new_box_slice_zeroed(PAGE_SIZE);

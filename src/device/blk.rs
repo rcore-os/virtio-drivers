@@ -13,7 +13,8 @@ const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
 const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
     .union(BlkFeature::FLUSH)
-    .union(BlkFeature::RING_INDIRECT_DESC);
+    .union(BlkFeature::RING_INDIRECT_DESC)
+    .union(BlkFeature::RING_EVENT_IDX);
 
 /// Driver for a VirtIO block device.
 ///
@@ -74,6 +75,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             &mut transport,
             QUEUE,
             negotiated_features.contains(BlkFeature::RING_INDIRECT_DESC),
+            negotiated_features.contains(BlkFeature::RING_EVENT_IDX),
         )?;
         transport.finish_init();
 

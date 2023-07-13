@@ -13,6 +13,7 @@ use log::info;
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: usize = 2;
+const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX;
 
 /// Driver for a VirtIO console device.
 ///
@@ -65,15 +66,26 @@ pub struct ConsoleInfo {
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        let mut negotiated_features = Features::empty();
         transport.begin_init(|features| {
             let features = Features::from_bits_truncate(features);
             info!("Device features {:?}", features);
-            let supported_features = Features::empty();
-            (features & supported_features).bits()
+            negotiated_features = features & SUPPORTED_FEATURES;
+            negotiated_features.bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, false)?;
-        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, false)?;
+        let receiveq = VirtQueue::new(
+            &mut transport,
+            QUEUE_RECEIVEQ_PORT_0,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
+        let transmitq = VirtQueue::new(
+            &mut transport,
+            QUEUE_TRANSMITQ_PORT_0,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
 
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
         // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer

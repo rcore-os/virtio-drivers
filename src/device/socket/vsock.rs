@@ -19,6 +19,7 @@ pub(crate) const TX_QUEUE_IDX: u16 = 1;
 const EVENT_QUEUE_IDX: u16 = 2;
 
 pub(crate) const QUEUE_SIZE: usize = 8;
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
 
 /// The size in bytes of each buffer used in the RX virtqueue. This must be bigger than size_of::<VirtioVsockHdr>().
 const RX_BUFFER_SIZE: usize = 512;
@@ -241,12 +242,12 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
 impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        let mut negotiated_features = Feature::empty();
         transport.begin_init(|features| {
             let features = Feature::from_bits_truncate(features);
             debug!("Device features: {:?}", features);
-            // negotiate these flags only
-            let supported_features = Feature::empty();
-            (features & supported_features).bits()
+            negotiated_features = features & SUPPORTED_FEATURES;
+            negotiated_features.bits()
         });
 
         let config = transport.config_space::<VirtioVsockConfig>()?;
@@ -257,9 +258,24 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         };
         debug!("guest cid: {guest_cid:?}");
 
-        let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX, false)?;
-        let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX, false)?;
-        let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX, false)?;
+        let mut rx = VirtQueue::new(
+            &mut transport,
+            RX_QUEUE_IDX,
+            false,
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
+        )?;
+        let tx = VirtQueue::new(
+            &mut transport,
+            TX_QUEUE_IDX,
+            false,
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
+        )?;
+        let event = VirtQueue::new(
+            &mut transport,
+            EVENT_QUEUE_IDX,
+            false,
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
+        )?;
 
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];
