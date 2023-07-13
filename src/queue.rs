@@ -796,6 +796,7 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
     handler: impl FnOnce(Vec<u8>) -> Vec<u8>,
 ) {
     use core::{ops::Deref, slice};
+    use zerocopy::LayoutVerified;
 
     let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
     let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
@@ -811,38 +812,64 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
         let head_descriptor_index = (*available_ring).ring[next_slot as usize];
         let mut descriptor = &(*descriptors)[head_descriptor_index as usize];
 
-        // Loop through all input descriptors in the chain, reading data from them.
-        let mut input = Vec::new();
-        while !descriptor.flags.contains(DescFlags::WRITE) {
-            input.extend_from_slice(slice::from_raw_parts(
-                descriptor.addr as *const u8,
-                descriptor.len as usize,
-            ));
+        let input_length;
+        let output;
+        if descriptor.flags.contains(DescFlags::INDIRECT) {
+            // The descriptor shouldn't have any other flags if it is indirect.
+            assert_eq!(descriptor.flags, DescFlags::INDIRECT);
 
-            if let Some(next) = descriptor.next() {
-                descriptor = &(*descriptors)[next as usize];
-            } else {
-                break;
+            // Loop through all input descriptors in the indirect descriptor list, reading data from
+            // them.
+            let indirect_descriptor_list: &[Descriptor] = LayoutVerified::new_slice(
+                slice::from_raw_parts(descriptor.addr as *const u8, descriptor.len as usize),
+            )
+            .unwrap()
+            .into_slice();
+            let mut input = Vec::new();
+            let mut indirect_descriptor_index = 0;
+            while indirect_descriptor_index < indirect_descriptor_list.len() {
+                let indirect_descriptor = &indirect_descriptor_list[indirect_descriptor_index];
+                if indirect_descriptor.flags.contains(DescFlags::WRITE) {
+                    break;
+                }
+
+                input.extend_from_slice(slice::from_raw_parts(
+                    indirect_descriptor.addr as *const u8,
+                    indirect_descriptor.len as usize,
+                ));
+
+                indirect_descriptor_index += 1;
             }
-        }
-        let input_length = input.len();
+            input_length = input.len();
 
-        // Let the test handle the request.
-        let output = handler(input);
+            // Let the test handle the request.
+            output = handler(input);
 
-        // Write the response to the remaining descriptors.
-        let mut remaining_output = output.deref();
-        if descriptor.flags.contains(DescFlags::WRITE) {
-            loop {
-                assert!(descriptor.flags.contains(DescFlags::WRITE));
+            // Write the response to the remaining descriptors.
+            let mut remaining_output = output.deref();
+            while indirect_descriptor_index < indirect_descriptor_list.len() {
+                let indirect_descriptor = &indirect_descriptor_list[indirect_descriptor_index];
+                assert!(indirect_descriptor.flags.contains(DescFlags::WRITE));
 
-                let length_to_write = min(remaining_output.len(), descriptor.len as usize);
+                let length_to_write = min(remaining_output.len(), indirect_descriptor.len as usize);
                 ptr::copy(
                     remaining_output.as_ptr(),
-                    descriptor.addr as *mut u8,
+                    indirect_descriptor.addr as *mut u8,
                     length_to_write,
                 );
                 remaining_output = &remaining_output[length_to_write..];
+
+                indirect_descriptor_index += 1;
+            }
+            assert_eq!(remaining_output.len(), 0);
+        } else {
+            // Loop through all input descriptors in the chain, reading data from them.
+            let mut input = Vec::new();
+            while !descriptor.flags.contains(DescFlags::WRITE) {
+                input.extend_from_slice(slice::from_raw_parts(
+                    descriptor.addr as *const u8,
+                    descriptor.len as usize,
+                ));
 
                 if let Some(next) = descriptor.next() {
                     descriptor = &(*descriptors)[next as usize];
@@ -850,8 +877,34 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
                     break;
                 }
             }
+            input_length = input.len();
+
+            // Let the test handle the request.
+            output = handler(input);
+
+            // Write the response to the remaining descriptors.
+            let mut remaining_output = output.deref();
+            if descriptor.flags.contains(DescFlags::WRITE) {
+                loop {
+                    assert!(descriptor.flags.contains(DescFlags::WRITE));
+
+                    let length_to_write = min(remaining_output.len(), descriptor.len as usize);
+                    ptr::copy(
+                        remaining_output.as_ptr(),
+                        descriptor.addr as *mut u8,
+                        length_to_write,
+                    );
+                    remaining_output = &remaining_output[length_to_write..];
+
+                    if let Some(next) = descriptor.next() {
+                        descriptor = &(*descriptors)[next as usize];
+                    } else {
+                        break;
+                    }
+                }
+            }
+            assert_eq!(remaining_output.len(), 0);
         }
-        assert_eq!(remaining_output.len(), 0);
 
         // Mark the buffer as used.
         (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
