@@ -257,9 +257,9 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         };
         debug!("guest cid: {guest_cid:?}");
 
-        let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
-        let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
-        let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
+        let mut rx = VirtQueue::new(&mut transport, RX_QUEUE_IDX, false)?;
+        let tx = VirtQueue::new(&mut transport, TX_QUEUE_IDX, false)?;
+        let event = VirtQueue::new(&mut transport, EVENT_QUEUE_IDX, false)?;
 
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];

@@ -68,7 +68,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         info!("found a block device of size {}KB", capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, QUEUE)?;
+        let queue = VirtQueue::new(&mut transport, QUEUE, false)?;
         transport.finish_init();
 
         Ok(VirtIOBlk {

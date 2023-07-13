@@ -57,8 +57,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             );
         }
 
-        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
-        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR)?;
+        let control_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, false)?;
+        let cursor_queue = VirtQueue::new(&mut transport, QUEUE_CURSOR, false)?;
 
         let queue_buf_send = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
