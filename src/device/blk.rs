@@ -11,7 +11,9 @@ use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
-const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO.union(BlkFeature::FLUSH);
+const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
+    .union(BlkFeature::FLUSH)
+    .union(BlkFeature::RING_INDIRECT_DESC);
 
 /// Driver for a VirtIO block device.
 ///
@@ -68,7 +70,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         info!("found a block device of size {}KB", capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, QUEUE, false)?;
+        let queue = VirtQueue::new(
+            &mut transport,
+            QUEUE,
+            negotiated_features.contains(BlkFeature::RING_INDIRECT_DESC),
+        )?;
         transport.finish_init();
 
         Ok(VirtIOBlk {
