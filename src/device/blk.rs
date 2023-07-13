@@ -607,7 +607,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -677,7 +677,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -752,7 +752,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: BlkFeature::FLUSH.bits(),
+            device_features: (BlkFeature::RING_INDIRECT_DESC | BlkFeature::FLUSH).bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -819,7 +819,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
