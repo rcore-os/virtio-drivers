@@ -939,10 +939,16 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
 mod tests {
     use super::*;
     use crate::{
+        device::common::Feature,
         hal::fake::FakeHal,
-        transport::mmio::{MmioTransport, VirtIOHeader, MODERN_VERSION},
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            mmio::{MmioTransport, VirtIOHeader, MODERN_VERSION},
+            DeviceStatus, DeviceType,
+        },
     };
     use core::ptr::NonNull;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn invalid_queue_size() {
@@ -1110,5 +1116,81 @@ mod tests {
             assert_eq!((*indirect_descriptors)[3].len, 1);
             assert_eq!((*indirect_descriptors)[3].flags, DescFlags::WRITE);
         }
+    }
+
+    /// Tests that the queue notifies the device about added buffers, if it hasn't suppressed
+    /// notifications.
+    #[test]
+    fn add_notify() {
+        let mut config_space = ();
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default()],
+            ..Default::default()
+        }));
+        let mut transport = FakeTransport {
+            device_type: DeviceType::Block,
+            max_queue_size: 4,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+
+        // Add a buffer chain with a single device-readable part.
+        unsafe { queue.add(&[&[42]], &mut []) }.unwrap();
+
+        // Check that the transport would be notified.
+        assert_eq!(queue.should_notify(), true);
+
+        // SAFETY: the various parts of the queue are properly aligned, dereferenceable and
+        // initialised, and nothing else is accessing them at the same time.
+        unsafe {
+            // Suppress notifications.
+            (*queue.used.as_ptr()).flags = 0x01;
+        }
+
+        // Check that the transport would not be notified.
+        assert_eq!(queue.should_notify(), false);
+    }
+
+    /// Tests that the queue notifies the device about added buffers, if it hasn't suppressed
+    /// notifications with the `avail_event` index.
+    #[test]
+    fn add_notify_event_idx() {
+        let mut config_space = ();
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default()],
+            ..Default::default()
+        }));
+        let mut transport = FakeTransport {
+            device_type: DeviceType::Block,
+            max_queue_size: 4,
+            device_features: Feature::RING_EVENT_IDX.bits(),
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, true).unwrap();
+
+        // Add a buffer chain with a single device-readable part.
+        assert_eq!(unsafe { queue.add(&[&[42]], &mut []) }.unwrap(), 0);
+
+        // Check that the transport would be notified.
+        assert_eq!(queue.should_notify(), true);
+
+        // SAFETY: the various parts of the queue are properly aligned, dereferenceable and
+        // initialised, and nothing else is accessing them at the same time.
+        unsafe {
+            // Suppress notifications.
+            (*queue.used.as_ptr()).avail_event = 1;
+        }
+
+        // Check that the transport would not be notified.
+        assert_eq!(queue.should_notify(), false);
+
+        // Add another buffer chain.
+        assert_eq!(unsafe { queue.add(&[&[42]], &mut []) }.unwrap(), 1);
+
+        // Check that the transport should be notified again now.
+        assert_eq!(queue.should_notify(), true);
     }
 }
