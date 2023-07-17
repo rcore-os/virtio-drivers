@@ -566,7 +566,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RO.bits(),
             config_space: NonNull::from(&mut config_space),
@@ -599,7 +599,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
@@ -669,7 +669,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
@@ -744,7 +744,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::FLUSH.bits(),
             config_space: NonNull::from(&mut config_space),
@@ -811,7 +811,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
