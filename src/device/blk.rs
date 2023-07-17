@@ -538,7 +538,7 @@ mod tests {
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
-            DeviceStatus, DeviceType,
+            DeviceType,
         },
     };
     use alloc::{sync::Arc, vec};
@@ -562,14 +562,11 @@ mod tests {
             opt_io_size: Volatile::new(0),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RO.bits(),
             config_space: NonNull::from(&mut config_space),
@@ -598,14 +595,11 @@ mod tests {
             opt_io_size: Volatile::new(0),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
@@ -671,14 +665,11 @@ mod tests {
             opt_io_size: Volatile::new(0),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
@@ -749,14 +740,11 @@ mod tests {
             opt_io_size: Volatile::new(0),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::FLUSH.bits(),
             config_space: NonNull::from(&mut config_space),
@@ -819,14 +807,11 @@ mod tests {
             opt_io_size: Volatile::new(0),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Console,
+            device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: 0,
             config_space: NonNull::from(&mut config_space),

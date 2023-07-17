@@ -241,7 +241,7 @@ mod tests {
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
-            DeviceStatus, DeviceType,
+            DeviceType,
         },
     };
     use alloc::{sync::Arc, vec};
@@ -257,11 +257,8 @@ mod tests {
             emerg_wr: WriteOnly::default(),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
@@ -305,11 +302,8 @@ mod tests {
             emerg_wr: WriteOnly::default(),
         };
         let state = Arc::new(Mutex::new(State {
-            status: DeviceStatus::empty(),
-            driver_features: 0,
-            guest_page_size: 0,
-            interrupt_pending: false,
             queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
         }));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
