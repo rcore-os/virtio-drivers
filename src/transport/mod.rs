@@ -6,8 +6,9 @@ pub mod mmio;
 pub mod pci;
 
 use crate::{PhysAddr, Result, PAGE_SIZE};
-use bitflags::bitflags;
-use core::ptr::NonNull;
+use bitflags::{bitflags, Flags};
+use core::{fmt::Debug, ops::BitAnd, ptr::NonNull};
+use log::debug;
 
 /// A VirtIO transport layer.
 pub trait Transport {
@@ -64,17 +65,27 @@ pub trait Transport {
     /// Begins initializing the device.
     ///
     /// Ref: virtio 3.1.1 Device Initialization
-    fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) {
+    ///
+    /// Returns the negotiated set of features.
+    fn begin_init<F: Flags<Bits = u64> + BitAnd<Output = F> + Debug>(
+        &mut self,
+        supported_features: F,
+    ) -> F {
         self.set_status(DeviceStatus::empty());
         self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
 
-        let features = self.read_device_features();
-        self.write_driver_features(negotiate_features(features));
+        let device_features = F::from_bits_truncate(self.read_device_features());
+        debug!("Device features: {:?}", device_features);
+        let negotiated_features = device_features & supported_features;
+        self.write_driver_features(negotiated_features.bits());
+
         self.set_status(
             DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK,
         );
 
         self.set_guest_page_size(PAGE_SIZE as u32);
+
+        negotiated_features
     }
 
     /// Finishes initializing the device.

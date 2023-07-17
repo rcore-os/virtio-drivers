@@ -8,7 +8,6 @@ use crate::{Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::ptr::NonNull;
-use log::info;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -66,13 +65,7 @@ pub struct ConsoleInfo {
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let mut negotiated_features = Features::empty();
-        transport.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
         let config_space = transport.config_space::<Config>()?;
         let receiveq = VirtQueue::new(
             &mut transport,

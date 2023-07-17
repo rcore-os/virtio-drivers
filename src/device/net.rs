@@ -8,7 +8,7 @@ use crate::{Error, Result};
 use alloc::{vec, vec::Vec};
 use bitflags::bitflags;
 use core::{convert::TryInto, mem::size_of};
-use log::{debug, info, warn};
+use log::{debug, warn};
 use zerocopy::{AsBytes, FromBytes};
 
 const MAX_BUFFER_LEN: usize = 65535;
@@ -112,13 +112,7 @@ pub struct VirtIONet<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T, buf_len: usize) -> Result<Self> {
-        let mut negotiated_features = Features::empty();
-        transport.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
         // read configuration space
         let config = transport.config_space::<Config>()?;
         let mac;

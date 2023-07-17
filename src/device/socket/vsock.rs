@@ -242,13 +242,7 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
 impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let mut negotiated_features = Feature::empty();
-        transport.begin_init(|features| {
-            let features = Feature::from_bits_truncate(features);
-            debug!("Device features: {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         let config = transport.config_space::<VirtioVsockConfig>()?;
         debug!("config: {:?}", config);

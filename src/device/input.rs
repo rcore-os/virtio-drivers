@@ -8,7 +8,6 @@ use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
-use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -29,13 +28,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
 
-        let mut negotiated_features = Feature::empty();
-        transport.begin_init(|features| {
-            let features = Feature::from_bits_truncate(features);
-            info!("Device features: {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         let config = transport.config_space::<Config>()?;
 

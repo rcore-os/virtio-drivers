@@ -52,15 +52,7 @@ pub struct VirtIOBlk<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let mut negotiated_features = BlkFeature::empty();
-
-        transport.begin_init(|features| {
-            let features = BlkFeature::from_bits_truncate(features);
-            info!("device features: {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            // Negotiate these features only.
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // Read configuration space.
         let config = transport.config_space::<BlkConfig>()?;
