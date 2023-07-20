@@ -112,6 +112,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
     /// Add buffers to the virtqueue, return a token.
     ///
+    /// The buffers must not be empty.
+    ///
     /// Ref: linux virtio_ring.c virtqueue_add
     ///
     /// # Safety
@@ -135,6 +137,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let mut last = self.free_head;
 
         for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
+            assert_ne!(buffer.len(), 0);
+
             // Write to desc_shadow then copy.
             let desc = &mut self.desc_shadow[usize::from(self.free_head)];
             // Safe because our caller promises that the buffers live at least until `pop_used`
@@ -183,6 +187,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// them, then pops them.
     ///
     /// This assumes that the device isn't processing any other buffers at the same time.
+    ///
+    /// The buffers must not be empty.
     pub fn add_notify_wait_pop<'a>(
         &mut self,
         inputs: &'a [&'a [u8]],
@@ -281,6 +287,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let mut next = Some(head);
 
         for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
+            assert_ne!(buffer.len(), 0);
+
             let desc_index = next.expect("Descriptor chain was shorter than expected.");
             let desc = &mut self.desc_shadow[usize::from(desc_index)];
 

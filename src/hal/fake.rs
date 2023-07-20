@@ -43,6 +43,7 @@ unsafe impl Hal for FakeHal {
     }
 
     unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr {
+        assert_ne!(buffer.len(), 0);
         // To ensure that the driver is handling and unsharing buffers properly, allocate a new
         // buffer and copy to it if appropriate.
         let mut shared_buffer = u8::new_box_slice_zeroed(buffer.len());
@@ -60,6 +61,8 @@ unsafe impl Hal for FakeHal {
     }
 
     unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection) {
+        assert_ne!(buffer.len(), 0);
+        assert_ne!(paddr, 0);
         let vaddr = phys_to_virt(paddr);
         let shared_buffer = unsafe {
             Box::from_raw(ptr::slice_from_raw_parts_mut(

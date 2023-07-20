@@ -118,8 +118,8 @@ pub unsafe trait Hal {
     ///
     /// # Safety
     ///
-    /// The buffer must be a valid pointer to memory which will not be accessed by any other thread
-    /// for the duration of this method call.
+    /// The buffer must be a valid pointer to a non-empty memory range which will not be accessed by
+    /// any other thread for the duration of this method call.
     unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr;
 
     /// Unshares the given memory range from the device and (if necessary) copies it back to the
@@ -127,9 +127,9 @@ pub unsafe trait Hal {
     ///
     /// # Safety
     ///
-    /// The buffer must be a valid pointer to memory which will not be accessed by any other thread
-    /// for the duration of this method call. The `paddr` must be the value previously returned by
-    /// the corresponding `share` call.
+    /// The buffer must be a valid pointer to a non-empty memory range which will not be accessed by
+    /// any other thread for the duration of this method call. The `paddr` must be the value
+    /// previously returned by the corresponding `share` call.
     unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection);
 }
 
