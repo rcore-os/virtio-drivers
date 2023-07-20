@@ -243,11 +243,21 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     /// completed.
     pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
         let header = VirtioNetHdr::default();
-        self.send_queue.add_notify_wait_pop(
-            &[header.as_bytes(), tx_buf.packet()],
-            &mut [],
-            &mut self.transport,
-        )?;
+        if tx_buf.packet_len() == 0 {
+            // Special case sending an empty packet, to avoid adding an empty buffer to the
+            // virtqueue.
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes()],
+                &mut [],
+                &mut self.transport,
+            )?;
+        } else {
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes(), tx_buf.packet()],
+                &mut [],
+                &mut self.transport,
+            )?;
+        }
         Ok(())
     }
 }
