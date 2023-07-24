@@ -38,8 +38,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
         let config = transport.config_space::<Config>()?;
 
-        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT)?;
-        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS)?;
+        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT, false)?;
+        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, false)?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };

@@ -139,8 +139,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             return Err(Error::InvalidParam);
         }
 
-        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
-        let mut recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
+        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, false)?;
+        let mut recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, false)?;
 
         const NONE_BUF: Option<RxBuffer> = None;
         let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];

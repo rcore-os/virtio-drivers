@@ -11,7 +11,9 @@ use zerocopy::{AsBytes, FromBytes};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
-const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO.union(BlkFeature::FLUSH);
+const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
+    .union(BlkFeature::FLUSH)
+    .union(BlkFeature::RING_INDIRECT_DESC);
 
 /// Driver for a VirtIO block device.
 ///
@@ -68,7 +70,11 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         };
         info!("found a block device of size {}KB", capacity / 2);
 
-        let queue = VirtQueue::new(&mut transport, QUEUE)?;
+        let queue = VirtQueue::new(
+            &mut transport,
+            QUEUE,
+            negotiated_features.contains(BlkFeature::RING_INDIRECT_DESC),
+        )?;
         transport.finish_init();
 
         Ok(VirtIOBlk {
@@ -601,7 +607,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -671,7 +677,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -746,7 +752,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: BlkFeature::FLUSH.bits(),
+            device_features: (BlkFeature::RING_INDIRECT_DESC | BlkFeature::FLUSH).bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
@@ -813,7 +819,7 @@ mod tests {
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
-            device_features: 0,
+            device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };

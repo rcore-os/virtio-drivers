@@ -72,8 +72,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             (features & supported_features).bits()
         });
         let config_space = transport.config_space::<Config>()?;
-        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0)?;
-        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0)?;
+        let receiveq = VirtQueue::new(&mut transport, QUEUE_RECEIVEQ_PORT_0, false)?;
+        let transmitq = VirtQueue::new(&mut transport, QUEUE_TRANSMITQ_PORT_0, false)?;
 
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
         // dereferenceable, and the lifetime of the reference matches the lifetime of the DMA buffer
