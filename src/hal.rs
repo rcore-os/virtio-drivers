@@ -13,7 +13,7 @@ pub struct Dma<H: Hal> {
     paddr: usize,
     vaddr: NonNull<u8>,
     pages: usize,
-    _phantom: PhantomData<H>,
+    _hal: PhantomData<H>,
 }
 
 impl<H: Hal> Dma<H> {
@@ -30,7 +30,7 @@ impl<H: Hal> Dma<H> {
             paddr,
             vaddr,
             pages,
-            _phantom: PhantomData::default(),
+            _hal: PhantomData,
         })
     }
 
