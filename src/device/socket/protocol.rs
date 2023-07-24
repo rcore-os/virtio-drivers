@@ -12,6 +12,9 @@ use zerocopy::{
     AsBytes, FromBytes,
 };
 
+/// Well-known CID for the host.
+pub const VMADDR_CID_HOST: u64 = 2;
+
 /// Currently only stream sockets are supported. type is 1 for stream socket types.
 #[derive(Copy, Clone, Debug)]
 #[repr(u16)]
