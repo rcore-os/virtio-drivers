@@ -36,8 +36,8 @@ const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
 ///
 /// // Read sector 0 and then copy it to sector 1.
 /// let mut buf = [0; SECTOR_SIZE];
-/// disk.read_block(0, &mut buf)?;
-/// disk.write_block(1, &buf)?;
+/// disk.read_blocks(0, &mut buf)?;
+/// disk.write_blocks(1, &buf)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -166,11 +166,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(length)
     }
 
-    /// Reads a block into the given buffer.
+    /// Reads one or more blocks into the given buffer.
+    ///
+    /// The buffer length must be a non-zero multiple of [`SECTOR_SIZE`].
     ///
     /// Blocks until the read completes or there is an error.
-    pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
-        assert_eq!(buf.len(), SECTOR_SIZE);
+    pub fn read_blocks(&mut self, block_id: usize, buf: &mut [u8]) -> Result {
+        assert_ne!(buf.len(), 0);
+        assert_eq!(buf.len() % SECTOR_SIZE, 0);
         self.request_read(
             BlkReq {
                 type_: ReqType::In,
@@ -181,16 +184,16 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         )
     }
 
-    /// Submits a request to read a block, but returns immediately without waiting for the read to
-    /// complete.
+    /// Submits a request to read one or more blocks, but returns immediately without waiting for
+    /// the read to complete.
     ///
     /// # Arguments
     ///
-    /// * `block_id` - The identifier of the block to read.
+    /// * `block_id` - The identifier of the first block to read.
     /// * `req` - A buffer which the driver can use for the request to send to the device. The
-    ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
-    ///   call.
+    ///   contents don't matter as `read_blocks_nb` will initialise it, but like the other buffers
+    ///   it needs to be valid (and not otherwise used) until the corresponding
+    ///   `complete_read_blocks` call. Its length must be a non-zero multiple of [`SECTOR_SIZE`].
     /// * `buf` - The buffer in memory into which the block should be read.
     /// * `resp` - A mutable reference to a variable provided by the caller
     ///   to contain the status of the request. The caller can safely
@@ -203,7 +206,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Descriptors to allocate, then it returns [`Error::QueueFull`].
     ///
     /// The caller can then call `peek_used` with the returned token to check whether the device has
-    /// finished handling the request. Once it has, the caller must call `complete_read_block` with
+    /// finished handling the request. Once it has, the caller must call `complete_read_blocks` with
     /// the same buffers before reading the response.
     ///
     /// ```
@@ -216,13 +219,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// let mut request = BlkReq::default();
     /// let mut buffer = [0; 512];
     /// let mut response = BlkResp::default();
-    /// let token = unsafe { blk.read_block_nb(42, &mut request, &mut buffer, &mut response) }?;
+    /// let token = unsafe { blk.read_blocks_nb(42, &mut request, &mut buffer, &mut response) }?;
     ///
     /// // Wait for an interrupt to tell us that the request completed...
     /// assert_eq!(blk.peek_used(), Some(token));
     ///
     /// unsafe {
-    ///   blk.complete_read_block(token, &request, &mut buffer, &mut response)?;
+    ///   blk.complete_read_blocks(token, &request, &mut buffer, &mut response)?;
     /// }
     /// if response.status() == RespStatus::OK {
     ///   println!("Successfully read block.");
@@ -238,14 +241,15 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// `req`, `buf` and `resp` are still borrowed by the underlying VirtIO block device even after
     /// this method returns. Thus, it is the caller's responsibility to guarantee that they are not
     /// accessed before the request is completed in order to avoid data races.
-    pub unsafe fn read_block_nb(
+    pub unsafe fn read_blocks_nb(
         &mut self,
         block_id: usize,
         req: &mut BlkReq,
         buf: &mut [u8],
         resp: &mut BlkResp,
     ) -> Result<u16> {
-        assert_eq!(buf.len(), SECTOR_SIZE);
+        assert_ne!(buf.len(), 0);
+        assert_eq!(buf.len() % SECTOR_SIZE, 0);
         *req = BlkReq {
             type_: ReqType::In,
             reserved: 0,
@@ -260,13 +264,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(token)
     }
 
-    /// Completes a read operation which was started by `read_block_nb`.
+    /// Completes a read operation which was started by `read_blocks_nb`.
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to `read_block_nb` when it returned
+    /// The same buffers must be passed in again as were passed to `read_blocks_nb` when it returned
     /// the token.
-    pub unsafe fn complete_read_block(
+    pub unsafe fn complete_read_blocks(
         &mut self,
         token: u16,
         req: &BlkReq,
@@ -278,11 +282,14 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         resp.status.into()
     }
 
-    /// Writes the contents of the given buffer to a block.
+    /// Writes the contents of the given buffer to a block or blocks.
+    ///
+    /// The buffer length must be a non-zero multiple of [`SECTOR_SIZE`].
     ///
     /// Blocks until the write is complete or there is an error.
-    pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> Result {
-        assert_eq!(buf.len(), SECTOR_SIZE);
+    pub fn write_blocks(&mut self, block_id: usize, buf: &[u8]) -> Result {
+        assert_ne!(buf.len(), 0);
+        assert_eq!(buf.len() % SECTOR_SIZE, 0);
         self.request_write(
             BlkReq {
                 type_: ReqType::Out,
@@ -293,36 +300,38 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         )
     }
 
-    /// Submits a request to write a block, but returns immediately without waiting for the write to
-    /// complete.
+    /// Submits a request to write one or more blocks, but returns immediately without waiting for
+    /// the write to complete.
     ///
     /// # Arguments
     ///
-    /// * `block_id` - The identifier of the block to write.
+    /// * `block_id` - The identifier of the first block to write.
     /// * `req` - A buffer which the driver can use for the request to send to the device. The
-    ///   contents don't matter as `read_block_nb` will initialise it, but like the other buffers it
-    ///   needs to be valid (and not otherwise used) until the corresponding `complete_read_block`
-    ///   call.
-    /// * `buf` - The buffer in memory containing the data to write to the block.
+    ///   contents don't matter as `read_blocks_nb` will initialise it, but like the other buffers
+    ///   it needs to be valid (and not otherwise used) until the corresponding
+    ///   `complete_write_blocks` call.
+    /// * `buf` - The buffer in memory containing the data to write to the blocks. Its length must
+    ///   be a non-zero multiple of [`SECTOR_SIZE`].
     /// * `resp` - A mutable reference to a variable provided by the caller
     ///   to contain the status of the request. The caller can safely
     ///   read the variable only after the request is complete.
     ///
     /// # Usage
     ///
-    /// See [VirtIOBlk::read_block_nb].
+    /// See [VirtIOBlk::read_blocks_nb].
     ///
     /// # Safety
     ///
-    /// See  [VirtIOBlk::read_block_nb].
-    pub unsafe fn write_block_nb(
+    /// See  [VirtIOBlk::read_blocks_nb].
+    pub unsafe fn write_blocks_nb(
         &mut self,
         block_id: usize,
         req: &mut BlkReq,
         buf: &[u8],
         resp: &mut BlkResp,
     ) -> Result<u16> {
-        assert_eq!(buf.len(), SECTOR_SIZE);
+        assert_ne!(buf.len(), 0);
+        assert_eq!(buf.len() % SECTOR_SIZE, 0);
         *req = BlkReq {
             type_: ReqType::Out,
             reserved: 0,
@@ -337,13 +346,13 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         Ok(token)
     }
 
-    /// Completes a write operation which was started by `write_block_nb`.
+    /// Completes a write operation which was started by `write_blocks_nb`.
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to `write_block_nb` when it returned
-    /// the token.
-    pub unsafe fn complete_write_block(
+    /// The same buffers must be passed in again as were passed to `write_blocks_nb` when it
+    /// returned the token.
+    pub unsafe fn complete_write_blocks(
         &mut self,
         token: u16,
         req: &BlkReq,
@@ -648,7 +657,7 @@ mod tests {
 
         // Read a block from the device.
         let mut buffer = [0; 512];
-        blk.read_block(42, &mut buffer).unwrap();
+        blk.read_blocks(42, &mut buffer).unwrap();
         assert_eq!(&buffer[0..9], b"Test data");
 
         handle.join().unwrap();
@@ -721,7 +730,7 @@ mod tests {
         // Write a block to the device.
         let mut buffer = [0; 512];
         buffer[0..9].copy_from_slice(b"Test data");
-        blk.write_block(42, &mut buffer).unwrap();
+        blk.write_blocks(42, &mut buffer).unwrap();
 
         // Request to flush should be ignored as the device doesn't support it.
         blk.flush().unwrap();

@@ -80,8 +80,8 @@ fn virtio_blk<T: Transport>(transport: T) {
         for x in input.iter_mut() {
             *x = i as u8;
         }
-        blk.write_block(i, &input).expect("failed to write");
-        blk.read_block(i, &mut output).expect("failed to read");
+        blk.write_blocks(i, &input).expect("failed to write");
+        blk.read_blocks(i, &mut output).expect("failed to read");
         assert_eq!(input, output);
     }
     info!("virtio-blk test finished");
