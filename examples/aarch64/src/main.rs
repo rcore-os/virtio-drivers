@@ -30,7 +30,9 @@ use virtio_drivers::{
         blk::VirtIOBlk,
         console::VirtIOConsole,
         gpu::VirtIOGpu,
-        socket::{VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType},
+        socket::{
+            VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType, VMADDR_CID_HOST,
+        },
     },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
@@ -207,10 +209,9 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     let mut socket = VsockConnectionManager::new(
         VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver"),
     );
-    let host_cid = 2;
     let port = 1221;
     let host_address = VsockAddr {
-        cid: host_cid,
+        cid: VMADDR_CID_HOST,
         port,
     };
     info!("Connecting to host on port {port}...");
