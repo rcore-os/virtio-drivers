@@ -8,7 +8,7 @@ use crate::{Error, Result};
 use alloc::{vec, vec::Vec};
 use bitflags::bitflags;
 use core::{convert::TryInto, mem::size_of};
-use log::{debug, info, warn};
+use log::{debug, warn};
 use zerocopy::{AsBytes, FromBytes};
 
 const MAX_BUFFER_LEN: usize = 65535;
@@ -112,12 +112,7 @@ pub struct VirtIONet<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T, buf_len: usize) -> Result<Self> {
-        transport.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            let supported_features = Features::MAC | Features::STATUS;
-            (features & supported_features).bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
         // read configuration space
         let config = transport.config_space::<Config>()?;
         let mac;
@@ -139,8 +134,18 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             return Err(Error::InvalidParam);
         }
 
-        let send_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT, false)?;
-        let mut recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE, false)?;
+        let send_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_TRANSMIT,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
+        let mut recv_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_RECEIVE,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
 
         const NONE_BUF: Option<RxBuffer> = None;
         let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];
@@ -403,3 +408,6 @@ impl GsoType {
 
 const QUEUE_RECEIVE: u16 = 0;
 const QUEUE_TRANSMIT: u16 = 1;
+const SUPPORTED_FEATURES: Features = Features::MAC
+    .union(Features::STATUS)
+    .union(Features::RING_EVENT_IDX);

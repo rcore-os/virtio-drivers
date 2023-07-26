@@ -13,7 +13,8 @@ const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
 const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
     .union(BlkFeature::FLUSH)
-    .union(BlkFeature::RING_INDIRECT_DESC);
+    .union(BlkFeature::RING_INDIRECT_DESC)
+    .union(BlkFeature::RING_EVENT_IDX);
 
 /// Driver for a VirtIO block device.
 ///
@@ -51,15 +52,7 @@ pub struct VirtIOBlk<H: Hal, T: Transport> {
 impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let mut negotiated_features = BlkFeature::empty();
-
-        transport.begin_init(|features| {
-            let features = BlkFeature::from_bits_truncate(features);
-            info!("device features: {:?}", features);
-            negotiated_features = features & SUPPORTED_FEATURES;
-            // Negotiate these features only.
-            negotiated_features.bits()
-        });
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // Read configuration space.
         let config = transport.config_space::<BlkConfig>()?;
@@ -74,6 +67,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             &mut transport,
             QUEUE,
             negotiated_features.contains(BlkFeature::RING_INDIRECT_DESC),
+            negotiated_features.contains(BlkFeature::RING_EVENT_IDX),
         )?;
         transport.finish_init();
 

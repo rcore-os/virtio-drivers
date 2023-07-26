@@ -8,7 +8,6 @@ use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
-use log::info;
 use zerocopy::{AsBytes, FromBytes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -28,18 +27,23 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
-        transport.begin_init(|features| {
-            let features = Feature::from_bits_truncate(features);
-            info!("Device features: {:?}", features);
-            // negotiate these flags only
-            let supported_features = Feature::empty();
-            (features & supported_features).bits()
-        });
+
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         let config = transport.config_space::<Config>()?;
 
-        let mut event_queue = VirtQueue::new(&mut transport, QUEUE_EVENT, false)?;
-        let status_queue = VirtQueue::new(&mut transport, QUEUE_STATUS, false)?;
+        let mut event_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_EVENT,
+            false,
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
+        )?;
+        let status_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_STATUS,
+            false,
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
+        )?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };
@@ -193,6 +197,7 @@ pub struct InputEvent {
 
 const QUEUE_EVENT: u16 = 0;
 const QUEUE_STATUS: u16 = 1;
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
 
 // a parameter that can change
 const QUEUE_SIZE: usize = 32;
