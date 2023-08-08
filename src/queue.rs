@@ -944,7 +944,7 @@ mod tests {
         transport::{
             fake::{FakeTransport, QueueStatus, State},
             mmio::{MmioTransport, VirtIOHeader, MODERN_VERSION},
-            DeviceStatus, DeviceType,
+            DeviceType,
         },
     };
     use core::ptr::NonNull;
