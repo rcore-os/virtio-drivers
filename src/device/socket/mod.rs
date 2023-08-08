@@ -7,16 +7,16 @@
 //!
 //! See [`VsockConnectionManager`] for a usage example.
 
-mod error;
 #[cfg(feature = "alloc")]
-mod multiconnectionmanager;
+mod connectionmanager;
+mod error;
 mod protocol;
 #[cfg(feature = "alloc")]
 mod vsock;
 
-pub use error::SocketError;
 #[cfg(feature = "alloc")]
-pub use multiconnectionmanager::VsockConnectionManager;
+pub use connectionmanager::VsockConnectionManager;
+pub use error::SocketError;
 pub use protocol::{VsockAddr, VMADDR_CID_HOST};
 #[cfg(feature = "alloc")]
 pub use vsock::{DisconnectReason, VirtIOSocket, VsockEvent, VsockEventType};
