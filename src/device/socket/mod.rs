@@ -2,8 +2,8 @@
 //!
 //! To use the driver, you should first create a [`VirtIOSocket`] instance with your VirtIO
 //! transport, and then create a [`VsockConnectionManager`] wrapping it to keep track of
-//! connections. If you only want to have a single outgoing vsock connection at once, you can use
-//! [`SingleConnectionManager`] for a slightly simpler interface.
+//! connections. If you want to manage connections yourself you can use the `VirtIOSocket` directly
+//! for a lower-level interface.
 //!
 //! See [`VsockConnectionManager`] for a usage example.
 
