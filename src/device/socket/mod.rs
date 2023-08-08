@@ -12,15 +12,11 @@ mod error;
 mod multiconnectionmanager;
 mod protocol;
 #[cfg(feature = "alloc")]
-mod singleconnectionmanager;
-#[cfg(feature = "alloc")]
 mod vsock;
 
 pub use error::SocketError;
 #[cfg(feature = "alloc")]
 pub use multiconnectionmanager::VsockConnectionManager;
 pub use protocol::{VsockAddr, VMADDR_CID_HOST};
-#[cfg(feature = "alloc")]
-pub use singleconnectionmanager::SingleConnectionManager;
 #[cfg(feature = "alloc")]
 pub use vsock::{DisconnectReason, VirtIOSocket, VsockEvent, VsockEventType};
