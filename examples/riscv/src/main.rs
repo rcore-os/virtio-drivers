@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![deny(warnings)]
-
+#![allow(warnings, unused)]
 #[macro_use]
 extern crate log;
 
@@ -83,9 +83,9 @@ fn virtio_probe(node: FdtNode) {
 fn virtio_device(transport: impl Transport) {
     match transport.device_type() {
         DeviceType::Block => virtio_blk(transport),
-        DeviceType::GPU => virtio_gpu(transport),
-        DeviceType::Input => virtio_input(transport),
-        DeviceType::Network => virtio_net(transport),
+        // DeviceType::GPU => virtio_gpu(transport),
+        // DeviceType::Input => virtio_input(transport),
+        // DeviceType::Network => virtio_net(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }

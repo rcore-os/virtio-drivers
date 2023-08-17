@@ -1,8 +1,8 @@
 //! Driver for VirtIO network devices.
 
 use crate::hal::Hal;
+use crate::queue::split_queue::SplitQueue;
 use crate::transport::Transport;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly};
 use crate::{Error, Result};
 use alloc::{vec, vec::Vec};
@@ -155,7 +155,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
             *rx_buf_place = Some(rx_buf);
         }
 
-        if recv_queue.should_notify_old() {
+        if recv_queue.should_notify(false) {
             transport.notify(QUEUE_RECEIVE);
         }
 
@@ -231,7 +231,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
         }
         rx_buf.idx = new_token;
         self.rx_buffers[new_token as usize] = Some(rx_buf);
-        if self.recv_queue.should_notify_old() {
+        if self.recv_queue.should_notify(false) {
             self.transport.notify(QUEUE_RECEIVE);
         }
         Ok(())
@@ -246,10 +246,11 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     /// completed.
     pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
         let header = VirtioNetHdr::default();
-        self.send_queue.add_notify_wait_pop_old(
+        self.send_queue.add_notify_wait_pop(
             &[header.as_bytes(), tx_buf.packet()],
             &mut [],
             &mut self.transport,
+            false,
         )?;
         Ok(())
     }

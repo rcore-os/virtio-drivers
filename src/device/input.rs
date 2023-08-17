@@ -2,8 +2,8 @@
 
 use super::common::Feature;
 use crate::hal::Hal;
+use crate::queue::split_queue::SplitQueue;
 use crate::transport::Transport;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
@@ -48,7 +48,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };
             assert_eq!(token, i as u16);
         }
-        if event_queue.should_notify_old() {
+        if event_queue.should_notify(false) {
             transport.notify(QUEUE_EVENT);
         }
 
@@ -88,7 +88,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
                 // was just freed by `pop_used`.
                 assert_eq!(new_token, token);
-                if self.event_queue.should_notify_old() {
+                if self.event_queue.should_notify(false) {
                     self.transport.notify(QUEUE_EVENT);
                 }
                 return Some(event_saved);

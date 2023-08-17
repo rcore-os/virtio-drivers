@@ -3,7 +3,7 @@
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     align_up,
-    virtio_queue::split_queue::Descriptor,
+    queue::split_queue::Descriptor,
     volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
     Error, PhysAddr, PAGE_SIZE,
 };

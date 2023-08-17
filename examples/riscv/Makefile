@@ -77,8 +77,20 @@ qemu: kernel $(img)
 		-device virtio-net-device,netdev=net0 \
 		-netdev user,id=net0,hostfwd=tcp::5555-:5555
 
+qemu-blk: kernel $(img)
+	qemu-system-$(arch) \
+	  $(QEMU_ARGS) \
+		-machine virt \
+		-serial mon:stdio \
+		-bios default \
+		-kernel $(kernel) \
+		-global virtio-mmio.force-legacy=false \
+		-drive file=$(img),if=none,format=raw,id=x0 \
+		-device virtio-blk-device,packed=on,drive=x0
 
 $(img):
 	dd if=/dev/zero of=$@ bs=512 count=32
 
-run: build qemu-legacy qemu
+# run: build qemu-legacy qemu
+run: build qemu-blk
+

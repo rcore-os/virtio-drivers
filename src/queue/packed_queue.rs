@@ -1,17 +1,16 @@
-extern crate alloc;
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{nonnull_slice_from_raw_parts, pages, Error, Result};
-use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::array;
 use core::hint::spin_loop;
 use core::mem::{size_of, take};
 use core::ptr::NonNull;
 use core::sync::atomic::{fence, Ordering};
 use log::info;
 use zerocopy::FromBytes;
-// use log::{debug, info};
 
 pub struct PackedQueue<H: Hal, const SIZE: usize> {
     /// DMA guard
@@ -24,7 +23,7 @@ pub struct PackedQueue<H: Hal, const SIZE: usize> {
     /// it.
     desc: NonNull<[Descriptor]>,
 
-    indirect_desc_vec: Vec<Option<Dma<H>>>,
+    indirect_desc_vec: [Option<Dma<H>>; SIZE],
     driver_event_suppression: NonNull<PvirtqEventSuppress>,
     device_event_suppression: NonNull<PvirtqEventSuppress>,
 
@@ -72,11 +71,8 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
             layout.device_area_paddr(),
         );
 
-        let mut indirect_desc_vec = Vec::<Option<Dma<H>>>::with_capacity(SIZE);
-        info!("SIZE = {}", SIZE);
-        for _ in 0..SIZE {
-            indirect_desc_vec.push(None);
-        }
+        let mut indirect_desc_vec = array::from_fn(|i| None);
+
         let desc =
             nonnull_slice_from_raw_parts(layout.descriptors_vaddr().cast::<Descriptor>(), SIZE);
         let driver_event_suppression = layout.driver_event_suppression_vaddr().cast();
@@ -135,6 +131,31 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
                 self.used_wrap_count ^= true;
             }
             self.last_used_idx = next;
+
+            // Release indirect descriptors
+            let size_indirect_descs = size_of::<Descriptor>() * (inputs.len() + outputs.len());
+            let indirect_descs = nonnull_slice_from_raw_parts(
+                self.indirect_desc_vec[head as usize]
+                    .as_ref()
+                    .unwrap()
+                    .vaddr(0)
+                    .cast::<Descriptor>(),
+                size_indirect_descs,
+            );
+
+            let mut indirect_desc_index = 0 as usize;
+            for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
+                // let desc = &mut self.indirect_descs[usize::from(indirect_desc_index)];
+                let paddr = unsafe { (*indirect_descs.as_ptr())[indirect_desc_index].addr };
+
+                // Safe because the caller ensures that the buffer is valid and matches the
+                // descriptor from which we got `paddr`.
+                unsafe {
+                    // Unshare the buffer (and perhaps copy its contents back to the original buffer).
+                    H::unshare(paddr as usize, buffer, direction);
+                }
+                indirect_desc_index += 1;
+            }
         } else {
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 let desc_index = next;
@@ -161,38 +182,6 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
             }
         }
         len
-    }
-
-    // TODO: will be deleted in the further
-    /// queue by `add`.
-    unsafe fn recycle_descriptors_sync<'a>(&mut self, head: u16) -> usize {
-        // let original_free_head = self.free_head;
-        let mut next = head;
-        let mut len = 0;
-
-        loop {
-            let desc_index = next;
-            let desc: &mut Descriptor = &mut self.desc_shadow[usize::from(desc_index)];
-
-            let id = desc.id;
-            desc.unset_buf();
-            self.num_used = self.num_used.wrapping_sub(1);
-            let old_next = next;
-            next += 1;
-            if next == SIZE as u16 {
-                next = 0;
-                self.used_wrap_count ^= true;
-            }
-
-            self.write_desc(desc_index);
-            len += 1;
-            self.last_used_idx = next;
-
-            if id == head || old_next == head {
-                break;
-            }
-        }
-        return len;
     }
 
     /// Copies the descriptor at the given index from `desc_shadow` to `desc`, so it can be seen by
@@ -244,8 +233,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         let mut first_flags = DescFlags::empty();
 
         if self.indirect_desc && desc_nr_needed > 1 {
-            let size_indirect_descs =
-                size_of::<Descriptor>() * (inputs.len() + outputs.len()) as usize;
+            let size_indirect_descs = size_of::<Descriptor>() * (inputs.len() + outputs.len());
             let indirect_descs_dma =
                 Dma::<H>::new(pages(size_indirect_descs), BufferDirection::DriverToDevice)?;
             let indirect_descs = nonnull_slice_from_raw_parts(
@@ -257,11 +245,12 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
             let mut index = 0;
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 // Write to desc_shadow then copy.
-                let mut desc = Descriptor::new();
-                // let flag = self.avail_used_flags;
+                let mut desc = Descriptor::default();
                 let flag = DescFlags::empty();
 
-                desc.set_buf::<H>(buffer, direction, flag);
+                unsafe {
+                    desc.set_buf::<H>(buffer, direction, flag);
+                }
                 unsafe {
                     (*indirect_descs.as_ptr())[index] = desc;
                 }
@@ -274,11 +263,13 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
                 )
             };
             let desc = &mut self.desc_shadow[usize::from(self.free_head)];
-            desc.set_buf::<H>(
-                indirect_descs.into(),
-                BufferDirection::DriverToDevice,
-                DescFlags::empty(),
-            );
+            unsafe {
+                desc.set_buf::<H>(
+                    indirect_descs.into(),
+                    BufferDirection::DriverToDevice,
+                    DescFlags::empty(),
+                );
+            }
             last = self.free_head;
             self.free_head += 1;
             first_flags |= self.avail_used_flags;
@@ -303,7 +294,10 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
                 } else {
                     first_flags |= self.avail_used_flags;
                 }
-                desc.set_buf::<H>(buffer, direction, flags);
+                unsafe {
+                    desc.set_buf::<H>(buffer, direction, flags);
+                }
+
                 last = self.free_head;
                 self.free_head += 1;
 
@@ -318,14 +312,14 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
             self.num_used += (inputs.len() + outputs.len()) as u16;
         }
         // set last_elem.next = NULL
-        // 将last desc_shadow 的flag中的NEXT位置为0，然后往desc中写一遍
         self.desc_shadow[usize::from(last)].id = id;
         self.desc_shadow[usize::from(last)]
             .flags
             .remove(DescFlags::VIRTQ_DESC_F_NEXT);
         self.write_desc(last);
-        self.desc_shadow[usize::from(id)].flags.insert(first_flags);
 
+        // Let the new request visible to the device
+        self.desc_shadow[usize::from(id)].flags.insert(first_flags);
         // Write barrier so that device sees changes to descriptor table and available ring before
         // change to available index.
         // The driver performs a suitable memory barrier to ensure the device sees the updated descriptor table and available ring before the next step.
@@ -476,7 +470,12 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
     }
 
     /// queue by `add` when it returned the token being passed in here.
-    pub unsafe fn pop_used_async<'a>(&mut self, token: u16) -> Result<u32> {
+    pub unsafe fn pop_used_async<'a>(
+        &mut self,
+        token: u16,
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
+    ) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
         }
@@ -487,7 +486,7 @@ impl<H: Hal, const SIZE: usize> PackedQueue<H, SIZE> {
         let len;
 
         // Safe because the caller ensures the buffers are valid and match the descriptor.
-        len = unsafe { self.recycle_descriptors_sync(index) };
+        len = unsafe { self.recycle_descriptors(index, inputs, outputs) };
         // self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         Ok(len as u32)
@@ -552,7 +551,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Debug, FromBytes)]
+#[derive(Clone, Debug, FromBytes, Default)]
 pub(crate) struct Descriptor {
     /// Buffer Address
     addr: u64,
@@ -578,7 +577,9 @@ impl Descriptor {
         direction: BufferDirection,
         extra_flags: DescFlags,
     ) {
-        self.addr = H::share(buf, direction) as u64;
+        unsafe {
+            self.addr = H::share(buf, direction) as u64;
+        }
         self.len = buf.len() as u32;
 
         // If buffer is device-writable, set d.flags to VIRTQ_DESC_F_WRITE, otherwise 0.
@@ -590,15 +591,6 @@ impl Descriptor {
                     panic!("Buffer passed to device should never use BufferDirection::Both.")
                 }
             };
-    }
-
-    fn new() -> Self {
-        Self {
-            addr: 0,
-            len: 0,
-            id: 0,
-            flags: DescFlags::empty(),
-        }
     }
 
     /// Sets the buffer address and length to 0.

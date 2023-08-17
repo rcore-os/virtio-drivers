@@ -1,6 +1,6 @@
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
-    virtio_queue::split_queue::{fake_read_write_queue, Descriptor},
+    queue::split_queue::{fake_read_write_queue, Descriptor},
     PhysAddr, Result,
 };
 use alloc::{sync::Arc, vec::Vec};

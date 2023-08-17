@@ -1,8 +1,8 @@
 //! Driver for VirtIO console devices.
 
 use crate::hal::Hal;
+use crate::queue::split_queue::SplitQueue;
 use crate::transport::Transport;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};
 use alloc::boxed::Box;
@@ -65,7 +65,7 @@ pub struct ConsoleInfo {
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        // TODO:
+        // TODO: If the device does not support indirect descriptors, this parameter will be set to false, and vice versa.
         let indirect_desc = false;
 
         transport.begin_init(|features| {
@@ -123,7 +123,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
                 self.receiveq
                     .add(&[], &mut [self.queue_buf_rx.as_mut_slice()])
             }?);
-            if self.receiveq.should_notify_old() {
+            if self.receiveq.should_notify(false) {
                 self.transport.notify(QUEUE_RECEIVEQ_PORT_0);
             }
         }
@@ -190,7 +190,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     pub fn send(&mut self, chr: u8) -> Result<()> {
         let buf: [u8; 1] = [chr];
         self.transmitq
-            .add_notify_wait_pop_old(&[&buf], &mut [], &mut self.transport)?;
+            .add_notify_wait_pop(&[&buf], &mut [], &mut self.transport, false)?;
         Ok(())
     }
 }

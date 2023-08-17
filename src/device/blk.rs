@@ -2,8 +2,8 @@
 extern crate alloc;
 
 use crate::hal::Hal;
+use crate::queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
 use crate::transport::Transport;
-use crate::virtio_queue::{packed_queue::PackedQueue, split_queue::SplitQueue, VirtQueue};
 use crate::volatile::{volread, Volatile};
 use crate::NonNull;
 use crate::{Error, Result};
@@ -98,7 +98,6 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
             debug!("===__===");
         }
 
-        // let queue = VirtQueue::new(&mut transport, QUEUE)?;
         let queue;
         if features_neg.contains(BlkFeature::VIRTIO_F_RING_PACKED) {
             queue = VirtQueue::Packedqueue(PackedQueue::<H, { QUEUE_SIZE as usize }>::new(
@@ -259,8 +258,16 @@ impl<'a, H: Hal, T: Transport> VirtIOBlk<H, T> {
 
     /// pop used  
     // TODO: will be deleted in the further
-    pub unsafe fn pop_used_async(&mut self, token: u16) -> Result<u32> {
-        self.inner.lock().queue.pop_used_async(token)
+    pub unsafe fn pop_used_async(
+        &mut self,
+        token: u16,
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
+    ) -> Result<u32> {
+        self.inner
+            .lock()
+            .queue
+            .pop_used_async(token, inputs, outputs)
     }
 
     /// Returns the size of the device's VirtQueue.

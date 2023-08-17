@@ -1,8 +1,8 @@
 //! Driver for VirtIO GPU devices.
 
 use crate::hal::{BufferDirection, Dma, Hal};
+use crate::queue::split_queue::SplitQueue;
 use crate::transport::Transport;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::{volread, ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
@@ -172,10 +172,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Send a request to the device and block for a response.
     fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
-        self.control_queue.add_notify_wait_pop_old(
+        self.control_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
             &mut [&mut self.queue_buf_recv],
             &mut self.transport,
+            false,
         )?;
         Ok(Rsp::read_from_prefix(&*self.queue_buf_recv).unwrap())
     }
@@ -183,10 +184,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Send a mouse cursor operation request to the device and block for a response.
     fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
         req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
-        self.cursor_queue.add_notify_wait_pop_old(
+        self.cursor_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
             &mut [],
             &mut self.transport,
+            false,
         )?;
         Ok(())
     }

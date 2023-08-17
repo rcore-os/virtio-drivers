@@ -58,10 +58,15 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
     /// pop used
     // TODO: will be deleted in the further
-    pub unsafe fn pop_used_async<'a>(&mut self, token: u16) -> Result<u32> {
+    pub unsafe fn pop_used_async<'a>(
+        &mut self,
+        token: u16,
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
+    ) -> Result<u32> {
         match self {
-            Self::Packedqueue(packedqueue) => packedqueue.pop_used_async(token),
-            Self::Splitqueue(splitqueue) => splitqueue.pop_used_async(token),
+            Self::Packedqueue(packedqueue) => packedqueue.pop_used_async(token, inputs, outputs),
+            Self::Splitqueue(splitqueue) => splitqueue.pop_used_async(token, inputs, outputs),
         }
     }
 

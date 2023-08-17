@@ -4,8 +4,8 @@
 use super::error::SocketError;
 use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
 use crate::hal::Hal;
+use crate::queue::split_queue::SplitQueue;
 use crate::transport::Transport;
-use crate::virtio_queue::split_queue::SplitQueue;
 use crate::volatile::volread;
 use crate::{Error, Result};
 use alloc::boxed::Box;
@@ -277,7 +277,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         let rx_queue_buffers = rx_queue_buffers.map(|ptr| NonNull::new(ptr).unwrap());
 
         transport.finish_init();
-        if rx.should_notify_old() {
+        if rx.should_notify(false) {
             transport.notify(RX_QUEUE_IDX);
         }
 
@@ -414,10 +414,11 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
     }
 
     fn send_packet_to_tx_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
-        let _len = self.tx.add_notify_wait_pop_old(
+        let _len = self.tx.add_notify_wait_pop(
             &[header.as_bytes(), buffer],
             &mut [],
             &mut self.transport,
+            false,
         )?;
         Ok(())
     }
@@ -443,7 +444,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
             assert_eq!(new_token, index);
         }
 
-        if self.rx.should_notify_old() {
+        if self.rx.should_notify(false) {
             self.transport.notify(RX_QUEUE_IDX);
         }
 

@@ -1,5 +1,4 @@
-extern crate alloc;
-
+#![deny(unsafe_op_in_unsafe_fn)]
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
@@ -14,13 +13,16 @@ use core::ptr::NonNull;
 use core::sync::atomic::{fence, Ordering};
 use zerocopy::FromBytes;
 
-use alloc::vec::Vec;
+use core::array;
+// use alloc::vec::Vec;
 
 /// The mechanism for bulk data transport on virtio devices.
 ///
 /// Each device can have zero or more virtqueues.
 ///
-/// * `SIZE`: The size of the queue. This is both the number of descriptors, and the number of slots in the available and used rings. Queue Size value is always a power of 2. The maximum Queue Size value is 32768. This value is specified in a bus-specific way.
+/// * `SIZE`: The size of the queue. This is both the number of descriptors, and the number of
+/// slots in the available and used rings. Queue Size value is always a power of 2. The maximum
+/// Queue Size value is 32768. This value is specified in a bus-specific way.
 #[derive(Debug)]
 pub struct SplitQueue<H: Hal, const SIZE: usize> {
     /// DMA guard
@@ -32,14 +34,17 @@ pub struct SplitQueue<H: Hal, const SIZE: usize> {
     /// it.
     desc: NonNull<[Descriptor]>,
 
-    indirect_desc_vec: Vec<Option<Dma<H>>>,
-    /// Available ring: When the driver wants to send a buffer to the device, it fills in a slot in the descriptor table (or chains several together), and writes the descriptor index into the available ring. It then notifies the device.
+    indirect_desc_vec: [Option<Dma<H>>; SIZE],
+    /// Available ring: When the driver wants to send a buffer to the device, it fills in a slot
+    /// in the descriptor table (or chains several together), and writes the descriptor index into
+    /// the available ring. It then notifies the device.
     ///
     /// The device may be able to modify this, even though it's not supposed to, so we shouldn't
     /// trust values read back from it. The only field we need to read currently is `idx`, so we
     /// have `avail_idx` below to use instead.
     avail: NonNull<AvailRing<SIZE>>,
-    /// Used ring: When the device has finished a buffer, it writes the descriptor index into the used ring, and sends a used buffer notification.
+    /// Used ring: When the device has finished a buffer, it writes the descriptor index into the
+    /// used ring, and sends a used buffer notification.
     used: NonNull<UsedRing<SIZE>>,
 
     /// The index of queue
@@ -54,6 +59,7 @@ pub struct SplitQueue<H: Hal, const SIZE: usize> {
     avail_idx: u16,
     last_used_idx: u16,
 
+    // Support indirect descriptor (true) or not (false)
     indirect_desc: bool,
 }
 
@@ -103,15 +109,12 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
             }
         }
 
-        let mut indrect_desc_vec = Vec::<Option<Dma<H>>>::with_capacity(SIZE);
-        for _ in 0..SIZE {
-            indrect_desc_vec.push(None);
-        }
+        let mut indirect_desc_vec = array::from_fn(|_i| None);
 
         Ok(SplitQueue {
             layout,
             desc,
-            indirect_desc_vec: indrect_desc_vec,
+            indirect_desc_vec,
             avail,
             used,
             queue_idx: idx,
@@ -139,7 +142,7 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         inputs: &'a [&'b [u8]],
         outputs: &'a mut [&'b mut [u8]],
     ) -> Result<u16> {
-        if inputs.is_empty() && outputs.is_empty() {
+        if inputs.is_empty() || outputs.is_empty() {
             return Err(Error::InvalidParam);
         }
 
@@ -158,25 +161,26 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         let head = self.free_head;
         let mut last = self.free_head;
 
-        let size_indirect_descs = size_of::<Descriptor>() * (inputs.len() + outputs.len()) as usize;
-        let indirect_descs_dma =
-            Dma::<H>::new(pages(size_indirect_descs), BufferDirection::DriverToDevice)?;
-        let indirect_descs = nonnull_slice_from_raw_parts(
-            indirect_descs_dma.vaddr(0).cast::<Descriptor>(),
-            size_indirect_descs,
-        );
-
-        self.indirect_desc_vec[head as usize] = Some(indirect_descs_dma);
-
         if self.indirect_desc {
+            let size_indirect_descs = size_of::<Descriptor>() * (inputs.len() + outputs.len());
+            let indirect_descs_dma =
+                Dma::<H>::new(pages(size_indirect_descs), BufferDirection::DriverToDevice)?;
+            let indirect_descs = nonnull_slice_from_raw_parts(
+                indirect_descs_dma.vaddr(0).cast::<Descriptor>(),
+                size_indirect_descs,
+            );
+
+            self.indirect_desc_vec[head as usize] = Some(indirect_descs_dma);
+
             let mut index = 0;
-            let mut desc = Descriptor::new();
+            let mut desc = Descriptor::default();
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 // Write to desc_shadow then copy.
-                desc = Descriptor::new();
+                desc = Descriptor::default();
 
-                // let flag = self.avail_used_flags;
-                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                unsafe {
+                    desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                }
                 desc.next = index + 1;
 
                 unsafe {
@@ -195,12 +199,16 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
                     size_indirect_descs,
                 )
             };
+
+            // Push the address of indirect_descs into queue's descriptor table
             let desc = &mut self.desc_shadow[usize::from(last)];
-            desc.set_buf::<H>(
-                indirect_descs.into(),
-                BufferDirection::DriverToDevice,
-                DescFlags::INDIRECT,
-            );
+            unsafe {
+                desc.set_buf::<H>(
+                    indirect_descs.into(),
+                    BufferDirection::DriverToDevice,
+                    DescFlags::INDIRECT,
+                );
+            }
             self.free_head = desc.next;
 
             self.write_desc(last);
@@ -209,20 +217,21 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 // Write to desc_shadow then copy.
                 let desc = &mut self.desc_shadow[usize::from(self.free_head)];
-                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                unsafe {
+                    desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                }
                 last = self.free_head;
                 self.free_head = desc.next;
 
                 self.write_desc(last);
             }
-        }
 
-        // set last_elem.next = NULL
-        // 将last desc_shadow 的flag中的NEXT位置为0，然后往desc中写一遍
-        self.desc_shadow[usize::from(last)]
-            .flags
-            .remove(DescFlags::NEXT);
-        self.write_desc(last);
+            // set last_elem.next = NULL
+            self.desc_shadow[usize::from(last)]
+                .flags
+                .remove(DescFlags::NEXT);
+            self.write_desc(last);
+        }
 
         if self.indirect_desc {
             self.num_used += 1;
@@ -238,7 +247,8 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
 
         // Write barrier so that device sees changes to descriptor table and available ring before
         // change to available index.
-        // The driver performs a suitable memory barrier to ensure the device sees the updated descriptor table and available ring before the next step.
+        // The driver performs a suitable memory barrier to ensure the device sees the updated
+        // descriptor table and available ring before the next step.
         //
         // Ref: Section 2.7.13
         fence(Ordering::SeqCst);
@@ -251,7 +261,8 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         }
 
         // Write barrier so that device can see change to available index after this method returns.
-        // The driver performs a suitable memory barrier to ensure that it updates the idx field before checking for notification suppression.
+        // The driver performs a suitable memory barrier to ensure that it updates the idx field
+        // before checking for notification suppression.
         fence(Ordering::SeqCst);
 
         Ok(head)
@@ -287,35 +298,6 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         unsafe { self.pop_used(token, inputs, outputs) }
     }
 
-    /// Add the given buffers to the virtqueue, notifies the device, blocks until the device uses
-    /// them, then pops them.
-    ///
-    /// This assumes that the device isn't processing any other buffers at the same time.
-    pub fn add_notify_wait_pop_old<'a>(
-        &mut self,
-        inputs: &'a [&'a [u8]],
-        outputs: &'a mut [&'a mut [u8]],
-        transport: &mut impl Transport,
-    ) -> Result<u32> {
-        // Safe because we don't return until the same token has been popped, so the buffers remain
-        // valid and are not otherwise accessed until then.
-        let token = unsafe { self.add(inputs, outputs) }?;
-
-        // Notify the queue.
-        if self.should_notify(false) {
-            transport.notify(self.queue_idx);
-        }
-
-        // Wait until there is at least one element in the used ring.
-        while !self.can_pop() {
-            spin_loop();
-        }
-
-        // Safe because these are the same buffers as we passed to `add` above and they are still
-        // valid.
-        unsafe { self.pop_used(token, inputs, outputs) }
-    }
-
     /// Returns whether the driver should notify the device after adding a new buffer to the
     /// virtqueue.
     ///
@@ -328,29 +310,14 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
         // instance of UsedRing.
         if support_event {
-            unsafe { (*self.avail.as_ptr()).idx == (*self.used.as_ptr()).avail_event }
+            unsafe { self.avail_idx == (*self.used.as_ptr()).avail_event.wrapping_add(1) }
         } else {
             unsafe { ((*self.used.as_ptr()).flags & 0x0001) == 0 }
         }
     }
 
-    /// Returns whether the driver should notify the device after adding a new buffer to the
-    /// virtqueue.
-    ///
-    /// Ref: virtio_ring.c virtqueue_kick_prepare_split
-    /// This will be false if the device has supressed notifications.
-    pub fn should_notify_old(&self) -> bool {
-        // Read barrier, so we read a fresh value from the device.
-        fence(Ordering::SeqCst);
-
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
-
-        unsafe { (*self.used.as_ptr()).flags & 0x0001 == 0 }
-    }
-
-    /// Copies the descriptor at the given index from `desc_shadow` to `desc`, so it can be seen by
-    /// the device.
+    /// Copies the descriptor at the given index from `desc_shadow` to `desc`, so it can be seen
+    /// by the device.
     fn write_desc(&mut self, index: u16) {
         let index = usize::from(index);
         // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
@@ -365,8 +332,8 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         // Read barrier, so we read a fresh value from the device.
         fence(Ordering::SeqCst);
 
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
+        // Safe because self.used points to a valid, aligned, initialised, dereferenceable,
+        // readable instance of UsedRing.
         self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
     }
 
@@ -392,8 +359,7 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
     /// list. Unsharing may involve copying data back to the original buffers, so they must be
     /// passed in too.
     ///
-    /// Ref: linux virtio_ring.c detach_buf_split
-    /// This will push all linked descriptors at the front of the free list.
+    /// Ref: linux virtio_ring.c detach_buf_split.
     ///
     /// # Safety
     ///
@@ -410,6 +376,7 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         let mut next = Some(head);
 
         if self.indirect_desc {
+            // Recycle the only one descriptor in the ring
             let desc_index = next.expect("Descriptor chain was shorter than expected.");
             let desc = &mut self.desc_shadow[usize::from(desc_index)];
             desc.unset_buf();
@@ -420,6 +387,31 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
             }
 
             self.write_desc(desc_index);
+
+            // Release indirect descriptors
+            let size_indirect_descs = size_of::<Descriptor>() * (inputs.len() + outputs.len());
+            let indirect_descs = nonnull_slice_from_raw_parts(
+                self.indirect_desc_vec[desc_index as usize]
+                    .as_ref()
+                    .unwrap()
+                    .vaddr(0)
+                    .cast::<Descriptor>(),
+                size_indirect_descs,
+            );
+
+            let mut indirect_desc_index = 0 as usize;
+            for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
+                // let desc = &mut self.indirect_descs[usize::from(indirect_desc_index)];
+                let paddr = unsafe { (*indirect_descs.as_ptr())[indirect_desc_index].addr };
+
+                // Safe because the caller ensures that the buffer is valid and matches the
+                // descriptor from which we got `paddr`.
+                unsafe {
+                    // Unshare the buffer (and perhaps copy its contents back to the original buffer).
+                    H::unshare(paddr as usize, buffer, direction);
+                }
+                indirect_desc_index += 1;
+            }
         } else {
             for (buffer, direction) in InputOutputIter::new(inputs, outputs) {
                 let desc_index = next.expect("Descriptor chain was shorter than expected.");
@@ -435,54 +427,11 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
 
                 self.write_desc(desc_index);
 
-                // Safe because the caller ensures that the buffer is valid and matches the descriptor
-                // from which we got `paddr`.
+                // Safe because the caller ensures that the buffer is valid and matches the
+                // descriptor from which we got `paddr`.
                 unsafe {
                     // Unshare the buffer (and perhaps copy its contents back to the original buffer).
                     H::unshare(paddr as usize, buffer, direction);
-                }
-            }
-        }
-
-        if next.is_some() {
-            panic!("Descriptor chain was longer than expected.");
-        }
-    }
-
-    // TODO: will be deleted in the further
-    /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
-    /// queue by `add`.
-    unsafe fn recycle_descriptors_async<'a>(&mut self, head: u16) {
-        let original_free_head = self.free_head;
-        self.free_head = head;
-        let mut next = Some(head);
-
-        if self.indirect_desc {
-            let desc_index = next.expect("Descriptor chain was shorter than expected.");
-            let desc = &mut self.desc_shadow[usize::from(desc_index)];
-            desc.unset_buf();
-            self.num_used -= 1;
-            next = desc.next();
-            if next.is_none() {
-                desc.next = original_free_head;
-            }
-
-            self.write_desc(desc_index);
-        } else {
-            loop {
-                let desc_index = next.expect("Descriptor chain was shorter than expected.");
-                let desc = &mut self.desc_shadow[usize::from(desc_index)];
-
-                desc.unset_buf();
-                self.num_used -= 1;
-                next = desc.next();
-                if next.is_none() {
-                    desc.next = original_free_head;
-                }
-
-                self.write_desc(desc_index);
-                if next.is_none() {
-                    break;
                 }
             }
         }
@@ -516,8 +465,8 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
         let last_used_slot = self.last_used_idx & (SIZE as u16 - 1);
         let index;
         let len;
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
+        // Safe because self.used points to a valid, aligned, initialised, dereferenceable,
+        // readable instance of UsedRing.
         unsafe {
             index = (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16;
             len = (*self.used.as_ptr()).ring[last_used_slot as usize].len;
@@ -527,13 +476,14 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
             // The device used a different descriptor chain to the one we were expecting.
             return Err(Error::WrongToken);
         }
-        if self.indirect_desc {
-            self.indirect_desc_vec.insert(index as usize, None);
-        }
 
         // Safe because the caller ensures the buffers are valid and match the descriptor.
         unsafe {
             self.recycle_descriptors(index, inputs, outputs);
+        }
+
+        if self.indirect_desc {
+            self.indirect_desc_vec[index as usize] = None;
         }
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
@@ -550,7 +500,12 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
     ///
     /// The buffers in `inputs` and `outputs` must match the set of buffers originally added to the
     /// queue by `add` when it returned the token being passed in here.
-    pub unsafe fn pop_used_async<'a>(&mut self, token: u16) -> Result<u32> {
+    pub unsafe fn pop_used_async<'a>(
+        &mut self,
+        token: u16,
+        inputs: &'a [&'a [u8]],
+        outputs: &'a mut [&'a mut [u8]],
+    ) -> Result<u32> {
         if !self.can_pop() {
             return Err(Error::NotReady);
         }
@@ -572,12 +527,12 @@ impl<H: Hal, const SIZE: usize> SplitQueue<H, SIZE> {
             return Err(Error::WrongToken);
         }
         if self.indirect_desc {
-            self.indirect_desc_vec.insert(index as usize, None);
+            self.indirect_desc_vec[index as usize] = None;
         }
 
         // Safe because the caller ensures the buffers are valid and match the descriptor.
         unsafe {
-            self.recycle_descriptors_async(index);
+            self.recycle_descriptors(index, inputs, outputs);
         }
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
@@ -734,11 +689,12 @@ fn queue_part_sizes(queue_size: u16) -> (usize, usize, usize) {
 }
 
 /// The descriptor table refers to the buffers the driver is using for the device.
-/// Each descriptor describes a buffer which is read-only for the device (“device-readable”) or write-only for the device (“device-writable”),
+/// Each descriptor describes a buffer which is read-only for the device (“device-readable”) or
+/// write-only for the device (“device-writable”),
 ///
 /// Ref: 2.7.5 The Virtqueue Descriptor Table
 #[repr(C, align(16))]
-#[derive(Clone, Debug, FromBytes)]
+#[derive(Clone, Debug, FromBytes, Default)]
 pub(crate) struct Descriptor {
     /// a *physical* address
     addr: u64,
@@ -764,7 +720,9 @@ impl Descriptor {
         direction: BufferDirection,
         extra_flags: DescFlags,
     ) {
-        self.addr = H::share(buf, direction) as u64;
+        unsafe {
+            self.addr = H::share(buf, direction) as u64;
+        }
         self.len = buf.len() as u32;
         // If buffer is device-writable, set d.flags to VIRTQ_DESC_F_WRITE, otherwise 0.
         self.flags = extra_flags
@@ -792,15 +750,6 @@ impl Descriptor {
             Some(self.next)
         } else {
             None
-        }
-    }
-
-    fn new() -> Self {
-        Self {
-            addr: 0,
-            len: 0,
-            flags: DescFlags::empty(),
-            next: 0,
         }
     }
 }
@@ -845,7 +794,8 @@ struct AvailRing<const SIZE: usize> {
 #[derive(Debug)]
 struct UsedRing<const SIZE: usize> {
     flags: u16,
-    /// idx field indicates where the device would put the next descriptor entry in the ring (modulo the queue size). This starts at 0, and increases.
+    /// idx field indicates where the device would put the next descriptor entry in the ring
+    /// (modulo the queue size). This starts at 0, and increases.
     idx: u16,
     ring: [UsedElem; SIZE],
 
@@ -856,9 +806,11 @@ struct UsedRing<const SIZE: usize> {
 #[repr(C)]
 #[derive(Debug)]
 struct UsedElem {
-    /// id indicates the head entry of the descriptor chain describing the buffer (this matches an entry placed in the available ring by the guest earlier),
+    /// id indicates the head entry of the descriptor chain describing the buffer (this matches
+    /// an entry placed in the available ring by the guest earlier),
     id: u32,
-    /// The number of bytes written into the device writable portion of the buffer described by the descriptor chain.
+    /// The number of bytes written into the device writable portion of the buffer described by
+    /// the descriptor chain.
     len: u32,
 }
 
