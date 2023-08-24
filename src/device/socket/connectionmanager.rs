@@ -525,7 +525,31 @@ mod tests {
                 .unwrap()
                 .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
 
-            // Expect a shutdown.
+            // Expects a credit update.
+            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+            assert_eq!(
+                VirtioVsockHdr::read_from(
+                    state
+                        .lock()
+                        .unwrap()
+                        .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX)
+                        .as_slice()
+                )
+                .unwrap(),
+                VirtioVsockHdr {
+                    op: VirtioVsockOp::CreditUpdate.into(),
+                    src_cid: guest_cid.into(),
+                    dst_cid: host_cid.into(),
+                    src_port: guest_port.into(),
+                    dst_port: host_port.into(),
+                    len: 0.into(),
+                    socket_type: SocketType::Stream.into(),
+                    flags: 0.into(),
+                    buf_alloc: 1024.into(),
+                    fwd_cnt: (hello_from_host.len() as u32).into(),
+                }
+            );
+            // Expects a shutdown.
             State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
