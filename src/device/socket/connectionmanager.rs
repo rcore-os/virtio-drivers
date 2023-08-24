@@ -213,8 +213,10 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
 
         // Copy from ring buffer
         let bytes_read = connection.buffer.drain(buffer);
-
-        connection.info.done_forwarding(bytes_read);
+        if bytes_read > 0 {
+            connection.info.done_forwarding(bytes_read);
+            self.driver.credit_update(&connection.info)?;
+        }
 
         // If buffer is now empty and the peer requested shutdown, finish shutting down the
         // connection.
