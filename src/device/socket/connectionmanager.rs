@@ -525,7 +525,7 @@ mod tests {
                 .unwrap()
                 .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
 
-            // Expect a credit update.
+            // Expects a credit update.
             State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
                 VirtioVsockHdr::read_from(
