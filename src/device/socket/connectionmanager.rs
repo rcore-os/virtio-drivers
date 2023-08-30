@@ -213,10 +213,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
 
         // Copy from ring buffer
         let bytes_read = connection.buffer.drain(buffer);
-        if bytes_read > 0 {
-            connection.info.done_forwarding(bytes_read);
-            self.driver.credit_update(&connection.info)?;
-        }
+        connection.info.done_forwarding(bytes_read);
 
         // If buffer is now empty and the peer requested shutdown, finish shutting down the
         // connection.
@@ -226,6 +223,12 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         }
 
         Ok(bytes_read)
+    }
+
+    /// Sends a credit update to the given peer.
+    pub fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
+        let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        self.driver.credit_update(&connection.info)
     }
 
     /// Blocks until we get some event from the vsock device.
@@ -525,30 +528,6 @@ mod tests {
                 .unwrap()
                 .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, &response);
 
-            // Expects a credit update.
-            State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
-            assert_eq!(
-                VirtioVsockHdr::read_from(
-                    state
-                        .lock()
-                        .unwrap()
-                        .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX)
-                        .as_slice()
-                )
-                .unwrap(),
-                VirtioVsockHdr {
-                    op: VirtioVsockOp::CreditUpdate.into(),
-                    src_cid: guest_cid.into(),
-                    dst_cid: host_cid.into(),
-                    src_port: guest_port.into(),
-                    dst_port: host_port.into(),
-                    len: 0.into(),
-                    socket_type: SocketType::Stream.into(),
-                    flags: 0.into(),
-                    buf_alloc: 1024.into(),
-                    fwd_cnt: (hello_from_host.len() as u32).into(),
-                }
-            );
             // Expect a shutdown.
             State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
             assert_eq!(
