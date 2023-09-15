@@ -226,10 +226,10 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         Ok(bytes_read)
     }
 
-    /// Returns whether the receive buffer is empty.
-    pub fn is_recv_buffer_empty(&mut self, peer: VsockAddr, src_port: u32) -> Result<bool> {
+    /// Returns the number of bytes currently available in the recv buffer.
+    pub fn recv_buffer_available_bytes(&mut self, peer: VsockAddr, src_port: u32) -> Result<usize> {
         let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
-        Ok(connection.buffer.is_empty())
+        Ok(connection.buffer.available())
     }
 
     /// Sends a credit update to the given peer.
