@@ -213,6 +213,7 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
 
         // Copy from ring buffer
         let bytes_read = connection.buffer.drain(buffer);
+
         connection.info.done_forwarding(bytes_read);
 
         // If buffer is now empty and the peer requested shutdown, finish shutting down the
@@ -223,6 +224,12 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         }
 
         Ok(bytes_read)
+    }
+
+    /// Returns whether the receive buffer is empty.
+    pub fn is_recv_buffer_empty(&mut self, peer: VsockAddr, src_port: u32) -> Result<bool> {
+        let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        Ok(connection.buffer.is_empty())
     }
 
     /// Sends a credit update to the given peer.
