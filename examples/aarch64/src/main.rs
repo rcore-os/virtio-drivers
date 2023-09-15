@@ -227,7 +227,7 @@ fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
     for k in 0..EXCHANGE_NUM {
         let mut buffer = [0u8; 24];
         let socket_event = socket.wait_for_event()?;
-        let VsockEventType::Received {length, ..} = socket_event.event_type else {
+        let VsockEventType::Received { length, .. } = socket_event.event_type else {
             panic!("Received unexpected socket event {:?}", socket_event);
         };
         let read_length = socket.recv(host_address, port, &mut buffer)?;

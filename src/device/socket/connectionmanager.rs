@@ -226,6 +226,18 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         Ok(bytes_read)
     }
 
+    /// Returns the number of bytes currently available in the recv buffer.
+    pub fn recv_buffer_available_bytes(&mut self, peer: VsockAddr, src_port: u32) -> Result<usize> {
+        let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        Ok(connection.buffer.available())
+    }
+
+    /// Sends a credit update to the given peer.
+    pub fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
+        let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        self.driver.credit_update(&connection.info)
+    }
+
     /// Blocks until we get some event from the vsock device.
     pub fn wait_for_event(&mut self) -> Result<VsockEvent> {
         loop {
