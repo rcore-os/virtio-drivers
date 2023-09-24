@@ -62,6 +62,20 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         self.transport.ack_interrupt()
     }
 
+    /// Disable interrupts.
+    pub fn disable_interrupts(&mut self) {
+        // Since only recv_queue can receive irq from device,
+        // we only enable the device notification for recv_queue.
+        self.recv_queue.disable_dev_notify();
+    }
+
+    /// Enable interrupts.
+    pub fn enable_interrupts(&mut self) {
+        // Since only recv_queue can receive irq from device,
+        // we only enable the device notification for recv_queue.
+        self.recv_queue.enable_dev_notify();
+    }
+
     /// Get MAC address.
     pub fn mac_address(&self) -> EthernetAddress {
         self.mac
