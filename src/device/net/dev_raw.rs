@@ -64,15 +64,13 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
 
     /// Disable interrupts.
     pub fn disable_interrupts(&mut self) {
-        // Since only recv_queue can receive irq from device,
-        // we only enable the device notification for recv_queue.
+        self.xmit_queue.disable_dev_notify();
         self.recv_queue.disable_dev_notify();
     }
 
     /// Enable interrupts.
     pub fn enable_interrupts(&mut self) {
-        // Since only recv_queue can receive irq from device,
-        // we only enable the device notification for recv_queue.
+        self.xmit_queue.enable_dev_notify();
         self.recv_queue.enable_dev_notify();
     }
 

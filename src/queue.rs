@@ -319,36 +319,27 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// Advise the device that notifications are needed.
     ///
     /// See Virtio v1.1 2.6.7 Used Buffer Notification Suppression
-    pub fn enable_dev_notify(&self) {
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
-        log::debug!(
-            "enable_dev_notify event_idx {} avail flags {}",
-            self.event_idx,
-            unsafe { (*self.avail.as_ptr()).flags }
-        );
+    pub fn enable_dev_notify(&mut self) {
         if !self.event_idx {
-            unsafe { (*self.avail.as_ptr()).flags = 0x0 }
+            // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of AvailRing.
+            unsafe { (*self.avail.as_ptr()).flags = 0x0000 }
         }
+        // Write barrier so that device can see change to available index after this method returns.
+        fence(Ordering::SeqCst);
     }
 
     /// Advise the device that notifications are not needed.
     ///
     /// See Virtio v1.1 2.6.7 Used Buffer Notification Suppression
-    pub fn disable_dev_notify(&self) {
-        log::debug!(
-            "disable_dev_notify event_idx {} avail flags {}",
-            self.event_idx,
-            unsafe { (*self.avail.as_ptr()).flags }
-        );
+    pub fn disable_dev_notify(&mut self) {
         if !self.event_idx {
-            unsafe { (*self.avail.as_ptr()).flags = 0x1 }
+            // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of AvailRing.
+            unsafe { (*self.avail.as_ptr()).flags = 0x0001 }
         }
-        log::debug!(
-            "disable_dev_notify event_idx {} avail flags {}",
-            self.event_idx,
-            unsafe { (*self.avail.as_ptr()).flags }
-        );
+        // Write barrier so that device can see change to available index after this method returns.
+        fence(Ordering::SeqCst);
     }
 
     /// Returns whether the driver should notify the device after adding a new buffer to the
@@ -1167,7 +1158,7 @@ mod tests {
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
-        let queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
 
         // Check that the avail ring's flag is zero by default.
         assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
