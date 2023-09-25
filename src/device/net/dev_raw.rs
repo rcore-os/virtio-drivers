@@ -1,3 +1,4 @@
+use super::TxBuffer;
 use super::{Config, EthernetAddress, Features, VirtioNetHdr};
 use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT};
 use crate::hal::Hal;
@@ -20,18 +21,14 @@ pub struct VirtIONetRaw<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
     transport: T,
     mac: EthernetAddress,
     recv_queue: VirtQueue<H, QUEUE_SIZE>,
-    xmit_queue: VirtQueue<H, QUEUE_SIZE>,
+    send_queue: VirtQueue<H, QUEUE_SIZE>,
 }
 
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        transport.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            let supported_features = Features::MAC | Features::STATUS;
-            (features & supported_features).bits()
-        });
+        let negotiated_features = transport.begin_init(Features::MAC | Features::STATUS);
+        info!("negotiated_features {:?}", negotiated_features);
         // read configuration space
         let config = transport.config_space::<Config>()?;
         let mac;
@@ -44,16 +41,26 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
                 volread!(config, status)
             );
         }
-
-        let recv_queue = VirtQueue::new(&mut transport, QUEUE_RECEIVE)?;
-        let xmit_queue = VirtQueue::new(&mut transport, QUEUE_TRANSMIT)?;
+        let send_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_TRANSMIT,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
+        let recv_queue = VirtQueue::new(
+            &mut transport,
+            QUEUE_RECEIVE,
+            false,
+            negotiated_features.contains(Features::RING_EVENT_IDX),
+        )?;
+        
         transport.finish_init();
 
         Ok(VirtIONetRaw {
             transport,
             mac,
             recv_queue,
-            xmit_queue,
+            send_queue,
         })
     }
 
@@ -64,13 +71,13 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
 
     /// Disable interrupts.
     pub fn disable_interrupts(&mut self) {
-        self.xmit_queue.disable_dev_notify();
+        self.send_queue.disable_dev_notify();
         self.recv_queue.disable_dev_notify();
     }
 
     /// Enable interrupts.
     pub fn enable_interrupts(&mut self) {
-        self.xmit_queue.enable_dev_notify();
+        self.send_queue.enable_dev_notify();
         self.recv_queue.enable_dev_notify();
     }
 
@@ -79,13 +86,13 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         self.mac
     }
 
-    /// Whether can transmit packet.
-    pub fn can_transmit(&self) -> bool {
-        self.xmit_queue.available_desc() >= 1
+    /// Whether can send packet.
+    pub fn can_send(&self) -> bool {
+        self.send_queue.available_desc() >= 1
     }
 
     /// Whether can receive packet.
-    pub fn can_receive(&self) -> bool {
+    pub fn can_recv(&self) -> bool {
         self.recv_queue.can_pop()
     }
 
@@ -147,8 +154,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// [`transmit_complete`]: Self::transmit_complete
     pub unsafe fn transmit_begin(&mut self, tx_buf: &[u8]) -> Result<u16> {
         Self::check_tx_buf_len(tx_buf)?;
-        let token = self.xmit_queue.add(&[tx_buf], &mut [])?;
-        if self.xmit_queue.should_notify() {
+        let token = self.send_queue.add(&[tx_buf], &mut [])?;
+        if self.send_queue.should_notify() {
             self.transport.notify(QUEUE_TRANSMIT);
         }
         Ok(token)
@@ -158,7 +165,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// used ring and returns it, without removing it from the used ring. If
     /// there are no pending completed requests it returns [`None`].
     pub fn poll_transmit(&mut self) -> Option<u16> {
-        self.xmit_queue.peek_used()
+        self.send_queue.peek_used()
     }
 
     /// Completes a transmission operation which was started by [`transmit_begin`].
@@ -171,7 +178,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// [`transmit_begin`]: Self::transmit_begin
     pub unsafe fn transmit_complete(&mut self, token: u16, tx_buf: &[u8]) -> Result<usize> {
-        let len = self.xmit_queue.pop_used(token, &[tx_buf], &mut [])?;
+        let len = self.send_queue.pop_used(token, &[tx_buf], &mut [])?;
         Ok(len as usize)
     }
 
@@ -233,6 +240,28 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         let len = self.recv_queue.pop_used(token, &[], &mut [rx_buf])? as usize;
         let packet_len = len.checked_sub(NET_HDR_SIZE).ok_or(Error::IoError)?;
         Ok((NET_HDR_SIZE, packet_len))
+    }
+
+    /// Sends a [`TxBuffer`] to the network, and blocks until the request
+    /// completed.
+    pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
+        let header = VirtioNetHdr::default();
+        if tx_buf.packet_len() == 0 {
+            // Special case sending an empty packet, to avoid adding an empty buffer to the
+            // virtqueue.
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes()],
+                &mut [],
+                &mut self.transport,
+            )?;
+        } else {
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes(), tx_buf.packet()],
+                &mut [],
+                &mut self.transport,
+            )?;
+        }
+        Ok(())
     }
 
     /// Transmits a packet to the network, and blocks until the request
