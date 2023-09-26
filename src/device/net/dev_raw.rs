@@ -53,7 +53,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
             false,
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
-        
+
         transport.finish_init();
 
         Ok(VirtIONetRaw {

@@ -9,9 +9,9 @@ use crate::{hal::Hal, transport::Transport, Error, Result};
 /// Unlike [`VirtIONetRaw`], it uses [`NetBuffer`]s for transmission and
 /// reception rather than the raw slices. On initialization, it pre-allocates
 /// all receive buffers and puts them all in the receive queue.
-/// 
+///
 /// The virtio network device is a virtual ethernet card.
-/// 
+///
 /// It has enhanced rapidly and demonstrates clearly how support for new
 /// features are added to an existing device.
 /// Empty buffers are placed in one virtqueue for receiving packets, and
