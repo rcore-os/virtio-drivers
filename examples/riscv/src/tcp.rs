@@ -90,7 +90,7 @@ impl<T: Transport> TxToken for VirtioTxToken<T> {
         F: FnOnce(&mut [u8]) -> R,
     {
         let mut dev = self.0.borrow_mut();
-        let mut tx_buf = dev.new_tx_buffer(len).unwrap();
+        let mut tx_buf = dev.new_tx_buffer(len);
         let result = f(tx_buf.packet_mut());
         trace!("SEND {} bytes: {:02X?}", len, tx_buf.packet());
         dev.transmit_wait(tx_buf).unwrap();

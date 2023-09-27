@@ -1,4 +1,3 @@
-use super::TxBuffer;
 use super::{Config, EthernetAddress, Features, VirtioNetHdr};
 use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT};
 use crate::hal::Hal;
@@ -242,28 +241,6 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         Ok((NET_HDR_SIZE, packet_len))
     }
 
-    /// Sends a [`TxBuffer`] to the network, and blocks until the request
-    /// completed.
-    pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
-        let header = VirtioNetHdr::default();
-        if tx_buf.packet_len() == 0 {
-            // Special case sending an empty packet, to avoid adding an empty buffer to the
-            // virtqueue.
-            self.send_queue.add_notify_wait_pop(
-                &[header.as_bytes()],
-                &mut [],
-                &mut self.transport,
-            )?;
-        } else {
-            self.send_queue.add_notify_wait_pop(
-                &[header.as_bytes(), tx_buf.packet()],
-                &mut [],
-                &mut self.transport,
-            )?;
-        }
-        Ok(())
-    }
-
     /// Transmits a packet to the network, and blocks until the request
     /// completed. Returns number of bytes transmitted.
     ///
@@ -277,6 +254,28 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
             core::hint::spin_loop();
         }
         unsafe { self.transmit_complete(token, tx_buf) }
+    }
+
+    /// Sends a packet to the network, and blocks until the request
+    /// completed.
+    pub fn send(&mut self, tx_buf: &[u8]) -> Result {
+        let header = VirtioNetHdr::default();
+        if tx_buf.len() == 0 {
+            // Special case sending an empty packet, to avoid adding an empty buffer to the
+            // virtqueue.
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes()],
+                &mut [],
+                &mut self.transport,
+            )?;
+        } else {
+            self.send_queue.add_notify_wait_pop(
+                &[header.as_bytes(), tx_buf],
+                &mut [],
+                &mut self.transport,
+            )?;
+        }
+        Ok(())
     }
 
     /// Blocks and waits for a packet to be received.

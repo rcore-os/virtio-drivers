@@ -6,7 +6,7 @@ use crate::{hal::Hal, transport::Transport, Error, Result};
 
 /// Driver for a VirtIO block device.
 ///
-/// Unlike [`VirtIONetRaw`], it uses [`NetBuffer`]s for transmission and
+/// Unlike [`VirtIONetRaw`], it uses [`RxBuffer`]s for transmission and
 /// reception rather than the raw slices. On initialization, it pre-allocates
 /// all receive buffers and puts them all in the receive queue.
 ///
@@ -118,8 +118,14 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     }
 
     /// Sends a [`TxBuffer`] to the network, and blocks until the request
+    /// completed. Returns number of bytes transmitted.
+    pub fn transmit_wait(&mut self, tx_buf: TxBuffer) -> Result<usize> {
+        self.inner.transmit_wait(tx_buf.packet())
+    }
+
+    /// Sends a [`TxBuffer`] to the network, and blocks until the request
     /// completed.
     pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
-        self.inner.send(tx_buf)
+        self.inner.send(tx_buf.packet())
     }
 }

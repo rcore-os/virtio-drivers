@@ -20,12 +20,6 @@ else
 	BUILD_ARGS += --no-default-features
 endif
 
-ifeq ($(tcp), on)
-	BUILD_ARGS += --features tcp
-else
-	BUILD_ARGS += --no-default-features
-endif
-
 QEMU_ARGS += \
 	-machine q35 \
 	-serial mon:stdio \
