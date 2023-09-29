@@ -8,7 +8,7 @@ use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
@@ -185,7 +185,7 @@ struct DevIDs {
 /// Both queues use the same `virtio_input_event` struct. `type`, `code` and `value`
 /// are filled according to the Linux input layer (evdev) interface.
 #[repr(C)]
-#[derive(AsBytes, Clone, Copy, Debug, Default, FromBytes)]
+#[derive(AsBytes, Clone, Copy, Debug, Default, FromBytes, FromZeroes)]
 pub struct InputEvent {
     /// Event type.
     pub event_type: u16,

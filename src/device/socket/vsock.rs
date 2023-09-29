@@ -12,7 +12,7 @@ use alloc::boxed::Box;
 use core::mem::size_of;
 use core::ptr::{null_mut, NonNull};
 use log::debug;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 pub(crate) const RX_QUEUE_IDX: u16 = 0;
 pub(crate) const TX_QUEUE_IDX: u16 = 1;
@@ -274,7 +274,7 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         // Allocate and add buffers for the RX queue.
         let mut rx_queue_buffers = [null_mut(); QUEUE_SIZE];
         for (i, rx_queue_buffer) in rx_queue_buffers.iter_mut().enumerate() {
-            let mut buffer: Box<[u8; RX_BUFFER_SIZE]> = FromBytes::new_box_zeroed();
+            let mut buffer: Box<[u8; RX_BUFFER_SIZE]> = FromZeroes::new_box_zeroed();
             // Safe because the buffer lives as long as the queue, as specified in the function
             // safety requirement, and we don't access it until it is popped.
             let token = unsafe { rx.add(&[], &mut [buffer.as_mut_slice()]) }?;

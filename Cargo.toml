@@ -17,11 +17,11 @@ categories = ["hardware-support", "no-std"]
 [dependencies]
 log = "0.4"
 bitflags = "2.3.0"
-zerocopy = "0.6.1"
+zerocopy = { version = "0.7.5", features = ["derive"] }
 
 [features]
 default = ["alloc"]
 alloc = ["zerocopy/alloc"]
 
 [dev-dependencies]
-zerocopy = { version = "0.6.1", features = ["alloc"] }
+zerocopy = { version = "0.7.5", features = ["alloc"] }

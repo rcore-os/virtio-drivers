@@ -7,7 +7,7 @@ use crate::volatile::{volread, Volatile};
 use crate::{Error, Result};
 use bitflags::bitflags;
 use log::info;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: u16 = 16;
@@ -419,7 +419,7 @@ impl Default for BlkReq {
 
 /// Response of a VirtIOBlk request.
 #[repr(C)]
-#[derive(AsBytes, Debug, FromBytes)]
+#[derive(AsBytes, Debug, FromBytes, FromZeroes)]
 pub struct BlkResp {
     status: RespStatus,
 }
@@ -446,7 +446,7 @@ enum ReqType {
 
 /// Status of a VirtIOBlk request.
 #[repr(transparent)]
-#[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, PartialEq)]
+#[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct RespStatus(u8);
 
 impl RespStatus {

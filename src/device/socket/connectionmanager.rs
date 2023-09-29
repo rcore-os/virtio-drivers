@@ -8,7 +8,7 @@ use core::cmp::min;
 use core::convert::TryInto;
 use core::hint::spin_loop;
 use log::debug;
-use zerocopy::FromBytes;
+use zerocopy::FromZeroes;
 
 const PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
 
@@ -313,7 +313,7 @@ struct RingBuffer {
 impl RingBuffer {
     pub fn new(capacity: usize) -> Self {
         Self {
-            buffer: FromBytes::new_box_slice_zeroed(capacity),
+            buffer: FromZeroes::new_box_slice_zeroed(capacity),
             used: 0,
             start: 0,
         }
