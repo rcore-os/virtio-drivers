@@ -8,7 +8,7 @@ use core::{
     alloc::Layout,
     ptr::{self, NonNull},
 };
-use zerocopy::FromBytes;
+use zerocopy::FromZeroes;
 
 #[derive(Debug)]
 pub struct FakeHal;

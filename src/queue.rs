@@ -14,7 +14,7 @@ use core::mem::{size_of, take};
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::{fence, Ordering};
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// The mechanism for bulk data transport on virtio devices.
 ///
@@ -104,7 +104,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let avail = layout.avail_vaddr().cast();
         let used = layout.used_vaddr().cast();
 
-        let mut desc_shadow: [Descriptor; SIZE] = FromBytes::new_zeroed();
+        let mut desc_shadow: [Descriptor; SIZE] = FromZeroes::new_zeroed();
         // Link descriptors together.
         for i in 0..(size - 1) {
             desc_shadow[i as usize].next = i + 1;
@@ -668,7 +668,7 @@ fn queue_part_sizes(queue_size: u16) -> (usize, usize, usize) {
 }
 
 #[repr(C, align(16))]
-#[derive(AsBytes, Clone, Debug, FromBytes)]
+#[derive(AsBytes, Clone, Debug, FromBytes, FromZeroes)]
 pub(crate) struct Descriptor {
     addr: u64,
     len: u32,
@@ -723,7 +723,7 @@ impl Descriptor {
 }
 
 /// Descriptor flags
-#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
+#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, FromZeroes, PartialEq)]
 #[repr(transparent)]
 struct DescFlags(u16);
 
@@ -818,7 +818,6 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
     handler: impl FnOnce(Vec<u8>) -> Vec<u8>,
 ) {
     use core::{ops::Deref, slice};
-    use zerocopy::LayoutVerified;
 
     let available_ring = queue_driver_area as *const AvailRing<QUEUE_SIZE>;
     let used_ring = queue_device_area as *mut UsedRing<QUEUE_SIZE>;
@@ -842,7 +841,7 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
 
             // Loop through all input descriptors in the indirect descriptor list, reading data from
             // them.
-            let indirect_descriptor_list: &[Descriptor] = LayoutVerified::new_slice(
+            let indirect_descriptor_list: &[Descriptor] = zerocopy::Ref::new_slice(
                 slice::from_raw_parts(descriptor.addr as *const u8, descriptor.len as usize),
             )
             .unwrap()

@@ -8,7 +8,7 @@ use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use log::info;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 const QUEUE_SIZE: u16 = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX;
@@ -66,8 +66,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
 
-        let queue_buf_send = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
-        let queue_buf_recv = FromBytes::new_box_slice_zeroed(PAGE_SIZE);
+        let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         transport.finish_init();
 
@@ -338,7 +338,7 @@ bitflags! {
 }
 
 #[repr(transparent)]
-#[derive(AsBytes, Clone, Copy, Debug, Eq, PartialEq, FromBytes)]
+#[derive(AsBytes, Clone, Copy, Debug, Eq, PartialEq, FromBytes, FromZeroes)]
 struct Command(u32);
 
 impl Command {
@@ -371,7 +371,7 @@ impl Command {
 const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Clone, Copy, FromBytes)]
+#[derive(AsBytes, Debug, Clone, Copy, FromBytes, FromZeroes)]
 struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
@@ -402,7 +402,7 @@ impl CtrlHeader {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Copy, Clone, Default, FromBytes)]
+#[derive(AsBytes, Debug, Copy, Clone, Default, FromBytes, FromZeroes)]
 struct Rect {
     x: u32,
     y: u32,
@@ -411,7 +411,7 @@ struct Rect {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct RespDisplayInfo {
     header: CtrlHeader,
     rect: Rect,
