@@ -226,13 +226,13 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         Ok(bytes_read)
     }
 
-    /// Returns the number of used bytes in the receive buffer.
+    /// Returns the number of bytes in the receive buffer available to be read by `recv`.
     ///
-    /// When the used bytes is 0, it indicates that the receive buffer is empty and does not
+    /// When the available bytes is 0, it indicates that the receive buffer is empty and does not
     /// contain any data.
-    pub fn recv_buffer_used_bytes(&mut self, peer: VsockAddr, src_port: u32) -> Result<usize> {
+    pub fn recv_buffer_available_bytes(&mut self, peer: VsockAddr, src_port: u32) -> Result<usize> {
         let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
-        Ok(PER_CONNECTION_BUFFER_CAPACITY - connection.buffer.available())
+        Ok(connection.buffer.used())
     }
 
     /// Sends a credit update to the given peer.
