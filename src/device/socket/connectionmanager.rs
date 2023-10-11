@@ -333,7 +333,7 @@ impl RingBuffer {
     }
 
     /// Returns the number of bytes currently free in the buffer.
-    pub fn available(&self) -> usize {
+    pub fn free(&self) -> usize {
         self.buffer.len() - self.used
     }
 
@@ -341,7 +341,7 @@ impl RingBuffer {
     ///
     /// Returns true if they were added, or false if they were not.
     pub fn add(&mut self, bytes: &[u8]) -> bool {
-        if bytes.len() > self.available() {
+        if bytes.len() > self.free() {
             return false;
         }
 
