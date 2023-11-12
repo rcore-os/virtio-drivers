@@ -241,21 +241,6 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         Ok((NET_HDR_SIZE, packet_len))
     }
 
-    /// Transmits a packet to the network, and blocks until the request
-    /// completed. Returns number of bytes transmitted.
-    ///
-    /// The caller needs to fill the `tx_buf` with a header by calling
-    /// [`fill_buffer_header`] before transmission.
-    ///
-    /// [`fill_buffer_header`]: Self::fill_buffer_header
-    pub fn transmit_wait(&mut self, tx_buf: &[u8]) -> Result<usize> {
-        let token = unsafe { self.transmit_begin(tx_buf)? };
-        while self.poll_transmit().is_none() {
-            core::hint::spin_loop();
-        }
-        unsafe { self.transmit_complete(token, tx_buf) }
-    }
-
     /// Sends a packet to the network, and blocks until the request
     /// completed.
     pub fn send(&mut self, tx_buf: &[u8]) -> Result {
