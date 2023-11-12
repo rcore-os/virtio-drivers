@@ -159,8 +159,7 @@ fn virtio_net<T: Transport>(transport: T) {
             pkt_len,
             &buf[hdr_len..hdr_len + pkt_len]
         );
-        net.send(&buf[..hdr_len + pkt_len])
-            .expect("failed to send");
+        net.send(&buf[..hdr_len + pkt_len]).expect("failed to send");
         info!("virtio-net test finished");
     }
 
