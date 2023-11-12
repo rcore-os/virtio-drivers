@@ -70,14 +70,14 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
 
     /// Disable interrupts.
     pub fn disable_interrupts(&mut self) {
-        self.send_queue.disable_dev_notify();
-        self.recv_queue.disable_dev_notify();
+        self.send_queue.set_dev_notify(false);
+        self.recv_queue.set_dev_notify(false);
     }
 
     /// Enable interrupts.
     pub fn enable_interrupts(&mut self) {
-        self.send_queue.enable_dev_notify();
-        self.recv_queue.enable_dev_notify();
+        self.send_queue.set_dev_notify(true);
+        self.recv_queue.set_dev_notify(true);
     }
 
     /// Get MAC address.
@@ -172,7 +172,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to
+    /// The same buffer must be passed in again as were passed to
     /// [`transmit_begin`] when it returned the token.
     ///
     /// [`transmit_begin`]: Self::transmit_begin
@@ -191,7 +191,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// The caller can then call [`poll_receive`] with the returned token to
     /// check whether the device has finished handling the request. Once it has,
-    /// the caller must call [`receive_complete`] with the same buffers before
+    /// the caller must call [`receive_complete`] with the same buffer before
     /// reading the response.
     ///
     /// # Safety
@@ -227,7 +227,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to
+    /// The same buffer must be passed in again as were passed to
     /// [`receive_begin`] when it returned the token.
     ///
     /// [`receive_begin`]: Self::receive_begin
@@ -260,7 +260,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// completed.
     pub fn send(&mut self, tx_buf: &[u8]) -> Result {
         let header = VirtioNetHdr::default();
-        if tx_buf.len() == 0 {
+        if tx_buf.is_empty() {
             // Special case sending an empty packet, to avoid adding an empty buffer to the
             // virtqueue.
             self.send_queue.add_notify_wait_pop(

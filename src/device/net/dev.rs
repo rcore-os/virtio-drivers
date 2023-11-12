@@ -4,7 +4,7 @@ use super::net_buf::{RxBuffer, TxBuffer};
 use super::{EthernetAddress, VirtIONetRaw};
 use crate::{hal::Hal, transport::Transport, Error, Result};
 
-/// Driver for a VirtIO block device.
+/// Driver for a VirtIO network device.
 ///
 /// Unlike [`VirtIONetRaw`], it uses [`RxBuffer`]s for transmission and
 /// reception rather than the raw slices. On initialization, it pre-allocates

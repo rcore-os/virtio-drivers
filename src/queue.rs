@@ -316,27 +316,15 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         unsafe { self.pop_used(token, inputs, outputs) }
     }
 
-    /// Advise the device that notifications are needed.
+    /// Advise the device whether used buffer notifications are needed.
     ///
     /// See Virtio v1.1 2.6.7 Used Buffer Notification Suppression
-    pub fn enable_dev_notify(&mut self) {
+    pub fn set_dev_notify(&mut self, enable: bool) {
+        let avail_ring_flags = if enable { 0x0000 } else { 0x0001 };
         if !self.event_idx {
             // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
             // instance of AvailRing.
-            unsafe { (*self.avail.as_ptr()).flags = 0x0000 }
-        }
-        // Write barrier so that device can see change to available index after this method returns.
-        fence(Ordering::SeqCst);
-    }
-
-    /// Advise the device that notifications are not needed.
-    ///
-    /// See Virtio v1.1 2.6.7 Used Buffer Notification Suppression
-    pub fn disable_dev_notify(&mut self) {
-        if !self.event_idx {
-            // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
-            // instance of AvailRing.
-            unsafe { (*self.avail.as_ptr()).flags = 0x0001 }
+            unsafe { (*self.avail.as_ptr()).flags = avail_ring_flags }
         }
         // Write barrier so that device can see change to available index after this method returns.
         fence(Ordering::SeqCst);
@@ -1163,12 +1151,12 @@ mod tests {
         // Check that the avail ring's flag is zero by default.
         assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
 
-        queue.disable_dev_notify();
+        queue.set_dev_notify(false);
 
         // Check that the avail ring's flag is 1 after `disable_dev_notify`.
         assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x1);
 
-        queue.enable_dev_notify();
+        queue.set_dev_notify(true);
 
         // Check that the avail ring's flag is 0 after `enable_dev_notify`.
         assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
