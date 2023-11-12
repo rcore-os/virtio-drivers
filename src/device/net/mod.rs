@@ -12,7 +12,7 @@ pub use self::{dev::VirtIONet, net_buf::RxBuffer, net_buf::TxBuffer};
 
 use crate::volatile::ReadOnly;
 use bitflags::bitflags;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 const MAX_BUFFER_LEN: usize = 65535;
 const MIN_BUFFER_LEN: usize = 1526;
@@ -112,7 +112,7 @@ type EthernetAddress = [u8; 6];
 /// and buffers for incoming packets are placed in the receiveq1. . .receiveqN.
 /// In each case, the packet itself is preceded by a header.
 #[repr(C)]
-#[derive(AsBytes, Debug, Default, FromBytes)]
+#[derive(AsBytes, Debug, Default, FromBytes, FromZeroes)]
 pub struct VirtioNetHdr {
     flags: Flags,
     gso_type: GsoType,
@@ -124,7 +124,7 @@ pub struct VirtioNetHdr {
     // payload starts from here
 }
 
-#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, PartialEq)]
+#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, FromZeroes, PartialEq)]
 #[repr(transparent)]
 struct Flags(u8);
 
@@ -137,7 +137,7 @@ bitflags! {
 }
 
 #[repr(transparent)]
-#[derive(AsBytes, Debug, Copy, Clone, Default, Eq, FromBytes, PartialEq)]
+#[derive(AsBytes, Debug, Copy, Clone, Default, Eq, FromBytes, FromZeroes, PartialEq)]
 struct GsoType(u8);
 
 impl GsoType {
