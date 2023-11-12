@@ -1,5 +1,5 @@
 use super::{Config, EthernetAddress, Features, VirtioNetHdr};
-use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT};
+use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT, SUPPORTED_FEATURES};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
@@ -26,7 +26,7 @@ pub struct VirtIONetRaw<H: Hal, T: Transport, const QUEUE_SIZE: usize> {
 impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZE> {
     /// Create a new VirtIO-Net driver.
     pub fn new(mut transport: T) -> Result<Self> {
-        let negotiated_features = transport.begin_init(Features::MAC | Features::STATUS);
+        let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
         info!("negotiated_features {:?}", negotiated_features);
         // read configuration space
         let config = transport.config_space::<Config>()?;
