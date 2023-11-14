@@ -210,7 +210,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// Fetches the token of the next completed reception request from the
     /// used ring and returns it, without removing it from the used ring. If
     /// there are no pending completed requests it returns [`None`].
-    pub fn poll_receive(&mut self) -> Option<u16> {
+    pub fn poll_receive(&self) -> Option<u16> {
         self.recv_queue.peek_used()
     }
 

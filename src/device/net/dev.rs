@@ -67,7 +67,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
 
     /// Whether can receive packet.
     pub fn can_recv(&self) -> bool {
-        self.inner.can_recv()
+        self.inner.poll_receive().is_some()
     }
 
     /// Receives a [`RxBuffer`] from network. If currently no data, returns an
