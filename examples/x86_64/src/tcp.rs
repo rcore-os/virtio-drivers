@@ -1,6 +1,6 @@
 //! Simple echo server over TCP.
 //!
-//! Ref: https://github.com/smoltcp-rs/smoltcp/blob/master/examples/server.rs
+//! Ref: <https://github.com/smoltcp-rs/smoltcp/blob/master/examples/server.rs>
 
 use alloc::{borrow::ToOwned, rc::Rc, vec, vec::Vec};
 use core::{cell::RefCell, str::FromStr};
@@ -93,7 +93,7 @@ impl<T: Transport> TxToken for VirtioTxToken<T> {
         let mut tx_buf = dev.new_tx_buffer(len);
         let result = f(tx_buf.packet_mut());
         trace!("SEND {} bytes: {:02X?}", len, tx_buf.packet());
-        dev.send(tx_buf).unwrap();
+        dev.transmit(tx_buf).unwrap();
         result
     }
 }

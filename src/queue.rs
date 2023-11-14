@@ -316,6 +316,20 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         unsafe { self.pop_used(token, inputs, outputs) }
     }
 
+    /// Advise the device whether used buffer notifications are needed.
+    ///
+    /// See Virtio v1.1 2.6.7 Used Buffer Notification Suppression
+    pub fn set_dev_notify(&mut self, enable: bool) {
+        let avail_ring_flags = if enable { 0x0000 } else { 0x0001 };
+        if !self.event_idx {
+            // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of AvailRing.
+            unsafe { (*self.avail.as_ptr()).flags = avail_ring_flags }
+        }
+        // Write barrier so that device can see change to available index after this method returns.
+        fence(Ordering::SeqCst);
+    }
+
     /// Returns whether the driver should notify the device after adding a new buffer to the
     /// virtqueue.
     ///
@@ -1115,6 +1129,37 @@ mod tests {
             assert_eq!((*indirect_descriptors)[3].len, 1);
             assert_eq!((*indirect_descriptors)[3].flags, DescFlags::WRITE);
         }
+    }
+
+    /// Tests that the queue advises the device that notifications are needed.
+    #[test]
+    fn set_dev_notify() {
+        let mut config_space = ();
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default()],
+            ..Default::default()
+        }));
+        let mut transport = FakeTransport {
+            device_type: DeviceType::Block,
+            max_queue_size: 4,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+
+        // Check that the avail ring's flag is zero by default.
+        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
+
+        queue.set_dev_notify(false);
+
+        // Check that the avail ring's flag is 1 after `disable_dev_notify`.
+        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x1);
+
+        queue.set_dev_notify(true);
+
+        // Check that the avail ring's flag is 0 after `enable_dev_notify`.
+        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
     }
 
     /// Tests that the queue notifies the device about added buffers, if it hasn't suppressed
