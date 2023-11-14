@@ -87,12 +87,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
 
     /// Whether can send packet.
     pub fn can_send(&self) -> bool {
-        self.send_queue.available_desc() >= 1
-    }
-
-    /// Whether can receive packet.
-    pub fn can_recv(&self) -> bool {
-        self.recv_queue.can_pop()
+        self.send_queue.available_desc() >= 2
     }
 
     /// Whether the length of the receive buffer is valid.
