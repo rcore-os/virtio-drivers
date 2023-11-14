@@ -134,7 +134,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// [`fill_buffer_header`] before transmission. Then it calls [`poll_transmit`]
     /// with the returned token to check whether the device has finished handling
     /// the request. Once it has, the caller must call [`transmit_complete`] with
-    /// the same buffers before reading the result (transmitted length).
+    /// the same buffer before reading the result (transmitted length).
     ///
     /// # Safety
     ///
@@ -167,7 +167,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// # Safety
     ///
-    /// The same buffer must be passed in again as were passed to
+    /// The same buffer must be passed in again as was passed to
     /// [`transmit_begin`] when it returned the token.
     ///
     /// [`transmit_begin`]: Self::transmit_begin
@@ -222,7 +222,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// # Safety
     ///
-    /// The same buffer must be passed in again as were passed to
+    /// The same buffer must be passed in again as was passed to
     /// [`receive_begin`] when it returned the token.
     ///
     /// [`receive_begin`]: Self::receive_begin
@@ -236,8 +236,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         Ok((NET_HDR_SIZE, packet_len))
     }
 
-    /// Sends a packet to the network, and blocks until the request
-    /// completed.
+    /// Sends a packet to the network, and blocks until the request completed.
     pub fn send(&mut self, tx_buf: &[u8]) -> Result {
         let header = VirtioNetHdr::default();
         if tx_buf.is_empty() {
