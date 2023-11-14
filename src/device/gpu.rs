@@ -174,18 +174,18 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Send a request to the device and block for a response.
     fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
-        req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
+        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
             &mut [&mut self.queue_buf_recv],
             &mut self.transport,
         )?;
-        Ok(Rsp::read_from_prefix(&*self.queue_buf_recv).unwrap())
+        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
     fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
-        req.write_to_prefix(&mut *self.queue_buf_send).unwrap();
+        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
         self.cursor_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
             &mut [],
