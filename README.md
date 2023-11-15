@@ -47,6 +47,9 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 ### [x86_64](./examples/x86_64)
 
 ```bash
+# Fist Compile
+rustup target add x86_64-unknown-none
+
 cd examples/x86_64
 make qemu
 ```
@@ -54,6 +57,9 @@ make qemu
 ### [aarch64](./examples/aarch64)
 
 ```bash
+# Fist Compile
+rustup target add aarch64-unknown-none
+
 cd examples/aarch64
 make qemu
 ```
@@ -61,6 +67,9 @@ make qemu
 ### [RISCV](./examples/riscv)
 
 ```bash
+# First Compile
+rustup target add riscv64imac-unknown-none-elf
+
 cd examples/riscv
 make qemu
 ```
