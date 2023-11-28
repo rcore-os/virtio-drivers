@@ -175,6 +175,7 @@ pub fn test_echo_server<T: Transport>(dev: DeviceImpl<T>) {
         } else if socket.may_send() {
             info!("tcp:{} close", PORT);
             socket.close();
+            break;
         }
     }
 }

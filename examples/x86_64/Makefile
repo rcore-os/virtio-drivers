@@ -4,7 +4,7 @@ mode := release
 kernel := target/$(target)/$(mode)/$(arch)
 img := target/$(target)/$(mode)/img
 accel ?= on
-tcp ?= off
+tcp ?= on
 
 sysroot := $(shell rustc --print sysroot)
 objdump := $(shell find $(sysroot) -name llvm-objdump) --arch-name=$(arch)
