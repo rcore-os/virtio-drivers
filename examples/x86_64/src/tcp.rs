@@ -93,7 +93,7 @@ impl<T: Transport> TxToken for VirtioTxToken<T> {
         let mut tx_buf = dev.new_tx_buffer(len);
         let result = f(tx_buf.packet_mut());
         trace!("SEND {} bytes: {:02X?}", len, tx_buf.packet());
-        dev.transmit(tx_buf).unwrap();
+        dev.send(tx_buf).unwrap();
         result
     }
 }
@@ -176,6 +176,7 @@ pub fn test_echo_server<T: Transport>(dev: DeviceImpl<T>) {
         } else if socket.may_send() {
             info!("tcp:{} close", PORT);
             socket.close();
+            break;
         }
     }
 }

@@ -1,0 +1,5 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "llvm-tools"]
+targets = ["aarch64-unknown-none"]
+profile = "minimal"

@@ -9,7 +9,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 use smoltcp::{socket::tcp, time::Instant};
-use virtio_drivers::device::net::{NetBuffer, VirtIONet};
+use virtio_drivers::device::net::{RxBuffer, VirtIONet};
 use virtio_drivers::{transport::Transport, Error};
 
 use super::{HalImpl, NET_QUEUE_SIZE};
@@ -64,7 +64,7 @@ impl<T: Transport> Device for DeviceWrapper<T> {
     }
 }
 
-struct VirtioRxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>, NetBuffer);
+struct VirtioRxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>, RxBuffer);
 struct VirtioTxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>);
 
 impl<T: Transport> RxToken for VirtioRxToken<T> {
@@ -175,6 +175,7 @@ pub fn test_echo_server<T: Transport>(dev: DeviceImpl<T>) {
         } else if socket.may_send() {
             info!("tcp:{} close", PORT);
             socket.close();
+            break;
         }
     }
 }
