@@ -530,6 +530,12 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         }
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
+        if self.event_idx {
+            unsafe {
+                (*self.avail.as_ptr()).used_event = self.last_used_idx;
+            }
+        }
+
         Ok(len)
     }
 }
@@ -759,7 +765,8 @@ struct AvailRing<const SIZE: usize> {
     /// A driver MUST NOT decrement the idx.
     idx: u16,
     ring: [u16; SIZE],
-    used_event: u16, // unused
+    /// Only used if `VIRTIO_F_EVENT_IDX` is negotiated.
+    used_event: u16,
 }
 
 /// The used ring is where the device returns buffers once it is done with them:
