@@ -2,12 +2,14 @@
 
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
+use crate::volatile::Volatile;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
+use core::fmt::Debug;
 use core::hint::spin_loop;
 use core::mem::{size_of, take};
 #[cfg(test)]
@@ -192,7 +194,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         self.avail_idx = self.avail_idx.wrapping_add(1);
         // Safe because self.avail is properly aligned, dereferenceable and initialised.
         unsafe {
-            (*self.avail.as_ptr()).idx = self.avail_idx;
+            (*self.avail.as_ptr()).idx.write_volatile(self.avail_idx);
         }
 
         // Write barrier so that device can see change to available index after this method returns.
@@ -324,7 +326,11 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         if !self.event_idx {
             // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
             // instance of AvailRing.
-            unsafe { (*self.avail.as_ptr()).flags = avail_ring_flags }
+            unsafe {
+                (*self.avail.as_ptr())
+                    .flags
+                    .write_volatile(avail_ring_flags)
+            }
         }
         // Write barrier so that device can see change to available index after this method returns.
         fence(Ordering::SeqCst);
@@ -341,12 +347,12 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         if self.event_idx {
             // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
             // instance of UsedRing.
-            let avail_event = unsafe { (*self.used.as_ptr()).avail_event };
+            let avail_event = unsafe { (*self.used.as_ptr()).avail_event.read_volatile() };
             self.avail_idx >= avail_event.wrapping_add(1)
         } else {
             // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
             // instance of UsedRing.
-            unsafe { (*self.used.as_ptr()).flags & 0x0001 == 0 }
+            unsafe { (*self.used.as_ptr()).flags.read_volatile() & 0x0001 == 0 }
         }
     }
 
@@ -368,7 +374,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
         // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
         // instance of UsedRing.
-        self.last_used_idx != unsafe { (*self.used.as_ptr()).idx }
+        self.last_used_idx != unsafe { (*self.used.as_ptr()).idx.read_volatile() }
     }
 
     /// Returns the descriptor index (a.k.a. token) of the next used element without popping it, or
@@ -532,7 +538,9 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
         if self.event_idx {
             unsafe {
-                (*self.avail.as_ptr()).used_event = self.last_used_idx;
+                (*self.avail.as_ptr())
+                    .used_event
+                    .write_volatile(self.last_used_idx);
             }
         }
 
@@ -759,26 +767,36 @@ bitflags! {
 /// each ring entry refers to the head of a descriptor chain.
 /// It is only written by the driver and read by the device.
 #[repr(C)]
-#[derive(Debug)]
 struct AvailRing<const SIZE: usize> {
-    flags: u16,
+    flags: Volatile<u16>,
     /// A driver MUST NOT decrement the idx.
-    idx: u16,
+    idx: Volatile<u16>,
     ring: [u16; SIZE],
     /// Only used if `VIRTIO_F_EVENT_IDX` is negotiated.
-    used_event: u16,
+    used_event: Volatile<u16>,
+}
+
+impl<const SIZE: usize> Debug for AvailRing<SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AvailRing").finish()
+    }
 }
 
 /// The used ring is where the device returns buffers once it is done with them:
 /// it is only written to by the device, and read by the driver.
 #[repr(C)]
-#[derive(Debug)]
 struct UsedRing<const SIZE: usize> {
-    flags: u16,
-    idx: u16,
+    flags: Volatile<u16>,
+    idx: Volatile<u16>,
     ring: [UsedElem; SIZE],
     /// Only used if `VIRTIO_F_EVENT_IDX` is negotiated.
-    avail_event: u16,
+    avail_event: Volatile<u16>,
+}
+
+impl<const SIZE: usize> Debug for UsedRing<SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("UsedRing").finish()
+    }
 }
 
 #[repr(C)]
@@ -847,10 +865,13 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
     // nothing else accesses them during this block.
     unsafe {
         // Make sure there is actually at least one descriptor available to read from.
-        assert_ne!((*available_ring).idx, (*used_ring).idx);
+        assert_ne!(
+            (*available_ring).idx.read_volatile(),
+            (*used_ring).idx.read_volatile()
+        );
         // The fake device always uses descriptors in order, like VIRTIO_F_IN_ORDER, so
         // `used_ring.idx` marks the next descriptor we should take from the available ring.
-        let next_slot = (*used_ring).idx & (QUEUE_SIZE as u16 - 1);
+        let next_slot = (*used_ring).idx.read_volatile() & (QUEUE_SIZE as u16 - 1);
         let head_descriptor_index = (*available_ring).ring[next_slot as usize];
         let mut descriptor = &(*descriptors)[head_descriptor_index as usize];
 
@@ -1156,17 +1177,26 @@ mod tests {
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
 
         // Check that the avail ring's flag is zero by default.
-        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
+        assert_eq!(
+            unsafe { (*queue.avail.as_ptr()).flags.read_volatile() },
+            0x0
+        );
 
         queue.set_dev_notify(false);
 
         // Check that the avail ring's flag is 1 after `disable_dev_notify`.
-        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x1);
+        assert_eq!(
+            unsafe { (*queue.avail.as_ptr()).flags.read_volatile() },
+            0x1
+        );
 
         queue.set_dev_notify(true);
 
         // Check that the avail ring's flag is 0 after `enable_dev_notify`.
-        assert_eq!(unsafe { (*queue.avail.as_ptr()).flags }, 0x0);
+        assert_eq!(
+            unsafe { (*queue.avail.as_ptr()).flags.read_volatile() },
+            0x0
+        );
     }
 
     /// Tests that the queue notifies the device about added buffers, if it hasn't suppressed
@@ -1197,7 +1227,7 @@ mod tests {
         // initialised, and nothing else is accessing them at the same time.
         unsafe {
             // Suppress notifications.
-            (*queue.used.as_ptr()).flags = 0x01;
+            (*queue.used.as_ptr()).flags.write_volatile(0x01);
         }
 
         // Check that the transport would not be notified.
@@ -1232,7 +1262,7 @@ mod tests {
         // initialised, and nothing else is accessing them at the same time.
         unsafe {
             // Suppress notifications.
-            (*queue.used.as_ptr()).avail_event = 1;
+            (*queue.used.as_ptr()).avail_event.write_volatile(1);
         }
 
         // Check that the transport would not be notified.

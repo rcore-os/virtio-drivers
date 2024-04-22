@@ -25,7 +25,58 @@ impl<T: Copy> Volatile<T> {
     pub fn new(value: T) -> Self {
         Self(value)
     }
+
+    #[inline]
+    fn self_ptr(&self) -> NonNull<T> {
+        NonNull::from(&self.0)
+    }
+
+    #[inline(always)]
+    pub fn read_volatile(&self) -> T {
+        unsafe { self.self_ptr().as_ptr().read_volatile() }
+    }
+
+    #[inline(always)]
+    pub fn write_volatile(&mut self, value: T) {
+        unsafe { self.self_ptr().as_ptr().write_volatile(value) }
+    }
 }
+
+macro_rules! impl_volatile_ops {
+    ($($t:ty),*) => {
+        $(
+            impl AddAssign<$t> for Volatile<$t> {
+                fn add_assign(&mut self, rhs: $t) {
+                    self.write_volatile(self.read_volatile() + rhs);
+                }
+            }
+
+            impl Add<$t> for Volatile<$t> {
+                type Output = $t;
+
+                fn add(self, rhs: $t) -> $t {
+                    self.read_volatile() + rhs
+                }
+            }
+
+            impl SubAssign<$t> for Volatile<$t> {
+                fn sub_assign(&mut self, rhs: $t) {
+                    self.write_volatile(self.read_volatile() - rhs);
+                }
+            }
+
+            impl Sub<$t> for Volatile<$t> {
+                type Output = $t;
+
+                fn sub(self, rhs: $t) -> $t {
+                    self.read_volatile() - rhs
+                }
+            }
+        )*
+    };
+}
+
+impl_volatile_ops!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 /// A trait implemented by MMIO registers which may be read from.
 pub trait VolatileReadable<T> {
@@ -103,6 +154,11 @@ macro_rules! volwrite {
         )
     };
 }
+
+use core::{
+    ops::{Add, AddAssign, Sub, SubAssign},
+    ptr::NonNull,
+};
 
 pub(crate) use volread;
 pub(crate) use volwrite;
