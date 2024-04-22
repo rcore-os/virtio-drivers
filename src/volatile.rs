@@ -3,6 +3,12 @@
 #[repr(transparent)]
 pub struct ReadOnly<T: Copy>(T);
 
+impl<T: Debug + Copy> Debug for ReadOnly<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ReadOnly").field(&self.0).finish()
+    }
+}
+
 impl<T: Copy> ReadOnly<T> {
     /// Construct a new instance for testing.
     pub fn new(value: T) -> Self {
@@ -15,6 +21,12 @@ impl<T: Copy> ReadOnly<T> {
 #[repr(transparent)]
 pub struct WriteOnly<T: Copy>(T);
 
+impl<T: Debug + Copy> Debug for WriteOnly<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("WriteOnly").field(&self.0).finish()
+    }
+}
+
 /// An MMIO register which may be both read and written.
 #[derive(Default)]
 #[repr(transparent)]
@@ -24,6 +36,12 @@ impl<T: Copy> Volatile<T> {
     /// Construct a new instance for testing.
     pub fn new(value: T) -> Self {
         Self(value)
+    }
+}
+
+impl<T: Debug + Copy> Debug for Volatile<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Volatile").field(&self.0).finish()
     }
 }
 
@@ -103,6 +121,8 @@ macro_rules! volwrite {
         )
     };
 }
+
+use core::fmt::{Debug, Formatter};
 
 pub(crate) use volread;
 pub(crate) use volwrite;

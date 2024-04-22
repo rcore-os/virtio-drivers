@@ -81,6 +81,7 @@ impl Display for MmioError {
 ///
 /// Ref: 4.2.2 MMIO Device Register Layout and 4.2.4 Legacy interface
 #[repr(C)]
+#[derive(Debug)]
 pub struct VirtIOHeader {
     /// Magic value
     magic: ReadOnly<u32>,
