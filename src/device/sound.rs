@@ -1,28 +1,19 @@
 //! TODO: Add docs
-//! 
+
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use bitflags::bitflags;
+use core::mem;
 use log::info;
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
+type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 
-use crate::{
-    queue::VirtQueue,
-    transport::Transport,
-    volatile::ReadOnly,
-    Hal, Result,
-};
-
-const QUEUE_SIZE: u16 = 16;
-const CONTROL_QUEUE_IDX: u16 = 0;
-const EVENT_QUEUE_IDX: u16 = 0;
-const TX_QUEUE_IDX: u16 = 0;
-const RX_QUEUE_IDX: u16 = 0;
-
-const SUPPORTED_FEATURES: SoundFeatures = SoundFeatures::all();
+use crate::{queue::VirtQueue, transport::Transport, volatile::ReadOnly, Error, Hal, Result, PAGE_SIZE};
 
 /// TODO: Add docs
-pub struct VirtIOSound<H: Hal, T: Transport> {
+struct VirtIOSound<H: Hal, T: Transport> {
     transport: T,
 
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
@@ -31,7 +22,10 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     rx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
 
     negotiated_features: SoundFeatures,
-    config: VirtIOSoundConfig
+    config: VirtIOSoundConfig,
+
+    queue_buf_send: Box<[u8]>,
+    queue_buf_recv: Box<[u8]>,
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
@@ -43,16 +37,14 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             String::from(negotiated_features)
         );
 
-        // read configuration space
-        let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
-        let config = unsafe { *(config_ptr.as_ptr()) };
-        info!("[sound device] config: {:?}", config);
         let control_queue = VirtQueue::new(
             &mut transport,
             CONTROL_QUEUE_IDX,
             negotiated_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC),
             negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
         )?;
+        // The driver MUST populate the event queue
+        // with empty buffers of at least the struct virtio_snd_event size(struct VirtIOSndEvent Size in config.rs)
         let event_queue = VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
@@ -72,6 +64,14 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
         )?;
 
+        // read configuration space
+        let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
+        let config = unsafe { *(config_ptr.as_ptr()) };
+        info!("[sound device] config: {:?}", config);
+
+        let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+
         transport.finish_init();
 
         Ok(VirtIOSound {
@@ -81,7 +81,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             tx_queue,
             rx_queue,
             negotiated_features,
-            config
+            config,
+            queue_buf_send,
+            queue_buf_recv,
         })
     }
 
@@ -89,7 +91,109 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     pub fn ack_interrupt(&mut self) -> bool {
         self.transport.ack_interrupt()
     }
+
+    fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
+        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
+        self.control_queue.add_notify_wait_pop(
+            &[&self.queue_buf_send],
+            &mut [&mut self.queue_buf_recv],
+            &mut self.transport,
+        )?;
+        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
+    }
+
+    /// TODO: Add docs
+    pub fn query_config_info(&mut self, request_type: ItemInfomationRequestType) -> Result<VirtIOSndInfo> {
+        let request_header = VirtIOSndHdr::from(request_type);
+        let (start_id, count, size) = match request_type {
+            ItemInfomationRequestType::VirtioSndRJackInfo => (0, 1, mem::size_of::<u32>()),
+            ItemInfomationRequestType::VirtioSndRPcmInfo => (1, 1, mem::size_of::<u32>()),
+            ItemInfomationRequestType::VirtioSndRChmapInfo => (2, 1, mem::size_of::<u32>()),
+        };
+        let rsp: VirtIOSndQueryInfoRsp = self.request(VirtIOSndQueryInfoReq {
+            hdr: request_header,
+            start_id,
+            count,
+            size: size as u32,
+        })?;
+        if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(rsp.info)
+        } else {
+            Err(Error::IoError)
+        }
+    }
 }
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+enum PCMState {
+    #[default]
+    SetParams,
+    Prepare,
+    Release,
+    Start,
+    Stop,
+}
+
+/// Stream errors.
+#[derive(Debug, PartialEq, Eq)]
+enum StreamError {
+    ///
+    InvalidState(&'static str, PCMState),
+    ///
+    InvalidStateTransition(PCMState, PCMState),
+    ///
+    InvalidStreamId(u32),
+    ///
+    DescriptorReadFailed,
+    ///
+    DescriptorWriteFailed,
+    ///
+    CouldNotDisconnectStream,
+}
+
+macro_rules! set_new_state {
+    ($new_state_fn:ident, $new_state:expr, $($valid_source_states:tt)*) => {
+        fn $new_state_fn(&mut self) -> PCMStateResult<()> {
+            if !matches!(self, $($valid_source_states)*) {
+                return Err(StreamError::InvalidStateTransition(*self, $new_state));
+            }
+            *self = $new_state;
+            Ok(())
+        }
+    };
+}
+
+impl PCMState {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    set_new_state!(
+        set_parameters,
+        Self::SetParams,
+        Self::SetParams | Self::Prepare | Self::Release
+    );
+
+    set_new_state!(
+        prepare,
+        Self::Prepare,
+        Self::SetParams | Self::Prepare | Self::Release
+    );
+
+    set_new_state!(start, Self::Start, Self::Prepare | Self::Stop);
+
+    set_new_state!(stop, Self::Stop, Self::Start);
+
+    set_new_state!(release, Self::Release, Self::Prepare | Self::Stop);
+}
+
+const QUEUE_SIZE: u16 = 16;
+const CONTROL_QUEUE_IDX: u16 = 0;
+const EVENT_QUEUE_IDX: u16 = 1;
+const TX_QUEUE_IDX: u16 = 2;
+const RX_QUEUE_IDX: u16 = 3;
+
+const SUPPORTED_FEATURES: SoundFeatures = SoundFeatures::all();
 
 bitflags! {
     /// In virtIO v1.2, there are no specific features defined for virtio-sound, so now it's common
@@ -203,14 +307,47 @@ enum CommandCode {
     VirtioSndSIoErr,
 }
 
-impl From<CommandCode> for u32 {
+impl From<CommandCode> for VirtIOSndHdr {
     fn from(value: CommandCode) -> Self {
-        value as _
+        VirtIOSndHdr { command_code: value as _ }
     }
 }
 
-#[repr(C)]
+#[derive(Clone, Copy)]
+enum ItemInfomationRequestType {
+    VirtioSndRJackInfo = 1,
+    VirtioSndRPcmInfo = 0x0100,
+    VirtioSndRChmapInfo = 0x0200,
+}
+
+impl From<ItemInfomationRequestType> for VirtIOSndHdr {
+    fn from(value: ItemInfomationRequestType) -> Self {
+        VirtIOSndHdr {
+            command_code: value as _,
+        }
+    }
+}
+
+enum RequestStatusCode {
+    /* common status codes */
+    VirtioSndSOk = 0x8000,
+    VirtioSndSBadMsg,
+    VirtioSndSNotSupp,
+    VirtioSndSIoErr,
+}
+
+impl From<RequestStatusCode> for VirtIOSndHdr {
+    fn from(value: RequestStatusCode) -> Self {
+        VirtIOSndHdr {
+            command_code: value as _,
+        }
+    }
+}
+
+
 /// A common header
+#[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
 struct VirtIOSndHdr {
     command_code: u32,
 }
@@ -226,7 +363,8 @@ const VIRTIO_SND_D_OUTPUT: u16 = 0;
 const VIRTIO_SND_D_INPUT: u16 = 1;
 
 #[repr(C)]
-struct VirtIOSndQueryInfo {
+#[derive(AsBytes, FromBytes, FromZeroes)]
+struct VirtIOSndQueryInfoReq {
     /// specifies a particular item request type (VIRTIO_SND_R_*_INFO)
     hdr: VirtIOSndHdr,
     /// specifies the starting identifier for the item
@@ -244,6 +382,14 @@ struct VirtIOSndQueryInfo {
 }
 
 #[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
+struct VirtIOSndQueryInfoRsp {
+    hdr: VirtIOSndHdr,
+    info: VirtIOSndInfo
+}
+
+#[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndInfo {
     hda_fn_nid: u32,
 }
