@@ -223,6 +223,18 @@ pub struct VirtIOSocket<H: Hal, T: Transport> {
     rx_queue_buffers: [NonNull<[u8; RX_BUFFER_SIZE]>; QUEUE_SIZE],
 }
 
+// SAFETY: The `rx_queue_buffers` can be accessed from any thread.
+unsafe impl<H: Hal, T: Transport + Send> Send for VirtIOSocket<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Send
+{
+}
+
+// SAFETY: A `&VirtIOSocket` only allows reading the guest CID from a field.
+unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOSocket<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Sync
+{
+}
+
 impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
