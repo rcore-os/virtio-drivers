@@ -124,7 +124,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Query information about the available jacks.
-    pub fn available_jacks(&mut self) -> Result<VirtIOSndJackInfo> {
+    pub fn jack_info(&mut self) -> Result<VirtIOSndJackInfo> {
         let request_header = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRJackInfo);
         let rsp: VirtIOSndJackInfoRsp = self.request(VirtIOSndQueryInfo {
             hdr: request_header,
@@ -140,13 +140,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Query information about the available streams.
-    pub fn available_streams(&mut self) -> Result<VirtIOSndPcmInfo> {
+    pub fn pcm_info(&mut self) -> Result<VirtIOSndPcmInfo> {
         let request_hdr = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRPcmInfo);
         let rsp: VirtIOSndPcmInfoRsp = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
             start_id: 1,
             count: 1,
-            size: 0
+            size: mem::size_of::<VirtIOSndPcmInfoRsp>() as u32
         })?;
         if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
             Ok(rsp.body)
@@ -155,6 +155,30 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         }
     }
 
+    /// TODO: VIRTIO_SND_R_JACK_REMAP
+    pub fn jack_remap() {
+        
+    }
+
+    /// Set selected stream parameters for the specified stream ID.
+    pub fn pcm_set_params(&mut self, buffer_bytes: u32, period_bytes: u32, features: u32, channels: u8, format: u8, rate: u8) -> Result {
+        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmSetParams);
+        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
+            hdr: request_hdr,
+            buffer_bytes,
+            period_bytes,
+            features,
+            channels,
+            format,
+            rate,
+            _padding: 0
+        })?;
+        if request_hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
 
 }
 
@@ -347,10 +371,14 @@ impl From<CommandCode> for VirtIOSndHdr {
     }
 }
 
+/// TODO: Add docs.
 #[derive(Clone, Copy)]
-enum ItemInfomationRequestType {
+pub enum ItemInfomationRequestType {
+    /// TODO
     VirtioSndRJackInfo = 1,
+    /// TODO
     VirtioSndRPcmInfo = 0x0100,
+    /// TODO
     VirtioSndRChmapInfo = 0x0200,
 }
 
@@ -422,9 +450,10 @@ struct VirtIOSndQueryInfoRsp {
     info: VirtIOSndInfo
 }
 
+/// TODO: Add docs
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
-struct VirtIOSndInfo {
+pub struct VirtIOSndInfo {
     hda_fn_nid: u32,
 }
 
@@ -435,9 +464,10 @@ struct VirtIOSndJackHdr {
     jack_id: u32,
 }
 
+/// TODO
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
-struct VirtIOSndJackInfo {
+pub struct VirtIOSndJackInfo {
     hdr: VirtIOSndInfo,
     features: u32,
     /// indicates a pin default configuration value
@@ -465,6 +495,7 @@ struct VirtIOSndJackRemap {
 }
 
 #[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmHdr {
     /// specifies request type (VIRTIO_SND_R_PCM_*)
     hdr: VirtIOSndHdr,
@@ -545,9 +576,10 @@ impl From<PcmFrameRate> for u64 {
     }
 }
 
+/// TODO: Add docs
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
-struct VirtIOSndPcmInfo {
+pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
     formats: u64,  /* 1 << VIRTIO_SND_PCM_FMT_XXX */
@@ -570,6 +602,7 @@ struct VirtIOSndPcmInfoRsp {
 }
 
 #[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmSetParams {
     hdr: VirtIOSndPcmHdr, /* .code = VIRTIO_SND_R_PCM_SET_PARAMS */
     buffer_bytes: u32,
