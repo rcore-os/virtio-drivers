@@ -13,7 +13,7 @@ use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput},
+    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput, sound::VirtIOSound},
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
@@ -85,6 +85,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::GPU => virtio_gpu(transport),
         DeviceType::Input => virtio_input(transport),
         DeviceType::Network => virtio_net(transport),
+        DeviceType::Sound => virtio_sound(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -174,4 +175,8 @@ fn virtio_net<T: Transport>(transport: T) {
         info!("MAC address: {:02x?}", net.mac_address());
         tcp::test_echo_server(net);
     }
+}
+
+fn virtio_sound<T: Transport>(transport: T) {
+    let _sound = VirtIOSound::<HalImpl, T>::new(transport);
 }

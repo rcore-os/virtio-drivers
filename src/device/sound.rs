@@ -13,7 +13,7 @@ type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 use crate::{queue::VirtQueue, transport::Transport, volatile::ReadOnly, Error, Hal, Result, PAGE_SIZE};
 
 /// TODO: Add docs
-struct VirtIOSound<H: Hal, T: Transport> {
+pub struct VirtIOSound<H: Hal, T: Transport> {
     transport: T,
 
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
@@ -140,15 +140,19 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Query information about the available streams.
-
-    pub fn available_streams(&mut self) {
+    pub fn available_streams(&mut self) -> Result<VirtIOSndPcmInfo> {
         let request_hdr = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRPcmInfo);
-        let rsp = self.request(VirtIOSndQueryInfo {
+        let rsp: VirtIOSndPcmInfoRsp = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
             start_id: 1,
             count: 1,
             size: 0
         })?;
+        if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(rsp.body)
+        } else {
+            Err(Error::IoError)
+        }
     }
 
 
@@ -554,14 +558,15 @@ struct VirtIOSndPcmInfo {
     channels_min: u8,
     /// indicates a maximum number of supported channels
     channels_max: u8,
-
+    _padding: [u8; 5],
 }
 
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmInfoRsp {
     hdr: VirtIOSndHdr,
-    body: VirtIOSndPcmInfo
+    _padding: [u8; 4], // TODO: Is it right that put _padding here?
+    body: VirtIOSndPcmInfo,
 }
 
 #[repr(C)]
