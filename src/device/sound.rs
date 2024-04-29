@@ -161,10 +161,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Set selected stream parameters for the specified stream ID.
-    pub fn pcm_set_params(&mut self, buffer_bytes: u32, period_bytes: u32, features: u32, channels: u8, format: u8, rate: u8) -> Result {
+    pub fn pcm_set_params(&mut self, stream_id: u32, buffer_bytes: u32, period_bytes: u32, features: u32, channels: u8, format: u8, rate: u8) -> Result {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmSetParams);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
-            hdr: request_hdr,
+            hdr: VirtIOSndPcmHdr {
+                hdr: request_hdr,
+                stream_id
+            },
             buffer_bytes,
             period_bytes,
             features,
@@ -173,7 +176,68 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             rate,
             _padding: 0
         })?;
-        if request_hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        // rsp is just a header, so it can be compared with VirtIOSndHdr
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
+
+    /// Prepare a stream with specified stream ID.
+    pub fn pcm_prepare(&mut self, stream_id: u32) -> Result {
+        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmPrepare);
+        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+            hdr: request_hdr,
+            stream_id
+        })?;
+        // rsp is just a header, so it can be compared with VirtIOSndHdr
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
+
+    /// Release a stream with specified stream ID.
+    pub fn pcm_release(&mut self, stream_id: u32) -> Result {
+        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmRelease);
+        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+            hdr: request_hdr,
+            stream_id
+        })?;
+        // rsp is just a header, so it can be compared with VirtIOSndHdr
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
+
+    /// Start a stream with specified stream ID.
+    pub fn pcm_start(&mut self, stream_id: u32) -> Result {
+        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStart);
+        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+            hdr: request_hdr,
+            stream_id
+        })?;
+        // rsp is just a header, so it can be compared with VirtIOSndHdr
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            Ok(())
+        } else {
+            Err(Error::IoError)
+        }
+    }
+
+    /// Stop a stream with specified stream ID.
+    pub fn pcm_stop(&mut self, stream_id: u32) -> Result {
+        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStop);
+        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+            hdr: request_hdr,
+            stream_id
+        })?;
+        // rsp is just a header, so it can be compared with VirtIOSndHdr
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
             Ok(())
         } else {
             Err(Error::IoError)
