@@ -52,7 +52,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
 
     /// Enable interrupts.
     pub fn enable_interrupts(&mut self) {
-        self.inner.disable_interrupts()
+        self.inner.enable_interrupts()
     }
 
     /// Get MAC address.
