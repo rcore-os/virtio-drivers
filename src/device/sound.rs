@@ -4,13 +4,19 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::mem;
-use log::info;
+use log::{error, info, warn};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 
-use crate::{queue::VirtQueue, transport::Transport, volatile::ReadOnly, Error, Hal, Result, PAGE_SIZE};
+use crate::{
+    queue::VirtQueue,
+    transport::Transport,
+    volatile::{volread, ReadOnly},
+    Error, Hal, Result, PAGE_SIZE,
+};
 
 /// TODO: Add docs
 pub struct VirtIOSound<H: Hal, T: Transport> {
@@ -22,7 +28,13 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     rx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
 
     negotiated_features: SoundFeatures,
-    config: VirtIOSoundConfig,
+
+    jacks: u32,
+    streams: u32,
+    chmaps: u32,
+
+    pcm_infos: Option<Vec<VirtIOSndPcmInfo>>,
+    jack_infos: Option<Vec<VirtIOSndJackInfo>>,
 
     queue_buf_send: Box<[u8]>,
     queue_buf_recv: Box<[u8]>,
@@ -66,8 +78,20 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         // read configuration space
         let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
-        let config = unsafe { *(config_ptr.as_ptr()) };
-        info!("[sound device] config: {:?}", config);
+        let jacks;
+        let streams;
+        let chmaps;
+        unsafe {
+            jacks = volread!(config_ptr, jacks);
+            streams = volread!(config_ptr, streams);
+            chmaps = volread!(config_ptr, chmaps);
+        }
+        info!(
+            "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
+            jacks, streams, chmaps
+        );
+
+        // query jack infos
 
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
@@ -81,10 +105,29 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             tx_queue,
             rx_queue,
             negotiated_features,
-            config,
+            jacks,
+            streams,
+            chmaps,
+            pcm_infos: None,
+            jack_infos: None,
             queue_buf_send,
             queue_buf_recv,
         })
+    }
+
+    /// Total jack num.
+    pub fn jacks(&self) -> u32 {
+        self.jacks
+    }
+
+    /// Total stream num.
+    pub fn streams(&self) -> u32 {
+        self.streams
+    }
+
+    /// Total chmap num.
+    pub fn chmaps(&self) -> u32 {
+        self.chmaps
     }
 
     /// Acknowledge interrupt.
@@ -102,71 +145,169 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
     }
 
-    /// TODO: Add docs
-    pub fn query_config_info(&mut self, request_type: ItemInfomationRequestType) -> Result<VirtIOSndInfo> {
-        let request_header = VirtIOSndHdr::from(request_type);
-        let (start_id, count, size) = match request_type {
-            ItemInfomationRequestType::VirtioSndRJackInfo => (0, 1, mem::size_of::<VirtIOSndJackInfo>()),
-            ItemInfomationRequestType::VirtioSndRPcmInfo => (1, 1, mem::size_of::<u32>()),
-            ItemInfomationRequestType::VirtioSndRChmapInfo => (2, 1, mem::size_of::<u32>()),
-        };
-        let rsp: VirtIOSndQueryInfoRsp = self.request(VirtIOSndQueryInfo {
-            hdr: request_header,
-            start_id,
-            count,
-            size: size as u32,
-        })?;
-        if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
-            Ok(rsp.info)
-        } else {
-            Err(Error::IoError)
+    /// Set up the driver, initate pcm_infos and jacks_infos
+    pub fn set_up(&mut self) {
+        if let Ok(jack_infos) = self.jack_info(0, self.jacks) {
+            self.jack_infos = Some(jack_infos);
+        }
+        if let Ok(pcm_infos) = self.pcm_info(0, self.streams) {
+            self.pcm_infos = Some(pcm_infos);
         }
     }
 
     /// Query information about the available jacks.
-    pub fn jack_info(&mut self) -> Result<VirtIOSndJackInfo> {
-        let request_header = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRJackInfo);
-        let rsp: VirtIOSndJackInfoRsp = self.request(VirtIOSndQueryInfo {
-            hdr: request_header,
-            start_id: 0,
-            count: 1,
-            size: mem::size_of::<VirtIOSndJackInfoRsp>() as u32
-        })?;
-        if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
-            Ok(rsp.body)
-        } else {
-            Err(Error::IoError)
+    fn jack_info(&mut self, jack_start_id: u32, jack_count: u32) -> Result<Vec<VirtIOSndJackInfo>> {
+        if self.jacks == 0 {
+            warn!("[sound device] There is no available jacks!");
+            return Err(Error::ConfigSpaceTooSmall);
         }
+        if jack_start_id + jack_count > self.jacks {
+            error!("jack_start_id + jack_count > jacks! There are not enough jacks to be queried!");
+            return Err(Error::IoError);
+        }
+        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
+            hdr: ItemInfomationRequestType::VirtioSndRJackInfo.into(),
+            start_id: jack_start_id,
+            count: jack_count,
+            size: mem::size_of::<VirtIOSndJackInfo>() as u32,
+        })?;
+        // mem::size_of::<VirtIOSndHdr>() bytes are header
+        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+            return Err(Error::IoError);
+        }
+        // read struct VirtIOSndJackInfo
+        let mut jack_infos = vec![];
+        for i in 0..jack_count as usize {
+            const HDR_SIZE: usize = mem::size_of::<VirtIOSndHdr>();
+            const JACK_INFO_SIZE: usize = mem::size_of::<VirtIOSndJackInfo>();
+            let start_byte_idx = HDR_SIZE + i * JACK_INFO_SIZE;
+            let end_byte_idx = HDR_SIZE + (i + 1) * JACK_INFO_SIZE;
+            let jack_info =
+                VirtIOSndJackInfo::read_from(&self.queue_buf_recv[start_byte_idx..end_byte_idx])
+                    .unwrap();
+            jack_infos.push(jack_info)
+        }
+        info!("jack_infos: {:#?}", jack_infos);
+        Ok(jack_infos)
     }
 
-    /// Query information about the available streams.
-    pub fn pcm_info(&mut self) -> Result<VirtIOSndPcmInfo> {
+    // Query information about the available streams.
+    fn pcm_info(
+        &mut self,
+        stream_start_id: u32,
+        stream_count: u32,
+    ) -> Result<Vec<VirtIOSndPcmInfo>> {
+        if self.streams == 0 {
+            warn!("There is no available streams!");
+            return Err(Error::ConfigSpaceTooSmall);
+        }
+        if stream_start_id + stream_count > self.streams {
+            error!("stream_start_id + stream_count > streams! There are not enough streams to be queried!");
+            return Err(Error::IoError);
+        }
         let request_hdr = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRPcmInfo);
-        let rsp: VirtIOSndPcmInfoRsp = self.request(VirtIOSndQueryInfo {
+        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
-            start_id: 1,
-            count: 1,
-            size: mem::size_of::<VirtIOSndPcmInfoRsp>() as u32
+            start_id: stream_start_id,
+            count: stream_count,
+            size: mem::size_of::<VirtIOSndPcmInfo>() as u32,
         })?;
-        if rsp.hdr == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
-            Ok(rsp.body)
-        } else {
-            Err(Error::IoError)
+        // mem::size_of::<VirtIOSndHdr>() bytes are header
+        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+            return Err(Error::IoError);
         }
+        // read struct VirtIOSndPcmInfo
+        let mut pcm_infos = vec![];
+        for i in 0..stream_count as usize {
+            const HDR_SIZE: usize = mem::size_of::<VirtIOSndHdr>();
+            const PCM_INFO_SIZE: usize = mem::size_of::<VirtIOSndPcmInfo>();
+            let start_byte_idx = HDR_SIZE + i * PCM_INFO_SIZE;
+            let end_byte_idx = HDR_SIZE + (i + 1) * PCM_INFO_SIZE;
+            let pcm_info =
+                VirtIOSndPcmInfo::read_from(&self.queue_buf_recv[start_byte_idx..end_byte_idx])
+                    .unwrap();
+            let mut features = String::new();
+            let _ =
+                bitflags::parser::to_writer(&PcmFeatures::from(pcm_info.features), &mut features);
+            let mut rates = String::new();
+            let _ = bitflags::parser::to_writer(&PcmRate::from(pcm_info.rate), &mut rates);
+            let mut formats = String::new();
+            let _ = bitflags::parser::to_writer(&PcmFormats::from(pcm_info.formats), &mut formats);
+            info!("[sound device] stream[{}]: {{features: {}, rates: {}, formats: {}, direction: {}}}",
+                i,
+                features,
+                rates,
+                formats,
+                if pcm_info.direction == VIRTIO_SND_D_OUTPUT {"OUTPUT"} else {"INPUT"}
+            );
+            pcm_infos.push(pcm_info);
+        }
+        Ok(pcm_infos)
     }
 
-    /// TODO: VIRTIO_SND_R_JACK_REMAP
-    pub fn jack_remap() {
-        
+    /// If the VIRTIO_SND_JACK_F_REMAP feature bit is set in the jack information, then the driver can send a
+    /// control request to change the association and/or sequence number for the specified jack ID.
+    /// # Arguments
+    ///
+    /// * `jack_id` - A u32 int which is in the range of [0, jacks)
+    pub fn jack_remap(&mut self, jack_id: u32, association: u32, sequence: u32) -> Result {
+        if self.jacks == 0 {
+            error!("[sound device] There is no available jacks!");
+            return Err(Error::InvalidParam);
+        }
+        if self.jack_infos == None {
+            error!("Could not read jack_infos, you need to call set_up() to initate it.");
+            return Err(Error::InvalidParam);
+        }
+        if jack_id >= self.jacks {
+            error!("jack_id >= self.jacks! Make sure jack_id is in the range of [0, jacks - 1)!");
+            return Err(Error::InvalidParam);
+        }
+
+        let jack_features = JackFeatures::from(
+            self.jack_infos
+                .as_ref()
+                .unwrap()
+                .get(jack_id as usize)
+                .unwrap()
+                .features,
+        );
+        if !jack_features.contains(JackFeatures::VIRTIO_SND_JACK_F_REMAP) {
+            // not support VIRTIO_SND_JACK_F_REMAP
+            error!("The jack selected does not support VIRTIO_SND_JACK_F_REMAP!");
+            return Err(Error::Unsupported);
+        }
+        let hdr: VirtIOSndHdr = self.request(VirtIOSndJackRemap {
+            hdr: VirtIOSndJackHdr {
+                hdr: CommandCode::VirtioSndRJackRemap.into(),
+                jack_id,
+            },
+            association,
+            sequence,
+        })?;
+        if hdr == RequestStatusCode::VirtioSndSOk.into() {
+            Ok(())
+        } else {
+            Err(Error::Unsupported)
+        }
     }
 
     /// Set selected stream parameters for the specified stream ID.
-    pub fn pcm_set_params(&mut self, stream_id: u32, buffer_bytes: u32, period_bytes: u32, features: u32, channels: u8, format: u8, rate: u8) -> Result {
+    pub fn pcm_set_params(
+        &mut self,
+        stream_id: u32,
+        buffer_bytes: u32,
+        period_bytes: u32,
+        features: u32,
+        channels: u8,
+        format: u8,
+        rate: u8,
+    ) -> Result {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmSetParams);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
             hdr: VirtIOSndPcmHdr {
                 hdr: request_hdr,
-                stream_id
+                stream_id,
             },
             buffer_bytes,
             period_bytes,
@@ -174,7 +315,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             channels,
             format,
             rate,
-            _padding: 0
+            _padding: 0,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
@@ -189,7 +330,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmPrepare);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
-            stream_id
+            stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
@@ -204,7 +345,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmRelease);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
-            stream_id
+            stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
@@ -219,7 +360,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStart);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
-            stream_id
+            stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
@@ -234,7 +375,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStop);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
-            stream_id
+            stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
@@ -243,7 +384,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             Err(Error::IoError)
         }
     }
-
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -309,7 +449,7 @@ impl PCMState {
     set_new_state!(release, Self::Release, Self::Prepare | Self::Stop);
 }
 
-const QUEUE_SIZE: u16 = 16;
+const QUEUE_SIZE: u16 = 32;
 const CONTROL_QUEUE_IDX: u16 = 0;
 const EVENT_QUEUE_IDX: u16 = 1;
 const TX_QUEUE_IDX: u16 = 2;
@@ -338,6 +478,106 @@ bitflags! {
         const VIRTIO_F_NOTIFICATION_DATA     = 1 << 38;
         const VIRTIO_F_NOTIF_CONFIG_DATA     = 1 << 39;
         const VIRTIO_F_RING_RESET            = 1 << 40;
+    }
+}
+
+struct JackFeatures(u32);
+
+bitflags! {
+    impl JackFeatures: u32 {
+        /// jack remapping support.
+        const VIRTIO_SND_JACK_F_REMAP = 1 << 0;
+    }
+}
+
+impl From<u32> for JackFeatures {
+    fn from(value: u32) -> Self {
+        JackFeatures(value)
+    }
+}
+
+struct PcmFeatures(u32);
+
+bitflags! {
+    impl PcmFeatures: u32 {
+        const VIRTIO_SND_PCM_F_SHMEM_HOST = 1 << 0;
+        const VIRTIO_SND_PCM_F_SHMEM_GUEST = 1 << 1;
+        const VIRTIO_SND_PCM_F_MSG_POLLING = 1 << 2;
+        const VIRTIO_SND_PCM_F_EVT_SHMEM_PERIODS = 1 << 3;
+        const VIRTIO_SND_PCM_F_EVT_XRUNS = 1 << 4;
+    }
+}
+
+impl From<u32> for PcmFeatures {
+    fn from(value: u32) -> Self {
+        PcmFeatures(value)
+    }
+}
+
+struct PcmFormats(u64);
+
+bitflags! {
+    impl PcmFormats: u64 {
+        /* analog formats (width / physical width) */
+        const VIRTIO_SND_PCM_FMT_IMA_ADPCM = 1 << 0;
+        const VIRTIO_SND_PCM_FMT_MU_LAW = 1 << 1;
+        const VIRTIO_SND_PCM_FMT_A_LAW = 1 << 2;
+        const VIRTIO_SND_PCM_FMT_S8 = 1 << 3;
+        const VIRTIO_SND_PCM_FMT_U8 = 1 << 4;
+        const VIRTIO_SND_PCM_FMT_S16 = 1 << 5;
+        const VIRTIO_SND_PCM_FMT_U16 = 1 << 6;
+        const VIRTIO_SND_PCM_FMT_S18_3 = 1 << 7;
+        const VIRTIO_SND_PCM_FMT_U18_3 = 1 << 8;
+        const VIRTIO_SND_PCM_FMT_S20_3 = 1 << 9;
+        const VIRTIO_SND_PCM_FMT_U20_3 = 1 << 10;
+        const VIRTIO_SND_PCM_FMT_S24_3 = 1 << 11;
+        const VIRTIO_SND_PCM_FMT_U24_3 = 1 << 12;
+        const VIRTIO_SND_PCM_FMT_S20 = 1 << 13;
+        const VIRTIO_SND_PCM_FMT_U20 = 1 << 14;
+        const VIRTIO_SND_PCM_FMT_S24 = 1 << 15;
+        const VIRTIO_SND_PCM_FMT_U24 = 1 << 16;
+        const VIRTIO_SND_PCM_FMT_S32 = 1 << 17;
+        const VIRTIO_SND_PCM_FMT_U32 = 1 << 18;
+        const VIRTIO_SND_PCM_FMT_FLOAT = 1 << 19;
+        const VIRTIO_SND_PCM_FMT_FLOAT64 = 1 << 20;
+        /* digital formats (width / physical width) */
+        const VIRTIO_SND_PCM_FMT_DSD_U8 = 1 << 21;
+        const VIRTIO_SND_PCM_FMT_DSD_U16 = 1 << 22;
+        const VIRTIO_SND_PCM_FMT_DSD_U32 = 1 << 23;
+        const VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME = 1 << 24;
+    }
+}
+
+impl From<u64> for PcmFormats {
+    fn from(value: u64) -> Self {
+        PcmFormats(value)
+    }
+}
+
+struct PcmRate(u64);
+
+bitflags! {
+    impl PcmRate: u64 {
+        const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
+        const VIRTIO_SND_PCM_RATE_8000 = 1 << 1;
+        const VIRTIO_SND_PCM_RATE_11025 = 1 << 2;
+        const VIRTIO_SND_PCM_RATE_16000 = 1 << 3;
+        const VIRTIO_SND_PCM_RATE_22050 = 1 << 4;
+        const VIRTIO_SND_PCM_RATE_32000 = 1 << 5;
+        const VIRTIO_SND_PCM_RATE_44100 = 1 << 6;
+        const VIRTIO_SND_PCM_RATE_48000 = 1 << 7;
+        const VIRTIO_SND_PCM_RATE_64000 = 1 << 8;
+        const VIRTIO_SND_PCM_RATE_88200 = 1 << 9;
+        const VIRTIO_SND_PCM_RATE_96000 = 1 << 10;
+        const VIRTIO_SND_PCM_RATE_176400 = 1 << 11;
+        const VIRTIO_SND_PCM_RATE_192000 = 1 << 12;
+        const VIRTIO_SND_PCM_RATE_384000 = 1 << 13;
+    }
+}
+
+impl From<u64> for PcmRate {
+    fn from(value: u64) -> Self {
+        PcmRate(value)
     }
 }
 
@@ -431,7 +671,9 @@ enum CommandCode {
 
 impl From<CommandCode> for VirtIOSndHdr {
     fn from(value: CommandCode) -> Self {
-        VirtIOSndHdr { command_code: value as _ }
+        VirtIOSndHdr {
+            command_code: value as _,
+        }
     }
 }
 
@@ -470,7 +712,6 @@ impl From<RequestStatusCode> for VirtIOSndHdr {
     }
 }
 
-
 /// A common header
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
@@ -485,8 +726,8 @@ struct VirtIOSndEvent {
     data: u32,
 }
 
-const VIRTIO_SND_D_OUTPUT: u16 = 0;
-const VIRTIO_SND_D_INPUT: u16 = 1;
+const VIRTIO_SND_D_OUTPUT: u8 = 0;
+const VIRTIO_SND_D_INPUT: u8 = 1;
 
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
@@ -511,17 +752,18 @@ struct VirtIOSndQueryInfo {
 #[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndQueryInfoRsp {
     hdr: VirtIOSndHdr,
-    info: VirtIOSndInfo
+    info: VirtIOSndInfo,
 }
 
 /// TODO: Add docs
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq)]
 pub struct VirtIOSndInfo {
     hda_fn_nid: u32,
 }
 
 #[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndJackHdr {
     hdr: VirtIOSndHdr,
     /// specifies a jack identifier from 0 to jacks - 1
@@ -530,7 +772,7 @@ struct VirtIOSndJackHdr {
 
 /// TODO
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq)]
 pub struct VirtIOSndJackInfo {
     hdr: VirtIOSndInfo,
     features: u32,
@@ -548,10 +790,11 @@ pub struct VirtIOSndJackInfo {
 #[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndJackInfoRsp {
     hdr: VirtIOSndHdr,
-    body: VirtIOSndJackInfo
+    body: VirtIOSndJackInfo,
 }
 
 #[repr(C)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndJackRemap {
     hdr: VirtIOSndJackHdr,
     association: u32,
@@ -634,15 +877,15 @@ enum PcmFrameRate {
     VirtioSndPcmRate384000,
 }
 
-impl From<PcmFrameRate> for u64 {
-    fn from(value: PcmFrameRate) -> Self {
-        value as _
+impl Into<u64> for PcmFrameRate {
+    fn into(self) -> u64 {
+        1 << self as usize
     }
 }
 
 /// TODO: Add docs
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, FromBytes, FromZeroes, Debug)]
 pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
@@ -657,11 +900,11 @@ pub struct VirtIOSndPcmInfo {
     _padding: [u8; 5],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmInfoRsp {
     hdr: VirtIOSndHdr,
-    _padding: [u8; 4], // TODO: Is it right that put _padding here?
+    //_padding: [u8; 4], // TODO: Is it right that put _padding here?
     body: VirtIOSndPcmInfo,
 }
 
