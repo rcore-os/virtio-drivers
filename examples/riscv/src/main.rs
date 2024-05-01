@@ -179,6 +179,9 @@ fn virtio_net<T: Transport>(transport: T) {
 
 fn virtio_sound<T: Transport>(transport: T) {
     let mut sound = VirtIOSound::<HalImpl, T>::new(transport).expect("failed to create sound driver");
-    sound.set_up();
-    
+    let output_streams = sound.output_streams();
+    if output_streams.len() > 0 {
+        let _output_stream = *output_streams.first().unwrap();
+
+    }
 }

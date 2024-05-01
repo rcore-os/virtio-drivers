@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::mem;
+use core::{mem, ops::RangeInclusive};
 use log::{error, info, warn};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
@@ -38,6 +38,8 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     queue_buf_send: Box<[u8]>,
     queue_buf_recv: Box<[u8]>,
+
+    set_up: bool,
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
@@ -112,6 +114,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             jack_infos: None,
             queue_buf_send,
             queue_buf_recv,
+            set_up: false,
         })
     }
 
@@ -146,7 +149,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Set up the driver, initate pcm_infos and jacks_infos
-    pub fn set_up(&mut self) {
+    fn set_up(&mut self) {
         if let Ok(jack_infos) = self.jack_info(0, self.jacks) {
             self.jack_infos = Some(jack_infos);
         }
@@ -251,6 +254,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     ///
     /// * `jack_id` - A u32 int which is in the range of [0, jacks)
     pub fn jack_remap(&mut self, jack_id: u32, association: u32, sequence: u32) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         if self.jacks == 0 {
             error!("[sound device] There is no available jacks!");
             return Err(Error::InvalidParam);
@@ -303,6 +310,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         format: u8,
         rate: u8,
     ) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmSetParams);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
             hdr: VirtIOSndPcmHdr {
@@ -327,6 +338,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
     /// Prepare a stream with specified stream ID.
     pub fn pcm_prepare(&mut self, stream_id: u32) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmPrepare);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
@@ -342,6 +357,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
     /// Release a stream with specified stream ID.
     pub fn pcm_release(&mut self, stream_id: u32) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmRelease);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
@@ -357,6 +376,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
     /// Start a stream with specified stream ID.
     pub fn pcm_start(&mut self, stream_id: u32) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStart);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
@@ -372,6 +395,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
     /// Stop a stream with specified stream ID.
     pub fn pcm_stop(&mut self, stream_id: u32) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStop);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
@@ -384,6 +411,93 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             Err(Error::IoError)
         }
     }
+
+    /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
+    pub fn pcm_xfer(&mut self, stream_id: u32, frame: &[u8]) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
+        let mut req = vec![];
+        let hdr = VirtIOSndPcmXfer {
+            srteam_id: stream_id,
+        };
+        req.extend_from_slice(hdr.as_bytes());
+        req.extend_from_slice(frame);
+        let mut rsp = vec![];
+        self.tx_queue
+            .add_notify_wait_pop(&mut [&req], &mut [&mut rsp], &mut self.transport)?;
+        if let Some(pcm_status) = VirtIOSndPcmStatus::read_from_prefix(&rsp) {
+            // ok
+            if pcm_status.status == RequestStatusCode::VirtioSndSOk as u32 {
+                return Ok(());
+            } else {
+                return Err(Error::IoError);
+            }
+        }
+        Err(Error::IoError)
+    }
+
+    /// Get all output streams.
+    pub fn output_streams(&mut self) -> Vec<u32> {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
+        self.pcm_infos
+            .as_ref()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|(_, info)| info.direction == VIRTIO_SND_D_OUTPUT)
+            .map(|(idx, _)| idx as u32)
+            .collect()
+    }
+
+    /// Get all input streams.
+    pub fn input_streams(&mut self) -> Vec<u32> {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
+        self.pcm_infos
+        .as_ref()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter(|(_, info)| info.direction == VIRTIO_SND_D_INPUT)
+        .map(|(idx, _)| idx as u32)
+        .collect()
+    }
+
+    /// Get the rates that a stream supports.
+    pub fn rates_supported(&mut self, stream_id: u32) -> Result<PcmRate> {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
+        if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
+            return Err(Error::InvalidParam);
+        }
+        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize].rate.into())
+    }
+
+    /// Get the formats that a stream supports.
+    pub fn formats_supported(&mut self, stream_id: u32) -> Result<PcmFormats> {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
+        if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
+            return Err(Error::InvalidParam);
+        }
+        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize].formats.into())
+    }
+
+    // /// Get channel range that a stream supports.
+    // pub fn channels_supported(&mut self, stream_id: u32) -> RangeInclusive<u8> {
+        
+    // }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -513,38 +627,64 @@ impl From<u32> for PcmFeatures {
         PcmFeatures(value)
     }
 }
-
-struct PcmFormats(u64);
+/// TODO
+pub struct PcmFormats(u64);
 
 bitflags! {
     impl PcmFormats: u64 {
         /* analog formats (width / physical width) */
+        /// TODO
         const VIRTIO_SND_PCM_FMT_IMA_ADPCM = 1 << 0;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_MU_LAW = 1 << 1;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_A_LAW = 1 << 2;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S8 = 1 << 3;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U8 = 1 << 4;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S16 = 1 << 5;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U16 = 1 << 6;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S18_3 = 1 << 7;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U18_3 = 1 << 8;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S20_3 = 1 << 9;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U20_3 = 1 << 10;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S24_3 = 1 << 11;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U24_3 = 1 << 12;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S20 = 1 << 13;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U20 = 1 << 14;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S24 = 1 << 15;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U24 = 1 << 16;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_S32 = 1 << 17;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_U32 = 1 << 18;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_FLOAT = 1 << 19;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_FLOAT64 = 1 << 20;
         /* digital formats (width / physical width) */
+        /// TODO
         const VIRTIO_SND_PCM_FMT_DSD_U8 = 1 << 21;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_DSD_U16 = 1 << 22;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_DSD_U32 = 1 << 23;
+        /// TODO
         const VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME = 1 << 24;
+
     }
 }
 
@@ -554,23 +694,38 @@ impl From<u64> for PcmFormats {
     }
 }
 
-struct PcmRate(u64);
+/// TODO
+pub struct PcmRate(u64);
 
 bitflags! {
     impl PcmRate: u64 {
+        /// TODO 
         const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_8000 = 1 << 1;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_11025 = 1 << 2;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_16000 = 1 << 3;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_22050 = 1 << 4;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_32000 = 1 << 5;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_44100 = 1 << 6;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_48000 = 1 << 7;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_64000 = 1 << 8;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_88200 = 1 << 9;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_96000 = 1 << 10;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_176400 = 1 << 11;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_192000 = 1 << 12;
+        /// TODO
         const VIRTIO_SND_PCM_RATE_384000 = 1 << 13;
     }
 }
@@ -693,6 +848,12 @@ impl From<ItemInfomationRequestType> for VirtIOSndHdr {
         VirtIOSndHdr {
             command_code: value as _,
         }
+    }
+}
+
+impl Into<u32> for ItemInfomationRequestType {
+    fn into(self) -> u32 {
+        self as _
     }
 }
 
@@ -924,12 +1085,14 @@ struct VirtIOSndPcmSetParams {
 
 /// An I/O header
 #[repr(C)]
+#[derive(AsBytes)]
 struct VirtIOSndPcmXfer {
     srteam_id: u32,
 }
 
 /// An I/O status
 #[repr(C)]
+#[derive(FromBytes, FromZeroes)]
 struct VirtIOSndPcmStatus {
     status: u32,
     latency_bytes: u32,
