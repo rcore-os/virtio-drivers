@@ -96,6 +96,16 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         self.transport.ack_interrupt()
     }
 
+    /// Enables interrupts from the device.
+    pub fn enable_interrupts(&mut self) {
+        self.queue.set_dev_notify(true);
+    }
+
+    /// Disables interrupts from the device.
+    pub fn disable_interrupts(&mut self) {
+        self.queue.set_dev_notify(false);
+    }
+
     /// Sends the given request to the device and waits for a response, with no extra data.
     fn request(&mut self, request: BlkReq) -> Result {
         let mut resp = BlkResp::default();
