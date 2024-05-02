@@ -316,6 +316,13 @@ impl PciRoot {
     }
 }
 
+// SAFETY: `mmio_base` is only used for MMIO, which can happen from any thread or CPU core.
+unsafe impl Send for PciRoot {}
+
+// SAFETY: `&PciRoot` only allows MMIO reads, which are fine to happen concurrently on different CPU
+// cores.
+unsafe impl Sync for PciRoot {}
+
 /// Information about a PCI Base Address Register.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BarInfo {

@@ -51,6 +51,18 @@ pub struct VirtIOConsole<H: Hal, T: Transport> {
     receive_token: Option<u16>,
 }
 
+// SAFETY: The config space can be accessed from any thread.
+unsafe impl<H: Hal, T: Transport + Send> Send for VirtIOConsole<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Send
+{
+}
+
+// SAFETY: A `&VirtIOConsole` only allows reading the config space.
+unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOConsole<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Sync
+{
+}
+
 /// Information about a console device, read from its configuration space.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConsoleInfo {

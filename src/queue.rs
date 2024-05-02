@@ -536,6 +536,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     }
 }
 
+// SAFETY: None of the virt queue resources are tied to a particular thread.
+unsafe impl<H: Hal, const SIZE: usize> Send for VirtQueue<H, SIZE> {}
+
+// SAFETY: A `&VirtQueue` only allows reading from the various pointers it contains, so there is no
+// data race.
+unsafe impl<H: Hal, const SIZE: usize> Sync for VirtQueue<H, SIZE> {}
+
 /// The inner layout of a VirtQueue.
 ///
 /// Ref: 2.6 Split Virtqueues
