@@ -243,6 +243,9 @@ fn virtio_sound<T: Transport>(transport: T) {
 
         //     info!("xfer {} is successful.", i);
         // }
-        sound.pcm_xfer(output_stream_id, &music[..=881000]).expect("pcm xfer failed");
+        match  sound.pcm_xfer(output_stream_id, &music[..=881000]) {
+            Ok(_) => info!("pcm_xfer OK!"),
+            Err(_) => error!("pcm_xfer error"),
+        }
     }
 }
