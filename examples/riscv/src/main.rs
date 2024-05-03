@@ -8,7 +8,6 @@ extern crate log;
 extern crate alloc;
 extern crate opensbi_rt;
 
-use alloc::format;
 use alloc::vec;
 use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
@@ -23,8 +22,7 @@ use virtio_drivers::{
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
-    },
-    PAGE_SIZE,
+    }
 };
 use virtio_impl::HalImpl;
 
@@ -213,8 +211,8 @@ fn virtio_sound<T: Transport>(transport: T) {
         sound
             .pcm_set_params(
                 output_stream_id,
-                PAGE_SIZE as u32,
-                64,
+                2 * 441,
+                441,
                 features,
                 channel,
                 format,
@@ -227,23 +225,24 @@ fn virtio_sound<T: Transport>(transport: T) {
         sound.pcm_start(output_stream_id).expect("pcm_start error");
         let music = include_bytes!("../sun_also_rises_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
-        let xfer_times = if music.len() % 64 == 0 {
-            music.len() / 64
-        } else {
-            music.len() / 64 + 1
-        };
-        for i in 0..xfer_times {
-            let start_byte = 64 * i;
-            let msg = format!("pcm_xfer at xfer time {} failed", i);
-            // the last xfer
-            if i == xfer_times - 1 {
-                sound.pcm_xfer(output_stream_id, &music[start_byte..]).expect(&msg);
-                break;
-            }
-            let end_byte = 64 * (i + 1);
-            sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).expect(&msg);
+        // let xfer_times = if music.len() % 64 == 0 {
+        //     music.len() / 64
+        // } else {
+        //     music.len() / 64 + 1
+        // };
+        // for i in 0..xfer_times {
+        //     let start_byte = 64 * i;
+        //     let msg = format!("pcm_xfer at xfer time {} failed", i);
+        //     // the last xfer
+        //     if i == xfer_times - 1 {
+        //         sound.pcm_xfer(output_stream_id, &music[start_byte..]).expect(&msg);
+        //         break;
+        //     }
+        //     let end_byte = 64 * (i + 1);
+        //     sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).expect(&msg);
 
-            info!("xfer {} is successful.", i);
-        }
+        //     info!("xfer {} is successful.", i);
+        // }
+        sound.pcm_xfer(output_stream_id, &music[..=881000]).expect("pcm xfer failed");
     }
 }
