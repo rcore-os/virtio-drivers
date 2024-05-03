@@ -8,16 +8,23 @@ extern crate log;
 extern crate alloc;
 extern crate opensbi_rt;
 
+use alloc::format;
 use alloc::vec;
 use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput, sound::VirtIOSound},
+    device::{
+        blk::VirtIOBlk,
+        gpu::VirtIOGpu,
+        input::VirtIOInput,
+        sound::{PcmFormats, PcmRate, VirtIOSound},
+    },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
     },
+    PAGE_SIZE,
 };
 use virtio_impl::HalImpl;
 
@@ -178,10 +185,65 @@ fn virtio_net<T: Transport>(transport: T) {
 }
 
 fn virtio_sound<T: Transport>(transport: T) {
-    let mut sound = VirtIOSound::<HalImpl, T>::new(transport).expect("failed to create sound driver");
+    let mut sound =
+        VirtIOSound::<HalImpl, T>::new(transport).expect("failed to create sound driver");
     let output_streams = sound.output_streams();
     if output_streams.len() > 0 {
-        let _output_stream = *output_streams.first().unwrap();
+        let output_stream_id = *output_streams.first().unwrap();
+        let rates = sound.rates_supported(output_stream_id).unwrap();
+        let formats = sound.formats_supported(output_stream_id).unwrap();
+        let channel_range = sound.channel_range_supported(output_stream_id).unwrap();
+        let features = sound.features_supported(output_stream_id).unwrap();
 
+        let rate = if rates.contains(PcmRate::VIRTIO_SND_PCM_RATE_44100) {
+            PcmRate::VIRTIO_SND_PCM_RATE_44100
+        } else {
+            PcmRate::VIRTIO_SND_PCM_RATE_32000
+        };
+        let format = if formats.contains(PcmFormats::VIRTIO_SND_PCM_FMT_U8) {
+            PcmFormats::VIRTIO_SND_PCM_FMT_U8
+        } else {
+            PcmFormats::VIRTIO_SND_PCM_FMT_U32
+        };
+        let channel = if channel_range.contains(&2) {
+            2 as u8
+        } else {
+            *channel_range.start()
+        };
+        sound
+            .pcm_set_params(
+                output_stream_id,
+                PAGE_SIZE as u32,
+                64,
+                features,
+                channel,
+                format,
+                rate,
+            )
+            .expect("pcm_set_params error");
+        sound
+            .pcm_prepare(output_stream_id)
+            .expect("pcm_prepare error");
+        sound.pcm_start(output_stream_id).expect("pcm_start error");
+        let music = include_bytes!("../sun_also_rises_44100Hz_u8_stereo.raw");
+        info!("[sound device] music len is {} bytes.", music.len());
+        let xfer_times = if music.len() % 64 == 0 {
+            music.len() / 64
+        } else {
+            music.len() / 64 + 1
+        };
+        for i in 0..xfer_times {
+            let start_byte = 64 * i;
+            let msg = format!("pcm_xfer at xfer time {} failed", i);
+            // the last xfer
+            if i == xfer_times - 1 {
+                sound.pcm_xfer(output_stream_id, &music[start_byte..]).expect(&msg);
+                break;
+            }
+            let end_byte = 64 * (i + 1);
+            sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).expect(&msg);
+
+            info!("xfer {} is successful.", i);
+        }
     }
 }
