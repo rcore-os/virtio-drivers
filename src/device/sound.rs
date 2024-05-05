@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::{mem, ops::RangeInclusive};
+use core::{fmt::Display, mem, ops::RangeInclusive};
 use log::{error, info, warn};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
@@ -35,6 +35,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     pcm_infos: Option<Vec<VirtIOSndPcmInfo>>,
     jack_infos: Option<Vec<VirtIOSndJackInfo>>,
+    chmap_infos: Option<Vec<VirtIOSndChmapInfo>>,
 
     queue_buf_send: Box<[u8]>,
     queue_buf_recv: Box<[u8]>,
@@ -117,6 +118,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             chmaps,
             pcm_infos: None,
             jack_infos: None,
+            chmap_infos: None,
             queue_buf_send,
             queue_buf_recv,
             set_up: false,
@@ -163,11 +165,17 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         } else {
             self.jack_infos = Some(vec![]);
         }
-        // inti pcm info
+        // init pcm info
         if let Ok(pcm_infos) = self.pcm_info(0, self.streams) {
             self.pcm_infos = Some(pcm_infos);
         } else {
             self.pcm_infos = Some(vec![]);
+        }
+        // init chmap info
+        if let Ok(chmap_infos) = self.chmap_info(0, self.chmaps) {
+            self.chmap_infos = Some(chmap_infos);
+        } else {
+            self.chmap_infos = Some(vec![]);
         }
         // set pcm state to defalut
         for _ in 0..self.streams {
@@ -178,7 +186,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Query information about the available jacks.
     fn jack_info(&mut self, jack_start_id: u32, jack_count: u32) -> Result<Vec<VirtIOSndJackInfo>> {
         if self.jacks == 0 {
-            warn!("[sound device] There is no available jacks!");
+            warn!("[sound device] There are no available jacks!");
             return Err(Error::ConfigSpaceTooSmall);
         }
         if jack_start_id + jack_count > self.jacks {
@@ -211,14 +219,14 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(jack_infos)
     }
 
-    // Query information about the available streams.
+    /// Query information about the available streams.
     fn pcm_info(
         &mut self,
         stream_start_id: u32,
         stream_count: u32,
     ) -> Result<Vec<VirtIOSndPcmInfo>> {
         if self.streams == 0 {
-            warn!("There is no available streams!");
+            warn!("[sound device] There are no available streams!");
             return Err(Error::ConfigSpaceTooSmall);
         }
         if stream_start_id + stream_count > self.streams {
@@ -263,6 +271,36 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             pcm_infos.push(pcm_info);
         }
         Ok(pcm_infos)
+    }
+
+    /// Query information about the available chmaps.
+    fn chmap_info(&mut self, chmaps_start_id: u32, chamaps_count: u32) -> Result<Vec<VirtIOSndChmapInfo>>{
+        if self.chmaps == 0 {
+            warn!("[sound device] There are no available chmaps!");
+            return Err(Error::ConfigSpaceTooSmall);
+        }
+        if chmaps_start_id + chamaps_count > self.chmaps {
+            error!("chmaps_start_id + chamaps_count > self.chmaps");
+            return Err(Error::IoError);
+        }
+        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
+            hdr: ItemInfomationRequestType::VirtioSndRChmapInfo.into(),
+            start_id: chmaps_start_id,
+            count: chamaps_count,
+            size: mem::size_of::<VirtIOSndChmapInfo>() as u32
+        })?;
+        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+            return Err(Error::IoError);
+        }
+        let mut chmap_infos = vec![];
+        for i in 0..chamaps_count as usize {
+            const OFFSET: usize = mem::size_of::<VirtIOSndHdr>();
+            let start_byte = OFFSET + i * mem::size_of::<VirtIOSndChmapInfo>();
+            let end_byte = OFFSET + (i + 1) * mem::size_of::<VirtIOSndChmapInfo>();
+            let chmap_info = VirtIOSndChmapInfo::read_from(&self.queue_buf_recv[start_byte..end_byte]).unwrap();
+            chmap_infos.push(chmap_info);
+        }
+        Ok(chmap_infos)
     }
 
     /// If the VIRTIO_SND_JACK_F_REMAP feature bit is set in the jack information, then the driver can send a
@@ -1254,9 +1292,27 @@ impl From<ChannelPosition> for u8 {
 /// maximum possible number of channels
 const VIRTIO_SND_CHMAP_MAX_SIZE: usize = 18;
 
+#[repr(C)]
+#[derive(FromBytes, FromZeroes)]
 struct VirtIOSndChmapInfo {
     hdr: VirtIOSndInfo,
     direction: u8,
     channels: u8,
     positions: [u8; VIRTIO_SND_CHMAP_MAX_SIZE],
+}
+
+impl Display for VirtIOSndChmapInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let direction = if self.direction == VIRTIO_SND_D_INPUT {
+            "INPUT"
+        } else {
+            "OUTPUT"
+        };
+        let positions = vec![];
+        for i in 0..self.channels as usize {
+            let mut position = String::new();
+            bitflags::parser::to_writer(&self.positions[i], &mut position);
+        }
+        todo!()
+    }
 }
