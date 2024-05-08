@@ -208,11 +208,11 @@ fn virtio_sound<T: Transport>(transport: T) {
         } else {
             *channel_range.start()
         };
-        const BUFFER_BYTES: usize = 441 * 8;
+        const _BUFFER_BYTES: usize = 441 * 32;
         sound
             .pcm_set_params(
                 output_stream_id,
-                BUFFER_BYTES as u32,
+                441000,
                 441,
                 features,
                 channel,
@@ -227,16 +227,21 @@ fn virtio_sound<T: Transport>(transport: T) {
         let music = include_bytes!("../sun_also_rises_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
         // xfer 1st buffer
-        let mut token = sound.pcm_xfer(output_stream_id, &music[..BUFFER_BYTES]).unwrap();
-        // xfer 2nd buffer
-        //let mut token2 = sound.pcm_xfer(output_stream_id, &music[BUFFER_BYTES..2*BUFFER_BYTES]).unwrap();   
-        for i in 1..music.len() / BUFFER_BYTES {
-            while !sound.pcm_xfer_ok(token) {
-                spin_loop();
-            }
-            let start_byte = i * BUFFER_BYTES;
-            let end_byte = (i + 1) * BUFFER_BYTES;
-            token = sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).unwrap();
+        sound.pcm_xfer(output_stream_id, &music[..441000]).unwrap();
+        sound.pcm_xfer(output_stream_id, &music[441000..882000]).unwrap();
+        loop {
+            spin_loop();
         }
+        // let mut token = sound.pcm_xfer(output_stream_id, &music[..BUFFER_BYTES]).unwrap();
+        // // xfer 2nd buffer
+        // //let mut token2 = sound.pcm_xfer(output_stream_id, &music[BUFFER_BYTES..2*BUFFER_BYTES]).unwrap();   
+        // for i in 1..music.len() / BUFFER_BYTES {
+        //     while !sound.pcm_xfer_ok(token) {
+        //         spin_loop();
+        //     }
+        //     let start_byte = i * BUFFER_BYTES;
+        //     let end_byte = (i + 1) * BUFFER_BYTES;
+        //     token = sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).unwrap();
+        // }
     }
 }

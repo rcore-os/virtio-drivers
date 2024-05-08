@@ -111,7 +111,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
-        let output_buf1 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let output_buf1 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE * 4);
         let output_buf2 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let output_rsp = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
