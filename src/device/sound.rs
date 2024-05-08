@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::{fmt::Display, mem, ops::RangeInclusive};
 use log::{error, info, warn};
+use num_enum::FromPrimitive;
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 
@@ -42,8 +43,12 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     set_up: bool,
 
-    output_buf: Box<[u8]>,
-    pcm_states: Vec<PCMState>
+    output_buf: Box<[u8]>, // includes pcm io header and pcm frames
+    output_rsp: Box<[u8]>, // includes pcm_xfer response msg
+
+    event_buf: Box<[u8]>,
+
+    pcm_states: Vec<PCMState>,
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
@@ -103,6 +108,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let output_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let output_rsp = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+
+        let event_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         transport.finish_init();
 
@@ -123,7 +131,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             queue_buf_recv,
             set_up: false,
             output_buf,
-            pcm_states: vec![]
+            output_rsp,
+            event_buf,
+            pcm_states: vec![],
         })
     }
 
@@ -161,21 +171,33 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     fn set_up(&mut self) {
         // init jack info
         if let Ok(jack_infos) = self.jack_info(0, self.jacks) {
+            for jack_info in &jack_infos {
+                info!("[sound device] jack_info: {}", jack_info);
+            }
             self.jack_infos = Some(jack_infos);
         } else {
             self.jack_infos = Some(vec![]);
+            warn!("[sound device] There are no available jacks!");
         }
         // init pcm info
         if let Ok(pcm_infos) = self.pcm_info(0, self.streams) {
+            for pcm_info in &pcm_infos {
+                info!("[sound device] pcm_info: {}", pcm_info);
+            }
             self.pcm_infos = Some(pcm_infos);
         } else {
             self.pcm_infos = Some(vec![]);
+            warn!("[sound device] There are no available streams!");
         }
         // init chmap info
         if let Ok(chmap_infos) = self.chmap_info(0, self.chmaps) {
+            for chmap_info in &chmap_infos {
+                info!("[sound device] chmap_info: {}", chmap_info);
+            }
             self.chmap_infos = Some(chmap_infos);
         } else {
             self.chmap_infos = Some(vec![]);
+            warn!("[sound device] There are no available chmaps!");
         }
         // set pcm state to defalut
         for _ in 0..self.streams {
@@ -186,7 +208,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Query information about the available jacks.
     fn jack_info(&mut self, jack_start_id: u32, jack_count: u32) -> Result<Vec<VirtIOSndJackInfo>> {
         if self.jacks == 0 {
-            warn!("[sound device] There are no available jacks!");
             return Err(Error::ConfigSpaceTooSmall);
         }
         if jack_start_id + jack_count > self.jacks {
@@ -215,7 +236,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     .unwrap();
             jack_infos.push(jack_info)
         }
-        info!("jack_infos: {:#?}", jack_infos);
         Ok(jack_infos)
     }
 
@@ -226,7 +246,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         stream_count: u32,
     ) -> Result<Vec<VirtIOSndPcmInfo>> {
         if self.streams == 0 {
-            warn!("[sound device] There are no available streams!");
             return Err(Error::ConfigSpaceTooSmall);
         }
         if stream_start_id + stream_count > self.streams {
@@ -254,27 +273,17 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             let pcm_info =
                 VirtIOSndPcmInfo::read_from(&self.queue_buf_recv[start_byte_idx..end_byte_idx])
                     .unwrap();
-            let mut features = String::new();
-            let _ =
-                bitflags::parser::to_writer(&PcmFeatures::from(pcm_info.features), &mut features);
-            let mut rates = String::new();
-            let _ = bitflags::parser::to_writer(&PcmRate::from(pcm_info.rate), &mut rates);
-            let mut formats = String::new();
-            let _ = bitflags::parser::to_writer(&PcmFormats::from(pcm_info.formats), &mut formats);
-            info!("[sound device] stream[{}]: {{features: {}, rates: {}, formats: {}, direction: {}}}",
-                i,
-                features,
-                rates,
-                formats,
-                if pcm_info.direction == VIRTIO_SND_D_OUTPUT {"OUTPUT"} else {"INPUT"}
-            );
             pcm_infos.push(pcm_info);
         }
         Ok(pcm_infos)
     }
 
     /// Query information about the available chmaps.
-    fn chmap_info(&mut self, chmaps_start_id: u32, chamaps_count: u32) -> Result<Vec<VirtIOSndChmapInfo>>{
+    fn chmap_info(
+        &mut self,
+        chmaps_start_id: u32,
+        chamaps_count: u32,
+    ) -> Result<Vec<VirtIOSndChmapInfo>> {
         if self.chmaps == 0 {
             warn!("[sound device] There are no available chmaps!");
             return Err(Error::ConfigSpaceTooSmall);
@@ -287,7 +296,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             hdr: ItemInfomationRequestType::VirtioSndRChmapInfo.into(),
             start_id: chmaps_start_id,
             count: chamaps_count,
-            size: mem::size_of::<VirtIOSndChmapInfo>() as u32
+            size: mem::size_of::<VirtIOSndChmapInfo>() as u32,
         })?;
         if hdr != RequestStatusCode::VirtioSndSOk.into() {
             return Err(Error::IoError);
@@ -297,7 +306,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             const OFFSET: usize = mem::size_of::<VirtIOSndHdr>();
             let start_byte = OFFSET + i * mem::size_of::<VirtIOSndChmapInfo>();
             let end_byte = OFFSET + (i + 1) * mem::size_of::<VirtIOSndChmapInfo>();
-            let chmap_info = VirtIOSndChmapInfo::read_from(&self.queue_buf_recv[start_byte..end_byte]).unwrap();
+            let chmap_info =
+                VirtIOSndChmapInfo::read_from(&self.queue_buf_recv[start_byte..end_byte]).unwrap();
             chmap_infos.push(chmap_info);
         }
         Ok(chmap_infos)
@@ -479,9 +489,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         };
         req.extend_from_slice(hdr.as_bytes());
         req.extend_from_slice(frame);
-        self.tx_queue
-            .add_notify_wait_pop(&mut [&req], &mut [&mut self.queue_buf_recv], &mut self.transport)?;
-        if let Some(pcm_status) = VirtIOSndPcmStatus::read_from_prefix(&self.queue_buf_recv) {
+        self.tx_queue.add_notify_wait_pop(
+            &[&req],
+            &mut [&mut self.output_rsp],
+            &mut self.transport,
+        )?;
+        if let Some(pcm_status) = VirtIOSndPcmStatus::read_from_prefix(&self.output_rsp) {
             // ok
             if pcm_status.status == RequestStatusCode::VirtioSndSOk as u32 {
                 return Ok(());
@@ -515,13 +528,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         self.pcm_infos
-        .as_ref()
-        .unwrap()
-        .iter()
-        .enumerate()
-        .filter(|(_, info)| info.direction == VIRTIO_SND_D_INPUT)
-        .map(|(idx, _)| idx as u32)
-        .collect()
+            .as_ref()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|(_, info)| info.direction == VIRTIO_SND_D_INPUT)
+            .map(|(idx, _)| idx as u32)
+            .collect()
     }
 
     /// Get the rates that a stream supports.
@@ -533,7 +546,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
             return Err(Error::InvalidParam);
         }
-        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize].rate.into())
+        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize]
+            .rate
+            .into())
     }
 
     /// Get the formats that a stream supports.
@@ -545,7 +560,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
             return Err(Error::InvalidParam);
         }
-        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize].formats.into())
+        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize]
+            .formats
+            .into())
     }
 
     /// Get channel range that a stream supports.
@@ -572,6 +589,23 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         }
         let pcm_info = &self.pcm_infos.as_ref().unwrap()[stream_id as usize];
         Ok(pcm_info.features.into())
+    }
+
+    /// Get the newest notification.
+    pub fn newest_notification(&mut self) -> Result<Notification> {
+        if let Some(token) = self.event_queue.peek_used() {
+            unsafe {
+                self.event_queue
+                    .pop_used(token, &[], &mut [&mut self.event_buf])?;
+            }
+        } else {
+            return Err(Error::NotReady);
+        }
+        let event = VirtIOSndEvent::read_from_prefix(&self.event_buf).unwrap();
+        Ok(Notification {
+            notification_type: NotificationType::from(event.hdr.command_code),
+            data: event.data,
+        })
     }
 }
 
@@ -822,7 +856,7 @@ pub struct PcmRate(u64);
 
 bitflags! {
     impl PcmRate: u64 {
-        /// TODO 
+        /// TODO
         const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
         /// TODO
         const VIRTIO_SND_PCM_RATE_8000 = 1 << 1;
@@ -1026,10 +1060,44 @@ struct VirtIOSndHdr {
 }
 
 #[repr(C)]
-// An event notification
+#[derive(FromBytes, FromZeroes)]
+/// An event notification
 struct VirtIOSndEvent {
     hdr: VirtIOSndHdr,
     data: u32,
+}
+
+/// The notification type.
+#[repr(u32)]
+#[derive(FromPrimitive, Copy, Clone)]
+pub enum NotificationType {
+    /// TODO
+    #[num_enum(default)]
+    PcmPeriodElapsed = 0x1100,
+    /// TODO
+    PcmXrun,
+    /// TODO
+    JackConnected = 0x1000,
+    /// TODO
+    JackDisconnected,
+}
+
+/// Notification from sound device.
+pub struct Notification {
+    notification_type: NotificationType,
+    data: u32,
+}
+
+impl Notification {
+    /// Get the resource index.
+    pub fn data(&self) -> u32 {
+        self.data
+    }
+
+    /// Get the notification type.
+    pub fn notification_type(&self) -> NotificationType {
+        self.notification_type
+    }
 }
 
 const VIRTIO_SND_D_OUTPUT: u8 = 0;
@@ -1078,7 +1146,7 @@ struct VirtIOSndJackHdr {
 
 /// TODO
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq)]
+#[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
 pub struct VirtIOSndJackInfo {
     hdr: VirtIOSndInfo,
     features: u32,
@@ -1090,6 +1158,24 @@ pub struct VirtIOSndJackInfo {
     connected: u8,
 
     _padding: [u8; 7],
+}
+
+impl Display for VirtIOSndJackInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let jack_features = JackFeatures::from(self.features);
+        let mut jack_features_str = String::new();
+        bitflags::parser::to_writer(&jack_features, &mut jack_features_str).unwrap();
+        let connected_status = if self.connected == 1 {
+            "CONNECTED"
+        } else {
+            "DISCONNECTED"
+        };
+        write!(
+            f,
+            "features: {}, hda_reg_defconf: {}, hda_reg_caps: {}, connected: {}",
+            jack_features_str, self.hda_reg_defconf, self.hda_reg_caps, connected_status
+        )
+    }
 }
 
 #[repr(C)]
@@ -1191,7 +1277,7 @@ impl Into<u64> for PcmFrameRate {
 
 /// TODO: Add docs
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, Debug)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
@@ -1204,6 +1290,27 @@ pub struct VirtIOSndPcmInfo {
     /// indicates a maximum number of supported channels
     channels_max: u8,
     _padding: [u8; 5],
+}
+
+impl Display for VirtIOSndPcmInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut features = String::new();
+        bitflags::parser::to_writer(&PcmFeatures::from(self.features), &mut features).unwrap();
+        let mut rates = String::new();
+        let _ = bitflags::parser::to_writer(&PcmRate::from(self.rate), &mut rates).unwrap();
+        let mut formats = String::new();
+        let _ = bitflags::parser::to_writer(&PcmFormats::from(self.formats), &mut formats).unwrap();
+        let direction = if self.direction == VIRTIO_SND_D_INPUT {
+            "INPUT"
+        } else {
+            "OUTPUT"
+        };
+        write!(
+            f,
+            "features: {}, rates: {}, formats: {}, direction: {}",
+            features, rates, formats, direction
+        )
+    }
 }
 
 #[repr(packed)]
@@ -1243,50 +1350,47 @@ struct VirtIOSndPcmStatus {
     latency_bytes: u32,
 }
 
+#[derive(FromPrimitive, Debug)]
+#[repr(u8)]
 enum ChannelPosition {
+    #[num_enum(default)]
     VirtioSndChmapNone = 0, /* undefined */
-    VirtioSndChmapNa,       /* silent */
-    VirtioSndChmapMono,     /* mono stream */
-    VirtioSndChmapFl,       /* front left */
-    VirtioSndChmapFr,       /* front right */
-    VirtioSndChmapRl,       /* rear left */
-    VirtioSndChmapRr,       /* rear right */
-    VirtioSndChmapFc,       /* front center */
-    VirtioSndChmapLfe,      /* low frequency (LFE) */
-    VirtioSndChmapSl,       /* side left */
-    VirtioSndChmapSr,       /* side right */
-    VirtioSndChmapRc,       /* rear center */
-    VirtioSndChmapFlc,      /* front left center */
-    VirtioSndChmapFrc,      /* front right center */
-    VirtioSndChmapRlc,      /* rear left center */
-    VirtioSndChmapRrc,      /* rear right center */
-    VirtioSndChmapFlw,      /* front left wide */
-    VirtioSndChmapFrw,      /* front right wide */
-    VirtioSndChmapFlh,      /* front left high */
-    VirtioSndChmapFch,      /* front center high */
-    VirtioSndChmapFrh,      /* front right high */
-    VirtioSndChmapTc,       /* top center */
-    VirtioSndChmapTfl,      /* top front left */
-    VirtioSndChmapTfr,      /* top front right */
-    VirtioSndChmapTfc,      /* top front center */
-    VirtioSndChmapTrl,      /* top rear left */
-    VirtioSndChmapTrr,      /* top rear right */
-    VirtioSndChmapTrc,      /* top rear center */
-    VirtioSndChmapTflc,     /* top front left center */
-    VirtioSndChmapTfrc,     /* top front right center */
-    VirtioSndChmapTsl,      /* top side left */
-    VirtioSndChmapTsr,      /* top side right */
-    VirtioSndChmapLlfe,     /* left LFE */
-    VirtioSndChmapRlfe,     /* right LFE */
-    VirtioSndChmapBc,       /* bottom center */
-    VirtioSndChmapBlc,      /* bottom left center */
-    VirtioSndChmapBrc,      /* bottom right center */
-}
-
-impl From<ChannelPosition> for u8 {
-    fn from(value: ChannelPosition) -> Self {
-        value as _
-    }
+    VirtioSndChmapNa,   /* silent */
+    VirtioSndChmapMono, /* mono stream */
+    VirtioSndChmapFl,   /* front left */
+    VirtioSndChmapFr,   /* front right */
+    VirtioSndChmapRl,   /* rear left */
+    VirtioSndChmapRr,   /* rear right */
+    VirtioSndChmapFc,   /* front center */
+    VirtioSndChmapLfe,  /* low frequency (LFE) */
+    VirtioSndChmapSl,   /* side left */
+    VirtioSndChmapSr,   /* side right */
+    VirtioSndChmapRc,   /* rear center */
+    VirtioSndChmapFlc,  /* front left center */
+    VirtioSndChmapFrc,  /* front right center */
+    VirtioSndChmapRlc,  /* rear left center */
+    VirtioSndChmapRrc,  /* rear right center */
+    VirtioSndChmapFlw,  /* front left wide */
+    VirtioSndChmapFrw,  /* front right wide */
+    VirtioSndChmapFlh,  /* front left high */
+    VirtioSndChmapFch,  /* front center high */
+    VirtioSndChmapFrh,  /* front right high */
+    VirtioSndChmapTc,   /* top center */
+    VirtioSndChmapTfl,  /* top front left */
+    VirtioSndChmapTfr,  /* top front right */
+    VirtioSndChmapTfc,  /* top front center */
+    VirtioSndChmapTrl,  /* top rear left */
+    VirtioSndChmapTrr,  /* top rear right */
+    VirtioSndChmapTrc,  /* top rear center */
+    VirtioSndChmapTflc, /* top front left center */
+    VirtioSndChmapTfrc, /* top front right center */
+    VirtioSndChmapTsl,  /* top side left */
+    VirtioSndChmapTsr,  /* top side right */
+    VirtioSndChmapLlfe, /* left LFE */
+    VirtioSndChmapRlfe, /* right LFE */
+    VirtioSndChmapBc,   /* bottom center */
+    VirtioSndChmapBlc,  /* bottom left center */
+    VirtioSndChmapBrc,  /* bottom right center */
 }
 
 /// maximum possible number of channels
@@ -1308,11 +1412,15 @@ impl Display for VirtIOSndChmapInfo {
         } else {
             "OUTPUT"
         };
-        let positions = vec![];
+        let mut positions = vec![];
         for i in 0..self.channels as usize {
-            let mut position = String::new();
-            bitflags::parser::to_writer(&self.positions[i], &mut position);
+            let position = format!("{:?}", ChannelPosition::from(self.positions[i]));
+            positions.push(position);
         }
-        todo!()
+        write!(
+            f,
+            "direction: {}, channels: {}, postions: {:?}",
+            direction, self.channels, positions
+        )
     }
 }
