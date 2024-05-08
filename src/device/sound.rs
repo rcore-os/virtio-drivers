@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::{fmt::Display, mem, ops::RangeInclusive};
 use log::{error, info, warn};
-use num_enum::FromPrimitive;
+use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 
@@ -43,7 +43,11 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     set_up: bool,
 
-    output_buf: Box<[u8]>, // includes pcm io header and pcm frames
+    // double output_buf
+    output_buf1: Box<[u8]>,
+    output_buf2: Box<[u8]>,
+    ouput_buf1_full: bool,
+    output_buf2_full: bool,
     output_rsp: Box<[u8]>, // includes pcm_xfer response msg
 
     event_buf: Box<[u8]>,
@@ -107,7 +111,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
-        let output_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let output_buf1 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let output_buf2 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+
         let output_rsp = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let event_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
@@ -130,7 +136,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             queue_buf_send,
             queue_buf_recv,
             set_up: false,
-            output_buf,
+            output_buf1,
+            output_buf2,
+            ouput_buf1_full: false,
+            output_buf2_full: false,
             output_rsp,
             event_buf,
             pcm_states: vec![],
@@ -203,6 +212,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         for _ in 0..self.streams {
             self.pcm_states.push(PCMState::default());
         }
+        self.event_queue.set_dev_notify(true);
     }
 
     /// Query information about the available jacks.
@@ -478,31 +488,60 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
-    pub fn pcm_xfer(&mut self, stream_id: u32, frame: &[u8]) -> Result {
+    pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
         if !self.set_up {
             self.set_up();
             self.set_up = true;
         }
-        let mut req = vec![];
-        let hdr = VirtIOSndPcmXfer {
-            srteam_id: stream_id,
+        const U32_SIZE: usize = mem::size_of::<u32>();
+        if U32_SIZE + frames.len() > self.output_buf1.len() {
+            return Err(Error::IoError);
+        }
+
+        self.output_buf1[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
+        self.output_buf1[U32_SIZE..U32_SIZE + frames.len()].copy_from_slice(&frames);
+        self.output_rsp.fill(0); // clear rsp
+        let token = unsafe {
+            self.tx_queue
+                .add(&[&self.output_buf1], &mut [&mut self.output_rsp])?
         };
-        req.extend_from_slice(hdr.as_bytes());
-        req.extend_from_slice(frame);
+        if self.tx_queue.should_notify() {
+            self.transport.notify(TX_QUEUE_IDX);
+        }
+        Ok(token)
+    }
+
+    /// TODO
+    pub fn pcm_xfer_ok(&mut self, token: u16) -> bool {
+        if self.tx_queue.can_pop() {
+            let top = self.tx_queue.peek_used().unwrap();
+            if top == token {
+                unsafe {
+                    self.tx_queue
+                        .pop_used(token, &[&self.output_buf1], &mut [&mut self.output_rsp])
+                        .unwrap();
+                }
+                return true;
+            }
+            return false;
+        }
+        return false;
+        // let status = VirtIOSndPcmStatus::read_from_prefix(&self.output_rsp).unwrap();
+        // status.status == RequestStatusCode::VirtioSndSOk.into()
+    }
+
+    ///
+    pub fn pcm_xfer_wait(&mut self, io_request: &[u8]) -> Result {
+        if !self.set_up {
+            self.set_up();
+            self.set_up = true;
+        }
         self.tx_queue.add_notify_wait_pop(
-            &[&req],
+            &[&io_request],
             &mut [&mut self.output_rsp],
             &mut self.transport,
         )?;
-        if let Some(pcm_status) = VirtIOSndPcmStatus::read_from_prefix(&self.output_rsp) {
-            // ok
-            if pcm_status.status == RequestStatusCode::VirtioSndSOk as u32 {
-                return Ok(());
-            } else {
-                return Err(Error::IoError);
-            }
-        }
-        Err(Error::IoError)
+        Ok(())
     }
 
     /// Get all output streams.
@@ -591,14 +630,15 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(pcm_info.features.into())
     }
 
-    /// Get the newest notification.
-    pub fn newest_notification(&mut self) -> Result<Notification> {
+    /// Get the latest notification.
+    pub fn latest_notification(&mut self) -> Result<Notification> {
         if let Some(token) = self.event_queue.peek_used() {
             unsafe {
                 self.event_queue
                     .pop_used(token, &[], &mut [&mut self.event_buf])?;
             }
         } else {
+            info!("Not ready");
             return Err(Error::NotReady);
         }
         let event = VirtIOSndEvent::read_from_prefix(&self.event_buf).unwrap();
@@ -1036,6 +1076,8 @@ impl Into<u32> for ItemInfomationRequestType {
     }
 }
 
+#[derive(IntoPrimitive)]
+#[repr(u32)]
 enum RequestStatusCode {
     /* common status codes */
     VirtioSndSOk = 0x8000,
@@ -1423,4 +1465,12 @@ impl Display for VirtIOSndChmapInfo {
             direction, self.channels, positions
         )
     }
+}
+
+///
+#[repr(packed)]
+#[derive(AsBytes)]
+pub struct PcmIOMsg<'a> {
+    stream_id: u32,
+    frames: &'a [u8],
 }

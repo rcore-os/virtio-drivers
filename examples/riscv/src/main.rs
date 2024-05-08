@@ -9,7 +9,7 @@ extern crate alloc;
 extern crate opensbi_rt;
 
 use alloc::vec;
-use core::ptr::NonNull;
+use core::{hint::spin_loop, ptr::NonNull};
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
@@ -208,10 +208,11 @@ fn virtio_sound<T: Transport>(transport: T) {
         } else {
             *channel_range.start()
         };
+        const BUFFER_BYTES: usize = 441 * 8;
         sound
             .pcm_set_params(
                 output_stream_id,
-                2 * 441,
+                BUFFER_BYTES as u32,
                 441,
                 features,
                 channel,
@@ -225,9 +226,17 @@ fn virtio_sound<T: Transport>(transport: T) {
         sound.pcm_start(output_stream_id).expect("pcm_start error");
         let music = include_bytes!("../sun_also_rises_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
-        match  sound.pcm_xfer(output_stream_id, &music[..=881000]) { // xfer 10 seconds
-            Ok(_) => info!("pcm_xfer OK!"),
-            Err(_) => error!("pcm_xfer error"),
+        // xfer 1st buffer
+        let mut token = sound.pcm_xfer(output_stream_id, &music[..BUFFER_BYTES]).unwrap();
+        // xfer 2nd buffer
+        //let mut token2 = sound.pcm_xfer(output_stream_id, &music[BUFFER_BYTES..2*BUFFER_BYTES]).unwrap();   
+        for i in 1..music.len() / BUFFER_BYTES {
+            while !sound.pcm_xfer_ok(token) {
+                spin_loop();
+            }
+            let start_byte = i * BUFFER_BYTES;
+            let end_byte = (i + 1) * BUFFER_BYTES;
+            token = sound.pcm_xfer(output_stream_id, &music[start_byte..end_byte]).unwrap();
         }
     }
 }

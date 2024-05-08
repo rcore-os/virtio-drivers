@@ -19,7 +19,7 @@ log = "0.4"
 bitflags = "2.3.0"
 zerocopy = { version = "0.7.5", features = ["derive"] }
 
-num_enum = "0.7.2"
+num_enum = { version = "0.7.2", default-features = false}
 
 [features]
 default = ["alloc"]
