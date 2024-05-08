@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::{fmt::Display, mem, ops::RangeInclusive};
+use core::{fmt::Display, hint::spin_loop, mem, ops::RangeInclusive};
 use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
@@ -295,7 +295,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         chamaps_count: u32,
     ) -> Result<Vec<VirtIOSndChmapInfo>> {
         if self.chmaps == 0 {
-            warn!("[sound device] There are no available chmaps!");
             return Err(Error::ConfigSpaceTooSmall);
         }
         if chmaps_start_id + chamaps_count > self.chmaps {
@@ -509,6 +508,70 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.transport.notify(TX_QUEUE_IDX);
         }
         Ok(token)
+    }
+
+    ///
+    pub fn pcm_xfer_with_buffer_size(&mut self, stream_id: u32, frames: &[u8], buffer_size: usize) {
+        let mut buf1 = vec![0; mem::size_of::<u32>() + buffer_size];
+        let mut buf2 = vec![0; mem::size_of::<u32>() + buffer_size];
+
+        buf1[..mem::size_of::<u32>()].copy_from_slice(&stream_id.to_le_bytes());
+        buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+            .copy_from_slice(&frames[..buffer_size]);
+
+        buf2[..mem::size_of::<u32>()].copy_from_slice(&stream_id.to_le_bytes());
+        buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+            .copy_from_slice(&frames[buffer_size..buffer_size * 2]);
+
+        let mut outputs = vec![0; 32];
+        let mut token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() };
+        let mut token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() };
+        
+        if self.tx_queue.should_notify() {
+            self.transport.notify(TX_QUEUE_IDX);
+        }
+
+        let xfer_times = frames.len() / buffer_size;
+
+        let mut turn1 = true;
+
+        for i in 2..xfer_times {
+            let start_byte = i * buffer_size;
+            let end_byte = if i != xfer_times - 1 {
+                (i + 1) * buffer_size
+            } else {
+                frames.len()
+            };
+            if turn1 {
+                while let Err(_) = unsafe {
+                    self.tx_queue
+                        .pop_used(token1, &[&buf1], &mut [&mut outputs])
+                } {
+                    spin_loop();
+                }
+                if self.tx_queue.should_notify() {
+                    self.transport.notify(TX_QUEUE_IDX);
+                }
+                turn1 = false;
+                buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+                    .copy_from_slice(&frames[start_byte..end_byte]);
+                token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() }
+            } else {
+                while let Err(_) = unsafe {
+                    self.tx_queue
+                        .pop_used(token2, &[&buf2], &mut [&mut outputs])
+                } {
+                    spin_loop();
+                }
+                if self.tx_queue.should_notify() {
+                    self.transport.notify(TX_QUEUE_IDX);
+                }
+                turn1 = true;
+                buf2[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+                    .copy_from_slice(&frames[start_byte..end_byte]);
+                token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() }
+            }
+        }
     }
 
     /// TODO
