@@ -227,6 +227,6 @@ fn virtio_sound<T: Transport>(transport: T) {
         let music = include_bytes!("../Nocturne_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
         // xfer buffer
-        sound.pcm_xfer_with_buffer_size(output_stream_id, &music[..], 441 * 2);
+        sound.pcm_xfer(output_stream_id, &music[..]).unwrap();
     }
 }

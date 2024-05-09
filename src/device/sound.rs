@@ -38,16 +38,14 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     jack_infos: Option<Vec<VirtIOSndJackInfo>>,
     chmap_infos: Option<Vec<VirtIOSndChmapInfo>>,
 
+    // pcm params
+    pcm_parameters: Vec<PcmParameters>,
+
     queue_buf_send: Box<[u8]>,
     queue_buf_recv: Box<[u8]>,
 
     set_up: bool,
 
-    // double output_buf
-    output_buf1: Box<[u8]>,
-    output_buf2: Box<[u8]>,
-    ouput_buf1_full: bool,
-    output_buf2_full: bool,
     output_rsp: Box<[u8]>, // includes pcm_xfer response msg
 
     event_buf: Box<[u8]>,
@@ -106,17 +104,18 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             jacks, streams, chmaps
         );
 
-        // query jack infos
-
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
-
-        let output_buf1 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE * 4);
-        let output_buf2 = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let output_rsp = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let event_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+
+        // set pcm params to default
+        let mut pcm_parameters = vec![];
+        for _ in 0..streams {
+            pcm_parameters.push(PcmParameters::default());
+        }
 
         transport.finish_init();
 
@@ -135,11 +134,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             chmap_infos: None,
             queue_buf_send,
             queue_buf_recv,
+            pcm_parameters,
             set_up: false,
-            output_buf1,
-            output_buf2,
-            ouput_buf1_full: false,
-            output_buf2_full: false,
             output_rsp,
             event_buf,
             pcm_states: vec![],
@@ -404,6 +400,15 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
         if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+            self.pcm_parameters[stream_id as usize] = PcmParameters {
+                setup: true,
+                buffer_bytes,
+                period_bytes,
+                features,
+                channels,
+                format,
+                rate
+            };
             Ok(())
         } else {
             Err(Error::IoError)
@@ -487,31 +492,19 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
-    pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
+    /// TODO: if frames.len() is to short, the func with generate a error.
+    pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
         if !self.set_up {
             self.set_up();
             self.set_up = true;
         }
-        const U32_SIZE: usize = mem::size_of::<u32>();
-        if U32_SIZE + frames.len() > self.output_buf1.len() {
+        if !self.pcm_parameters[stream_id as usize].setup {
+            warn!("Please set parameters for a stream before using it!");
             return Err(Error::IoError);
         }
-
-        self.output_buf1[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
-        self.output_buf1[U32_SIZE..U32_SIZE + frames.len()].copy_from_slice(&frames);
-        self.output_rsp.fill(0); // clear rsp
-        let token = unsafe {
-            self.tx_queue
-                .add(&[&self.output_buf1], &mut [&mut self.output_rsp])?
-        };
-        if self.tx_queue.should_notify() {
-            self.transport.notify(TX_QUEUE_IDX);
-        }
-        Ok(token)
-    }
-
-    ///
-    pub fn pcm_xfer_with_buffer_size(&mut self, stream_id: u32, frames: &[u8], buffer_size: usize) {
+        let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
+        // TODO
+        assert!(buffer_size * 2 <= frames.len());
         let mut buf1 = vec![0; mem::size_of::<u32>() + buffer_size];
         let mut buf2 = vec![0; mem::size_of::<u32>() + buffer_size];
 
@@ -526,12 +519,16 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut outputs = vec![0; 32];
         let mut token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() };
         let mut token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() };
-        
+
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
 
-        let xfer_times = frames.len() / buffer_size;
+        let xfer_times = if frames.len() % buffer_size == 0 {
+            frames.len() / buffer_size
+        } else {
+            frames.len() / buffer_size + 1
+        };
 
         let mut turn1 = true;
 
@@ -553,7 +550,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     self.transport.notify(TX_QUEUE_IDX);
                 }
                 turn1 = false;
-                buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+                buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
                     .copy_from_slice(&frames[start_byte..end_byte]);
                 token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() }
             } else {
@@ -567,30 +564,28 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     self.transport.notify(TX_QUEUE_IDX);
                 }
                 turn1 = true;
-                buf2[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+                buf2[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
                     .copy_from_slice(&frames[start_byte..end_byte]);
                 token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() }
             }
         }
-    }
-
-    /// TODO
-    pub fn pcm_xfer_ok(&mut self, token: u16) -> bool {
-        if self.tx_queue.can_pop() {
-            let top = self.tx_queue.peek_used().unwrap();
-            if top == token {
-                unsafe {
-                    self.tx_queue
-                        .pop_used(token, &[&self.output_buf1], &mut [&mut self.output_rsp])
-                        .unwrap();
-                }
-                return true;
+        // wait for the last buffer
+        if turn1 {
+            while let Err(_) = unsafe {
+                self.tx_queue
+                    .pop_used(token1, &[&buf1], &mut [&mut outputs])
+            } {
+                spin_loop();
             }
-            return false;
+        } else {
+            while let Err(_) = unsafe {
+                self.tx_queue
+                    .pop_used(token2, &[&buf2], &mut [&mut outputs])
+            } {
+                spin_loop();
+            }
         }
-        return false;
-        // let status = VirtIOSndPcmStatus::read_from_prefix(&self.output_rsp).unwrap();
-        // status.status == RequestStatusCode::VirtioSndSOk.into()
+        Ok(())
     }
 
     ///
@@ -712,6 +707,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 }
 
+/// TODO
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 enum PCMState {
     #[default]
@@ -823,6 +819,7 @@ impl From<u32> for JackFeatures {
 }
 
 /// TODO
+#[derive(Clone, Copy)]
 pub struct PcmFeatures(u32);
 
 bitflags! {
@@ -853,7 +850,7 @@ impl Into<u32> for PcmFeatures {
 }
 
 /// TODO
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct PcmFormats(u64);
 
 bitflags! {
@@ -954,7 +951,7 @@ impl Into<u8> for PcmFormats {
 }
 
 /// TODO
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct PcmRate(u64);
 
 bitflags! {
@@ -1418,12 +1415,28 @@ impl Display for VirtIOSndPcmInfo {
     }
 }
 
-#[repr(packed)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
-struct VirtIOSndPcmInfoRsp {
-    hdr: VirtIOSndHdr,
-    //_padding: [u8; 4], // TODO: Is it right that put _padding here?
-    body: VirtIOSndPcmInfo,
+struct PcmParameters {
+    setup: bool,
+    buffer_bytes: u32,
+    period_bytes: u32,
+    features: PcmFeatures,
+    channels: u8,
+    format: PcmFormats,
+    rate: PcmRate,
+}
+
+impl Default for PcmParameters {
+    fn default() -> Self {
+        Self {
+            setup: false,
+            buffer_bytes: Default::default(),
+            period_bytes: Default::default(),
+            features: PcmFeatures(0),
+            channels: Default::default(),
+            format: PcmFormats(0),
+            rate: PcmRate(0),
+        }
+    }
 }
 
 #[repr(C)]
@@ -1528,12 +1541,4 @@ impl Display for VirtIOSndChmapInfo {
             direction, self.channels, positions
         )
     }
-}
-
-///
-#[repr(packed)]
-#[derive(AsBytes)]
-pub struct PcmIOMsg<'a> {
-    stream_id: u32,
-    frames: &'a [u8],
 }
