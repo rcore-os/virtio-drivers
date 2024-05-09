@@ -520,10 +520,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() };
         let mut token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() };
 
-        if self.tx_queue.should_notify() {
-            self.transport.notify(TX_QUEUE_IDX);
-        }
-
         let xfer_times = if frames.len() % buffer_size == 0 {
             frames.len() / buffer_size
         } else {
@@ -533,6 +529,11 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut turn1 = true;
 
         for i in 2..xfer_times {
+
+            if self.tx_queue.should_notify() {
+                self.transport.notify(TX_QUEUE_IDX);
+            }
+
             let start_byte = i * buffer_size;
             let end_byte = if i != xfer_times - 1 {
                 (i + 1) * buffer_size
@@ -546,9 +547,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 } {
                     spin_loop();
                 }
-                if self.tx_queue.should_notify() {
-                    self.transport.notify(TX_QUEUE_IDX);
-                }
                 turn1 = false;
                 buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
                     .copy_from_slice(&frames[start_byte..end_byte]);
@@ -559,9 +557,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                         .pop_used(token2, &[&buf2], &mut [&mut outputs])
                 } {
                     spin_loop();
-                }
-                if self.tx_queue.should_notify() {
-                    self.transport.notify(TX_QUEUE_IDX);
                 }
                 turn1 = true;
                 buf2[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
