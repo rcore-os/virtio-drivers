@@ -208,7 +208,6 @@ fn virtio_sound<T: Transport>(transport: T) {
         } else {
             *channel_range.start()
         };
-        const _BUFFER_BYTES: usize = 441 * 32;
         sound
             .pcm_set_params(
                 output_stream_id,
@@ -227,6 +226,8 @@ fn virtio_sound<T: Transport>(transport: T) {
         let music = include_bytes!("../Nocturne_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
         // xfer buffer
-        sound.pcm_xfer(output_stream_id, &music[..]).unwrap();
+        sound.pcm_xfer(output_stream_id, &music[..]).expect("pcm_xfer error");
+        sound.pcm_stop(output_stream_id).expect("pcm_stop error");
+        sound.pcm_release(output_stream_id).expect("pcm_release error");
     }
 }
