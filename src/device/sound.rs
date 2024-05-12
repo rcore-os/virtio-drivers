@@ -91,14 +91,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         // read configuration space
         let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
-        let jacks;
-        let streams;
-        let chmaps;
-        unsafe {
-            jacks = volread!(config_ptr, jacks);
-            streams = volread!(config_ptr, streams);
-            chmaps = volread!(config_ptr, chmaps);
-        }
+        let (jacks, streams, chmaps) = unsafe {
+            (
+                volread!(config_ptr, jacks),
+                volread!(config_ptr, streams),
+                volread!(config_ptr, chmaps),
+            )
+        };
         info!(
             "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
             jacks, streams, chmaps
@@ -407,7 +406,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 features,
                 channels,
                 format,
-                rate
+                rate,
             };
             Ok(())
         } else {
@@ -529,7 +528,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut turn1 = true;
 
         for i in 2..xfer_times {
-
             if self.tx_queue.should_notify() {
                 self.transport.notify(TX_QUEUE_IDX);
             }
@@ -716,17 +714,11 @@ enum PCMState {
 /// Stream errors.
 #[derive(Debug, PartialEq, Eq)]
 enum StreamError {
-    ///
     InvalidState(&'static str, PCMState),
-    ///
     InvalidStateTransition(PCMState, PCMState),
-    ///
     InvalidStreamId(u32),
-    ///
     DescriptorReadFailed,
-    ///
     DescriptorWriteFailed,
-    ///
     CouldNotDisconnectStream,
 }
 
