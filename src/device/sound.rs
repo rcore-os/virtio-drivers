@@ -493,6 +493,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
     /// TODO: if frames.len() is to short, the func with generate a error.
     pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
+        const U32_SIZE: usize = mem::size_of::<u32>();
         if !self.set_up {
             self.set_up();
             self.set_up = true;
@@ -504,15 +505,15 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
         // TODO
         assert!(buffer_size * 2 <= frames.len());
-        let mut buf1 = vec![0; mem::size_of::<u32>() + buffer_size];
-        let mut buf2 = vec![0; mem::size_of::<u32>() + buffer_size];
+        let mut buf1 = vec![0; U32_SIZE + buffer_size];
+        let mut buf2 = vec![0; U32_SIZE + buffer_size];
 
-        buf1[..mem::size_of::<u32>()].copy_from_slice(&stream_id.to_le_bytes());
-        buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+        buf1[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
+        buf1[U32_SIZE..U32_SIZE + buffer_size]
             .copy_from_slice(&frames[..buffer_size]);
 
-        buf2[..mem::size_of::<u32>()].copy_from_slice(&stream_id.to_le_bytes());
-        buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + buffer_size]
+        buf2[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
+        buf2[U32_SIZE..U32_SIZE + buffer_size]
             .copy_from_slice(&frames[buffer_size..buffer_size * 2]);
 
         let mut outputs = vec![0; 32];
@@ -546,7 +547,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     spin_loop();
                 }
                 turn1 = false;
-                buf1[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
+                buf1[U32_SIZE..U32_SIZE + end_byte - start_byte]
                     .copy_from_slice(&frames[start_byte..end_byte]);
                 token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() }
             } else {
@@ -557,7 +558,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     spin_loop();
                 }
                 turn1 = true;
-                buf2[mem::size_of::<u32>()..mem::size_of::<u32>() + end_byte - start_byte]
+                buf2[U32_SIZE..U32_SIZE + end_byte - start_byte]
                     .copy_from_slice(&frames[start_byte..end_byte]);
                 token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() }
             }
