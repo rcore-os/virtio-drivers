@@ -211,8 +211,8 @@ fn virtio_sound<T: Transport>(transport: T) {
         sound
             .pcm_set_params(
                 output_stream_id,
-                441 * 2,
-                441,
+                4410 * 2,
+                4410,
                 features,
                 channel,
                 format,
