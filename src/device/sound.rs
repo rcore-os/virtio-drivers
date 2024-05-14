@@ -1,6 +1,7 @@
 //! TODO: Add docs
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -51,6 +52,8 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     event_buf: Box<[u8]>,
 
     pcm_states: Vec<PCMState>,
+
+    token_buf: BTreeMap<u16, Box<Vec<u8>>>, // store token and its input buf
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
@@ -138,6 +141,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             output_rsp,
             event_buf,
             pcm_states: vec![],
+            token_buf: BTreeMap::new(),
         })
     }
 
@@ -509,8 +513,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut buf2 = vec![0; U32_SIZE + buffer_size];
 
         buf1[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
-        buf1[U32_SIZE..U32_SIZE + buffer_size]
-            .copy_from_slice(&frames[..buffer_size]);
+        buf1[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(&frames[..buffer_size]);
 
         buf2[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
         buf2[U32_SIZE..U32_SIZE + buffer_size]
@@ -582,18 +585,42 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(())
     }
 
-    ///
-    pub fn pcm_xfer_wait(&mut self, io_request: &[u8]) -> Result {
+    /// pcm_xfer_non_blocking
+    pub fn pcm_xfer_nb(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
         if !self.set_up {
             self.set_up();
             self.set_up = true;
         }
-        self.tx_queue.add_notify_wait_pop(
-            &[&io_request],
-            &mut [&mut self.output_rsp],
-            &mut self.transport,
-        )?;
-        Ok(())
+        const U32_SIZE: usize = mem::size_of::<u32>();
+        let buffer_size: usize = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
+        assert_eq!(buffer_size, frames.len());
+        let mut buf = Box::new(vec![0; U32_SIZE + buffer_size]);
+        buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
+        buf[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(frames);
+        let token = unsafe { self.tx_queue.add(&[&buf], &mut [&mut self.output_rsp])? };
+        if self.tx_queue.should_notify() {
+            self.transport.notify(TX_QUEUE_IDX);
+        }
+        self.token_buf.insert(token, buf);
+        Ok(token)
+    }
+
+    /// pcm_xfer_ok
+    pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
+        // TODO: remove this assert
+        assert!(self.token_buf.contains_key(&token));
+        if let Err(_) = unsafe {
+            self.tx_queue.pop_used(
+                token,
+                &[&self.token_buf[&token]],
+                &mut [&mut self.output_rsp],
+            )
+        } {
+            Err(Error::IoError)
+        } else {
+            self.token_buf.remove(&token);
+            Ok(())
+        }
     }
 
     /// Get all output streams.
