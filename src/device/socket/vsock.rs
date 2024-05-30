@@ -2,7 +2,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use super::error::SocketError;
-use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
+use super::protocol::{
+    Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
+};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
@@ -409,17 +411,36 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         result
     }
 
-    /// Requests to shut down the connection cleanly.
+    /// Requests to shut down the connection cleanly, sending hints about whether we will send or
+    /// receive more data.
+    ///
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
+    /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
+    /// shutdown.
+    pub fn shutdown_with_hints(
+        &mut self,
+        connection_info: &ConnectionInfo,
+        hints: StreamShutdown,
+    ) -> Result {
+        let header = VirtioVsockHdr {
+            op: VirtioVsockOp::Shutdown.into(),
+            flags: hints.into(),
+            ..connection_info.new_header(self.guest_cid)
+        };
+        self.send_packet_to_tx_queue(&header, &[])
+    }
+
+    /// Requests to shut down the connection cleanly, telling the peer that we won't send or receive
+    /// any more data.
     ///
     /// This returns as soon as the request is sent; you should wait until `poll` returns a
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
     /// shutdown.
     pub fn shutdown(&mut self, connection_info: &ConnectionInfo) -> Result {
-        let header = VirtioVsockHdr {
-            op: VirtioVsockOp::Shutdown.into(),
-            ..connection_info.new_header(self.guest_cid)
-        };
-        self.send_packet_to_tx_queue(&header, &[])
+        self.shutdown_with_hints(
+            connection_info,
+            StreamShutdown::SEND | StreamShutdown::RECEIVE,
+        )
     }
 
     /// Forcibly closes the connection without waiting for the peer.

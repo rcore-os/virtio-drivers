@@ -214,3 +214,20 @@ bitflags! {
         const NOTIFICATION_DATA     = 1 << 38;
     }
 }
+
+bitflags! {
+    /// Flags sent with a shutdown request to hint that the peer won't send or receive more data.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    pub struct StreamShutdown: u32 {
+        /// The peer will not receive any more data.
+        const RECEIVE = 1 << 0;
+        /// The peer will not send any more data.
+        const SEND = 1 << 1;
+    }
+}
+
+impl From<StreamShutdown> for U32<LittleEndian> {
+    fn from(flags: StreamShutdown) -> Self {
+        flags.bits().into()
+    }
+}
