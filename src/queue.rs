@@ -21,7 +21,7 @@ use zerocopy::{AsBytes, FromBytes, FromZeroes};
 /// Each device can have zero or more virtqueues.
 ///
 /// * `SIZE`: The size of the queue. This is both the number of descriptors, and the number of slots
-///   in the available and used rings.
+///   in the available and used rings. It must be a power of 2 and fit in a [`u16`].
 #[derive(Debug)]
 pub struct VirtQueue<H: Hal, const SIZE: usize> {
     /// DMA guard
@@ -61,6 +61,8 @@ pub struct VirtQueue<H: Hal, const SIZE: usize> {
 }
 
 impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
+    const SIZE_OK: () = assert!(SIZE.is_power_of_two() && SIZE <= u16::MAX as usize);
+
     /// Creates a new VirtQueue.
     ///
     /// * `indirect`: Whether to use indirect descriptors. This should be set if the
@@ -74,13 +76,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         indirect: bool,
         event_idx: bool,
     ) -> Result<Self> {
+        #[allow(clippy::let_unit_value)]
+        let _ = Self::SIZE_OK;
+
         if transport.queue_used(idx) {
             return Err(Error::AlreadyUsed);
         }
-        if !SIZE.is_power_of_two()
-            || SIZE > u16::MAX.into()
-            || transport.max_queue_size(idx) < SIZE as u32
-        {
+        if transport.max_queue_size(idx) < SIZE as u32 {
             return Err(Error::InvalidParam);
         }
         let size = SIZE as u16;
@@ -536,6 +538,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     }
 }
 
+// SAFETY: None of the virt queue resources are tied to a particular thread.
+unsafe impl<H: Hal, const SIZE: usize> Send for VirtQueue<H, SIZE> {}
+
+// SAFETY: A `&VirtQueue` only allows reading from the various pointers it contains, so there is no
+// data race.
+unsafe impl<H: Hal, const SIZE: usize> Sync for VirtQueue<H, SIZE> {}
+
 /// The inner layout of a VirtQueue.
 ///
 /// Ref: 2.6 Split Virtqueues
@@ -968,17 +977,6 @@ mod tests {
     };
     use core::ptr::NonNull;
     use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn invalid_queue_size() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
-        // Size not a power of 2.
-        assert_eq!(
-            VirtQueue::<FakeHal, 3>::new(&mut transport, 0, false, false).unwrap_err(),
-            Error::InvalidParam
-        );
-    }
 
     #[test]
     fn queue_too_big() {

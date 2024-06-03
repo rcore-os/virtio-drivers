@@ -120,6 +120,18 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     }
 }
 
+// SAFETY: The config space can be accessed from any thread.
+unsafe impl<H: Hal, T: Transport + Send> Send for VirtIOInput<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Send
+{
+}
+
+// SAFETY: An '&VirtIOInput` can't do anything, all methods take `&mut self`.
+unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOInput<H, T> where
+    VirtQueue<H, QUEUE_SIZE>: Sync
+{
+}
+
 impl<H: Hal, T: Transport> Drop for VirtIOInput<H, T> {
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them

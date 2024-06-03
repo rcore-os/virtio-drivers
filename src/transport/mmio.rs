@@ -310,6 +310,13 @@ impl MmioTransport {
     }
 }
 
+// SAFETY: `header` is only used for MMIO, which can happen from any thread or CPU core.
+unsafe impl Send for MmioTransport {}
+
+// SAFETY: `&MmioTransport` only allows MMIO reads or getting the config space, both of which are
+// fine to happen concurrently on different CPU cores.
+unsafe impl Sync for MmioTransport {}
+
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
         // Safe because self.header points to a valid VirtIO MMIO region.

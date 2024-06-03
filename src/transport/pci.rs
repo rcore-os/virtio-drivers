@@ -341,6 +341,13 @@ impl Transport for PciTransport {
     }
 }
 
+// SAFETY: MMIO can be done from any thread or CPU core.
+unsafe impl Send for PciTransport {}
+
+// SAFETY: `&PciTransport` only allows MMIO reads or getting the config space, both of which are
+// fine to happen concurrently on different CPU cores.
+unsafe impl Sync for PciTransport {}
+
 impl Drop for PciTransport {
     fn drop(&mut self) {
         // Reset the device when the transport is dropped.
@@ -498,6 +505,12 @@ impl From<PciError> for VirtioPciError {
         Self::Pci(error)
     }
 }
+
+// SAFETY: The `vaddr` field of `VirtioPciError::Misaligned` is only used for debug output.
+unsafe impl Send for VirtioPciError {}
+
+// SAFETY: The `vaddr` field of `VirtioPciError::Misaligned` is only used for debug output.
+unsafe impl Sync for VirtioPciError {}
 
 #[cfg(test)]
 mod tests {
