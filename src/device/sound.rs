@@ -1,4 +1,4 @@
-//! TODO: Add docs
+//! Driver for VirtIO Sound devices.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -20,7 +20,11 @@ use crate::{
     Error, Hal, Result, PAGE_SIZE,
 };
 
-/// TODO: Add docs
+/// Audio driver based on virtio v1.2.
+///
+/// Supports synchronous blocking and asynchronous non-blocking audio playback.
+/// 
+/// Currently, only audio playback functionality has been implemented.
 pub struct VirtIOSound<H: Hal, T: Transport> {
     transport: T,
 
@@ -495,7 +499,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
-    /// TODO: if frames.len() is to short, the func with generate a error.
+    /// 
+    /// This is a blocking method that will not return until the audio playback is complete.
     pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
         const U32_SIZE: usize = mem::size_of::<u32>();
         if !self.set_up {
@@ -507,7 +512,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
-        // TODO
         assert!(buffer_size * 2 <= frames.len());
         let mut buf1 = vec![0; U32_SIZE + buffer_size];
         let mut buf2 = vec![0; U32_SIZE + buffer_size];
@@ -585,7 +589,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(())
     }
 
-    /// pcm_xfer_non_blocking
+    /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
+    /// 
+    /// This is a non-blocking method that returns a token.
     pub fn pcm_xfer_nb(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
         if !self.set_up {
             self.set_up();
@@ -605,9 +611,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(token)
     }
 
-    /// pcm_xfer_ok
+    /// The PCM frame transmission corresponding to the given token has been completed.
     pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
-        // TODO: remove this assert
         assert!(self.token_buf.contains_key(&token));
         if let Err(_) = unsafe {
             self.tx_queue.pop_used(
@@ -728,7 +733,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 }
 
-/// TODO
+/// The status of the PCM stream.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 enum PCMState {
     #[default]
@@ -833,21 +838,21 @@ impl From<u32> for JackFeatures {
     }
 }
 
-/// TODO
+/// Supported PCM stream features.
 #[derive(Clone, Copy)]
 pub struct PcmFeatures(u32);
 
 bitflags! {
     impl PcmFeatures: u32 {
-        /// TODO
+        /// Supports sharing a host memory with a guest.
         const VIRTIO_SND_PCM_F_SHMEM_HOST = 1 << 0;
-        /// TODO
+        /// Supports sharing a guest memory with a host.
         const VIRTIO_SND_PCM_F_SHMEM_GUEST = 1 << 1;
-        /// TODO
+        /// Supports polling mode for message-based transport.
         const VIRTIO_SND_PCM_F_MSG_POLLING = 1 << 2;
-        /// TODO
+        /// Supports elapsed period notifications for shared memory transport.
         const VIRTIO_SND_PCM_F_EVT_SHMEM_PERIODS = 1 << 3;
-        /// TODO
+        /// Supports underrun/overrun notifications.
         const VIRTIO_SND_PCM_F_EVT_XRUNS = 1 << 4;
     }
 }
@@ -864,65 +869,63 @@ impl Into<u32> for PcmFeatures {
     }
 }
 
-/// TODO
+/// Supported PCM sample formats.
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct PcmFormats(u64);
 
+
 bitflags! {
     impl PcmFormats: u64 {
-        /* analog formats (width / physical width) */
-        /// TODO
+        /// IMA ADPCM format.
         const VIRTIO_SND_PCM_FMT_IMA_ADPCM = 1 << 0;
-        /// TODO
+        /// Mu-law format.
         const VIRTIO_SND_PCM_FMT_MU_LAW = 1 << 1;
-        /// TODO
+        /// A-law format.
         const VIRTIO_SND_PCM_FMT_A_LAW = 1 << 2;
-        /// TODO
+        /// Signed 8-bit format.
         const VIRTIO_SND_PCM_FMT_S8 = 1 << 3;
-        /// TODO
+        /// Unsigned 8-bit format.
         const VIRTIO_SND_PCM_FMT_U8 = 1 << 4;
-        /// TODO
+        /// Signed 16-bit format.
         const VIRTIO_SND_PCM_FMT_S16 = 1 << 5;
-        /// TODO
+        /// Unsigned 16-bit format.
         const VIRTIO_SND_PCM_FMT_U16 = 1 << 6;
-        /// TODO
+        /// Signed 18.3-bit format.
         const VIRTIO_SND_PCM_FMT_S18_3 = 1 << 7;
-        /// TODO
+        /// Unsigned 18.3-bit format.
         const VIRTIO_SND_PCM_FMT_U18_3 = 1 << 8;
-        /// TODO
+        /// Signed 20.3-bit format.
         const VIRTIO_SND_PCM_FMT_S20_3 = 1 << 9;
-        /// TODO
+        /// Unsigned 20.3-bit format.
         const VIRTIO_SND_PCM_FMT_U20_3 = 1 << 10;
-        /// TODO
+        /// Signed 24.3-bit format.
         const VIRTIO_SND_PCM_FMT_S24_3 = 1 << 11;
-        /// TODO
+        /// Unsigned 24.3-bit format.
         const VIRTIO_SND_PCM_FMT_U24_3 = 1 << 12;
-        /// TODO
+        /// Signed 20-bit format.
         const VIRTIO_SND_PCM_FMT_S20 = 1 << 13;
-        /// TODO
+        /// Unsigned 20-bit format.
         const VIRTIO_SND_PCM_FMT_U20 = 1 << 14;
-        /// TODO
+        /// Signed 24-bit format.
         const VIRTIO_SND_PCM_FMT_S24 = 1 << 15;
-        /// TODO
+        /// Unsigned 24-bit format.
         const VIRTIO_SND_PCM_FMT_U24 = 1 << 16;
-        /// TODO
+        /// Signed 32-bit format.
         const VIRTIO_SND_PCM_FMT_S32 = 1 << 17;
-        /// TODO
+        /// Unsigned 32-bit format.
         const VIRTIO_SND_PCM_FMT_U32 = 1 << 18;
-        /// TODO
+        /// 32-bit floating-point format.
         const VIRTIO_SND_PCM_FMT_FLOAT = 1 << 19;
-        /// TODO
+        /// 64-bit floating-point format.
         const VIRTIO_SND_PCM_FMT_FLOAT64 = 1 << 20;
-        /* digital formats (width / physical width) */
-        /// TODO
+        /// DSD unsigned 8-bit format.
         const VIRTIO_SND_PCM_FMT_DSD_U8 = 1 << 21;
-        /// TODO
+        /// DSD unsigned 16-bit format.
         const VIRTIO_SND_PCM_FMT_DSD_U16 = 1 << 22;
-        /// TODO
+        /// DSD unsigned 32-bit format.
         const VIRTIO_SND_PCM_FMT_DSD_U32 = 1 << 23;
-        /// TODO
+        /// IEC958 subframe format.
         const VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME = 1 << 24;
-
     }
 }
 
@@ -965,39 +968,39 @@ impl Into<u8> for PcmFormats {
     }
 }
 
-/// TODO
+/// Supported PCM frame rates.
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct PcmRate(u64);
 
 bitflags! {
     impl PcmRate: u64 {
-        /// TODO
+        /// 5512 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
-        /// TODO
+        /// 8000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_8000 = 1 << 1;
-        /// TODO
+        /// 11025 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_11025 = 1 << 2;
-        /// TODO
+        /// 16000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_16000 = 1 << 3;
-        /// TODO
+        /// 22050 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_22050 = 1 << 4;
-        /// TODO
+        /// 32000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_32000 = 1 << 5;
-        /// TODO
+        /// 44100 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_44100 = 1 << 6;
-        /// TODO
+        /// 48000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_48000 = 1 << 7;
-        /// TODO
+        /// 64000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_64000 = 1 << 8;
-        /// TODO
+        /// 88200 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_88200 = 1 << 9;
-        /// TODO
+        /// 96000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_96000 = 1 << 10;
-        /// TODO
+        /// 176400 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_176400 = 1 << 11;
-        /// TODO
+        /// 192000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_192000 = 1 << 12;
-        /// TODO
+        /// 384000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_384000 = 1 << 13;
     }
 }
@@ -1083,6 +1086,8 @@ struct VirtIOSoundConfig {
 /// In virtIO v1.2, this enum should be called "Code".
 ///
 /// To avoid ambiguity in its meaning, I use the term "CommandCode" here.
+#[repr(u32)]
+#[derive(FromPrimitive, IntoPrimitive)]
 enum CommandCode {
     /* jack control request types */
     VirtioSndRJackInfo = 1,
@@ -1109,6 +1114,7 @@ enum CommandCode {
 
     /* common status codes */
     /// success
+    #[num_enum(default)]
     VirtioSndSOk = 0x8000,
     /// a control message is malformed or contains invalid parameters
     VirtioSndSBadMsg,
@@ -1118,22 +1124,14 @@ enum CommandCode {
     VirtioSndSIoErr,
 }
 
-impl From<CommandCode> for VirtIOSndHdr {
-    fn from(value: CommandCode) -> Self {
-        VirtIOSndHdr {
-            command_code: value as _,
-        }
-    }
-}
-
-/// TODO: Add docs.
+/// Enum representing the types of item information requests.
 #[derive(Clone, Copy)]
 pub enum ItemInfomationRequestType {
-    /// TODO
+    /// Represents a jack information request.
     VirtioSndRJackInfo = 1,
-    /// TODO
+    /// Represents a PCM information request.
     VirtioSndRPcmInfo = 0x0100,
-    /// TODO
+    /// Represents a channel map information request.
     VirtioSndRChmapInfo = 0x0200,
 }
 
@@ -1176,6 +1174,12 @@ struct VirtIOSndHdr {
     command_code: u32,
 }
 
+impl From<CommandCode> for VirtIOSndHdr {
+    fn from(value: CommandCode) -> Self {
+        VirtIOSndHdr { command_code:  value.into() }
+    }
+}
+
 #[repr(C)]
 #[derive(FromBytes, FromZeroes)]
 /// An event notification
@@ -1188,14 +1192,14 @@ struct VirtIOSndEvent {
 #[repr(u32)]
 #[derive(FromPrimitive, Copy, Clone)]
 pub enum NotificationType {
-    /// TODO
+    /// A hardware buffer period has elapsed, the period size is controlled using the `period_bytes` field.
     #[num_enum(default)]
     PcmPeriodElapsed = 0x1100,
-    /// TODO
+    /// An underflow for the output stream or an overflow for the inputstream has occurred.
     PcmXrun,
-    /// TODO
+    /// An external device has been connected to the jack.
     JackConnected = 0x1000,
-    /// TODO
+    /// An external device has been disconnected from the jack.
     JackDisconnected,
 }
 
@@ -1246,7 +1250,7 @@ struct VirtIOSndQueryInfoRsp {
     info: VirtIOSndInfo,
 }
 
-/// TODO: Add docs
+/// Field `hda_fn_nid` indicates a function group node identifier.
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq)]
 pub struct VirtIOSndInfo {
@@ -1261,7 +1265,7 @@ struct VirtIOSndJackHdr {
     jack_id: u32,
 }
 
-/// TODO
+/// Jack infomation.
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
 pub struct VirtIOSndJackInfo {
@@ -1392,7 +1396,7 @@ impl Into<u64> for PcmFrameRate {
     }
 }
 
-/// TODO: Add docs
+/// PCM information.
 #[repr(C)]
 #[derive(AsBytes, FromBytes, FromZeroes)]
 pub struct VirtIOSndPcmInfo {
