@@ -43,13 +43,13 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         let send_queue = VirtQueue::new(
             &mut transport,
             QUEUE_TRANSMIT,
-            false,
+            negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
         let recv_queue = VirtQueue::new(
             &mut transport,
             QUEUE_RECEIVE,
-            false,
+            negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
 

@@ -35,13 +35,13 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         let mut event_queue = VirtQueue::new(
             &mut transport,
             QUEUE_EVENT,
-            false,
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         let status_queue = VirtQueue::new(
             &mut transport,
             QUEUE_STATUS,
-            false,
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
@@ -209,7 +209,7 @@ pub struct InputEvent {
 
 const QUEUE_EVENT: u16 = 0;
 const QUEUE_STATUS: u16 = 1;
-const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX.union(Feature::RING_INDIRECT_DESC);
 
 // a parameter that can change
 const QUEUE_SIZE: usize = 32;
