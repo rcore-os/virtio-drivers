@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
+use core::convert::TryInto;
 use core::hint::spin_loop;
 use core::mem::{size_of, take};
 #[cfg(test)]
@@ -717,7 +718,7 @@ impl Descriptor {
         unsafe {
             self.addr = H::share(buf, direction) as u64;
         }
-        self.len = buf.len() as u32;
+        self.len = buf.len().try_into().unwrap();
         self.flags = extra_flags
             | match direction {
                 BufferDirection::DeviceToDriver => DescFlags::WRITE,
@@ -957,7 +958,7 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
         }
 
         // Mark the buffer as used.
-        (*used_ring).ring[next_slot as usize].id = head_descriptor_index as u32;
+        (*used_ring).ring[next_slot as usize].id = head_descriptor_index.into();
         (*used_ring).ring[next_slot as usize].len = (input_length + output.len()) as u32;
         (*used_ring).idx.fetch_add(1, Ordering::AcqRel);
     }
