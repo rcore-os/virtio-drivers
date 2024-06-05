@@ -252,7 +252,8 @@ impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
         }
     }
 
-    /// Requests to shut down the connection cleanly.
+    /// Requests to shut down the connection cleanly, telling the peer that we won't send or receive
+    /// any more data.
     ///
     /// This returns as soon as the request is sent; you should wait until `poll` returns a
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
@@ -389,7 +390,9 @@ mod tests {
     use super::*;
     use crate::{
         device::socket::{
-            protocol::{SocketType, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp},
+            protocol::{
+                SocketType, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp,
+            },
             vsock::{VsockBufferStatus, QUEUE_SIZE, RX_QUEUE_IDX, TX_QUEUE_IDX},
         },
         hal::fake::FakeHal,
@@ -557,7 +560,7 @@ mod tests {
                     dst_port: host_port.into(),
                     len: 0.into(),
                     socket_type: SocketType::Stream.into(),
-                    flags: 0.into(),
+                    flags: (StreamShutdown::SEND | StreamShutdown::RECEIVE).into(),
                     buf_alloc: 1024.into(),
                     fwd_cnt: (hello_from_host.len() as u32).into(),
                 }
