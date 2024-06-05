@@ -10,7 +10,7 @@ use core::hint::spin_loop;
 use log::debug;
 use zerocopy::FromZeroes;
 
-const PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
+const DEFAULT_PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
 
 /// A higher level interface for VirtIO socket (vsock) devices.
 ///
@@ -49,6 +49,7 @@ pub struct VsockConnectionManager<
     const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
 > {
     driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>,
+    per_connection_buffer_capacity: usize,
     connections: Vec<Connection>,
     listening_ports: Vec<u32>,
 }
@@ -63,12 +64,12 @@ struct Connection {
 }
 
 impl Connection {
-    fn new(peer: VsockAddr, local_port: u32) -> Self {
+    fn new(peer: VsockAddr, local_port: u32, buffer_capacity: usize) -> Self {
         let mut info = ConnectionInfo::new(peer, local_port);
-        info.buf_alloc = PER_CONNECTION_BUFFER_CAPACITY.try_into().unwrap();
+        info.buf_alloc = buffer_capacity.try_into().unwrap();
         Self {
             info,
-            buffer: RingBuffer::new(PER_CONNECTION_BUFFER_CAPACITY),
+            buffer: RingBuffer::new(buffer_capacity),
             peer_requested_shutdown: false,
         }
     }
@@ -79,10 +80,20 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
 {
     /// Construct a new connection manager wrapping the given low-level VirtIO socket driver.
     pub fn new(driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>) -> Self {
+        Self::new_with_capacity(driver, DEFAULT_PER_CONNECTION_BUFFER_CAPACITY)
+    }
+
+    /// Construct a new connection manager wrapping the given low-level VirtIO socket driver, with
+    /// the given per-connection buffer capacity.
+    pub fn new_with_capacity(
+        driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>,
+        per_connection_buffer_capacity: usize,
+    ) -> Self {
         Self {
             driver,
             connections: Vec::new(),
             listening_ports: Vec::new(),
+            per_connection_buffer_capacity,
         }
     }
 
@@ -115,7 +126,8 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
             return Err(SocketError::ConnectionExists.into());
         }
 
-        let new_connection = Connection::new(destination, src_port);
+        let new_connection =
+            Connection::new(destination, src_port, self.per_connection_buffer_capacity);
 
         self.driver.connect(&new_connection.info)?;
         debug!("Connection requested: {:?}", new_connection.info);
@@ -134,6 +146,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     pub fn poll(&mut self) -> Result<Option<VsockEvent>> {
         let guest_cid = self.driver.guest_cid();
         let connections = &mut self.connections;
+        let per_connection_buffer_capacity = self.per_connection_buffer_capacity;
 
         let result = self.driver.poll(|event, body| {
             let connection = get_connection_for_event(connections, &event, guest_cid);
@@ -149,7 +162,11 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
                 }
                 // Add the new connection to our list, at least for now. It will be removed again
                 // below if we weren't listening on the port.
-                connections.push(Connection::new(event.source, event.destination.port));
+                connections.push(Connection::new(
+                    event.source,
+                    event.destination.port,
+                    per_connection_buffer_capacity,
+                ));
                 connections.last_mut().unwrap()
             } else {
                 return Ok(None);
