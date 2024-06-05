@@ -1,6 +1,6 @@
 use super::{
     protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket,
-    VsockEvent, VsockEventType,
+    VsockEvent, VsockEventType, DEFAULT_RX_BUFFER_SIZE,
 };
 use crate::{transport::Transport, Hal, Result};
 use alloc::{boxed::Box, vec::Vec};
@@ -15,6 +15,9 @@ const PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
 /// A higher level interface for VirtIO socket (vsock) devices.
 ///
 /// This keeps track of multiple vsock connections.
+///
+/// `RX_BUFFER_SIZE` is the size in bytes of each buffer used in the RX virtqueue. This must be
+/// bigger than `size_of::<VirtioVsockHdr>()`.
 ///
 /// # Example
 ///
@@ -40,8 +43,12 @@ const PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
 /// # Ok(())
 /// # }
 /// ```
-pub struct VsockConnectionManager<H: Hal, T: Transport> {
-    driver: VirtIOSocket<H, T>,
+pub struct VsockConnectionManager<
+    H: Hal,
+    T: Transport,
+    const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
+> {
+    driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>,
     connections: Vec<Connection>,
     listening_ports: Vec<u32>,
 }
@@ -67,9 +74,11 @@ impl Connection {
     }
 }
 
-impl<H: Hal, T: Transport> VsockConnectionManager<H, T> {
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
+    VsockConnectionManager<H, T, RX_BUFFER_SIZE>
+{
     /// Construct a new connection manager wrapping the given low-level VirtIO socket driver.
-    pub fn new(driver: VirtIOSocket<H, T>) -> Self {
+    pub fn new(driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>) -> Self {
         Self {
             driver,
             connections: Vec::new(),

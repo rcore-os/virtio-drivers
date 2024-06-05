@@ -5,6 +5,7 @@ use super::error::SocketError;
 use super::protocol::{
     Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
 };
+use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
@@ -22,9 +23,6 @@ const EVENT_QUEUE_IDX: u16 = 2;
 
 pub(crate) const QUEUE_SIZE: usize = 8;
 const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
-
-/// The size in bytes of each buffer used in the RX virtqueue. This must be bigger than size_of::<VirtioVsockHdr>().
-const RX_BUFFER_SIZE: usize = 512;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConnectionInfo {
@@ -212,7 +210,11 @@ pub enum VsockEventType {
 ///
 /// You probably want to use [`VsockConnectionManager`](super::VsockConnectionManager) rather than
 /// using this directly.
-pub struct VirtIOSocket<H: Hal, T: Transport> {
+///
+/// `RX_BUFFER_SIZE` is the size in bytes of each buffer used in the RX virtqueue. This must be
+/// bigger than `size_of::<VirtioVsockHdr>()`.
+pub struct VirtIOSocket<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE>
+{
     transport: T,
     /// Virtqueue to receive packets.
     rx: VirtQueue<H, { QUEUE_SIZE }>,
@@ -237,7 +239,9 @@ unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOSocket<H, T> where
 {
 }
 
-impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> Drop
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+{
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
@@ -253,9 +257,11 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
     }
 }
 
-impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BUFFER_SIZE> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        assert!(RX_BUFFER_SIZE > size_of::<VirtioVsockHdr>());
+
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         let config = transport.config_space::<VirtioVsockConfig>()?;
