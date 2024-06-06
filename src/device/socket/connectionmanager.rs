@@ -10,7 +10,7 @@ use core::hint::spin_loop;
 use log::debug;
 use zerocopy::FromZeroes;
 
-const DEFAULT_PER_CONNECTION_BUFFER_CAPACITY: usize = 1024;
+const DEFAULT_PER_CONNECTION_BUFFER_CAPACITY: u32 = 1024;
 
 /// A higher level interface for VirtIO socket (vsock) devices.
 ///
@@ -49,7 +49,7 @@ pub struct VsockConnectionManager<
     const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
 > {
     driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>,
-    per_connection_buffer_capacity: usize,
+    per_connection_buffer_capacity: u32,
     connections: Vec<Connection>,
     listening_ports: Vec<u32>,
 }
@@ -64,12 +64,12 @@ struct Connection {
 }
 
 impl Connection {
-    fn new(peer: VsockAddr, local_port: u32, buffer_capacity: usize) -> Self {
+    fn new(peer: VsockAddr, local_port: u32, buffer_capacity: u32) -> Self {
         let mut info = ConnectionInfo::new(peer, local_port);
-        info.buf_alloc = buffer_capacity.try_into().unwrap();
+        info.buf_alloc = buffer_capacity;
         Self {
             info,
-            buffer: RingBuffer::new(buffer_capacity),
+            buffer: RingBuffer::new(buffer_capacity.try_into().unwrap()),
             peer_requested_shutdown: false,
         }
     }
@@ -87,7 +87,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// the given per-connection buffer capacity.
     pub fn new_with_capacity(
         driver: VirtIOSocket<H, T, RX_BUFFER_SIZE>,
-        per_connection_buffer_capacity: usize,
+        per_connection_buffer_capacity: u32,
     ) -> Self {
         Self {
             driver,
