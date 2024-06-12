@@ -7,6 +7,7 @@ use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
+use core::cmp::min;
 use core::ptr::{addr_of, NonNull};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
@@ -112,8 +113,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             volwrite!(self.config, select, select as u8);
             volwrite!(self.config, subsel, subsel);
             size = volread!(self.config, size);
-            for i in 0..size {
-                let i = usize::from(i);
+            let size_to_copy = min(usize::from(size), out.len());
+            for i in 0..size_to_copy {
                 out[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
             }
         }
