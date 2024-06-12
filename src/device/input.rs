@@ -5,9 +5,13 @@ use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
-use crate::Result;
-use alloc::boxed::Box;
+use crate::Error;
+use alloc::{
+    boxed::Box,
+    string::{FromUtf8Error, String},
+};
 use core::cmp::min;
+use core::mem::size_of;
 use core::ptr::{addr_of, NonNull};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
@@ -26,7 +30,7 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
 
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
-    pub fn new(mut transport: T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self, Error> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
 
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
@@ -120,6 +124,78 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         }
         size
     }
+
+    /// Queries a specific piece of information by `select` and `subsel`, allocates a sufficiently
+    /// large byte buffer for it, and returns it.
+    fn query_config_select_alloc(&mut self, select: InputConfigSelect, subsel: u8) -> Box<[u8]> {
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            volwrite!(self.config, select, select as u8);
+            volwrite!(self.config, subsel, subsel);
+            let size = usize::from(volread!(self.config, size));
+            let mut buf = u8::new_box_slice_zeroed(size);
+            for i in 0..size {
+                buf[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
+            }
+            buf
+        }
+    }
+
+    /// Queries a specific piece of information by `select` and `subsel` into a newly-allocated
+    /// buffer, and tries to convert it to a string.
+    ///
+    /// Returns an error if it is not valid UTF-8.
+    fn query_config_string(
+        &mut self,
+        select: InputConfigSelect,
+        subsel: u8,
+    ) -> Result<String, FromUtf8Error> {
+        String::from_utf8(self.query_config_select_alloc(select, subsel).into())
+    }
+
+    /// Queries and returns the name of the device, or an error if it is not valid UTF-8.
+    pub fn name(&mut self) -> Result<String, FromUtf8Error> {
+        self.query_config_string(InputConfigSelect::IdName, 0)
+    }
+
+    /// Queries and returns the serial number of the device, or an error if it is not valid UTF-8.
+    pub fn serial_number(&mut self) -> Result<String, FromUtf8Error> {
+        self.query_config_string(InputConfigSelect::IdSerial, 0)
+    }
+
+    /// Queries and returns the ID information of the device.
+    pub fn ids(&mut self) -> Result<DevIDs, Error> {
+        let mut ids = DevIDs::default();
+        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_bytes_mut());
+        if usize::from(size) == size_of::<DevIDs>() {
+            Ok(ids)
+        } else {
+            Err(Error::InvalidParam)
+        }
+    }
+
+    /// Queries and returns the input properties of the device.
+    pub fn prop_bits(&mut self) -> Box<[u8]> {
+        self.query_config_select_alloc(InputConfigSelect::PropBits, 0)
+    }
+
+    /// Queries and returns a bitmap of supported event codes for the given event type.
+    ///
+    /// If the event type is not supported an empty slice will be returned.
+    pub fn ev_bits(&mut self, event_type: u8) -> Box<[u8]> {
+        self.query_config_select_alloc(InputConfigSelect::EvBits, event_type)
+    }
+
+    /// Queries and returns information about the given axis of the device.
+    pub fn abs_info(&mut self, axis: u8) -> Result<AbsInfo, Error> {
+        let mut info = AbsInfo::default();
+        let size = self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_bytes_mut());
+        if usize::from(size) == size_of::<AbsInfo>() {
+            Ok(info)
+        } else {
+            Err(Error::InvalidParam)
+        }
+    }
 }
 
 // SAFETY: The config space can be accessed from any thread.
@@ -177,23 +253,34 @@ struct Config {
     data: [ReadOnly<u8>; 128],
 }
 
+/// Information about an axis of an input device, typically a joystick.
 #[repr(C)]
-#[derive(Debug)]
-struct AbsInfo {
-    min: u32,
-    max: u32,
-    fuzz: u32,
-    flat: u32,
-    res: u32,
+#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+pub struct AbsInfo {
+    /// The minimum value for the axis.
+    pub min: u32,
+    /// The maximum value for the axis.
+    pub max: u32,
+    /// The fuzz value used to filter noise from the event stream.
+    pub fuzz: u32,
+    /// The size of the dead zone; values less than this will be reported as 0.
+    pub flat: u32,
+    /// The resolution for values reported for the axis.
+    pub res: u32,
 }
 
+/// The identifiers of a VirtIO input device.
 #[repr(C)]
-#[derive(Debug)]
-struct DevIDs {
-    bustype: u16,
-    vendor: u16,
-    product: u16,
-    version: u16,
+#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+pub struct DevIDs {
+    /// The bustype identifier.
+    pub bustype: u16,
+    /// The vendor identifier.
+    pub vendor: u16,
+    /// The product identifier.
+    pub product: u16,
+    /// The version identifier.
+    pub version: u16,
 }
 
 /// Both queues use the same `virtio_input_event` struct. `type`, `code` and `value`
