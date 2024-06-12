@@ -1,7 +1,7 @@
 /// An MMIO register which can only be read from.
 #[derive(Default)]
 #[repr(transparent)]
-pub struct ReadOnly<T: Copy>(T);
+pub struct ReadOnly<T: Copy>(pub(crate) T);
 
 impl<T: Copy> ReadOnly<T> {
     /// Construct a new instance for testing.
@@ -13,7 +13,7 @@ impl<T: Copy> ReadOnly<T> {
 /// An MMIO register which can only be written to.
 #[derive(Default)]
 #[repr(transparent)]
-pub struct WriteOnly<T: Copy>(T);
+pub struct WriteOnly<T: Copy>(pub(crate) T);
 
 /// An MMIO register which may be both read and written.
 #[derive(Default)]
