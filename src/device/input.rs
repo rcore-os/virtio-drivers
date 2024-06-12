@@ -249,7 +249,7 @@ struct Config {
     select: WriteOnly<u8>,
     subsel: WriteOnly<u8>,
     size: ReadOnly<u8>,
-    _reversed: [ReadOnly<u8>; 5],
+    _reserved: [ReadOnly<u8>; 5],
     data: [ReadOnly<u8>; 128],
 }
 
