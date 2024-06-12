@@ -4,10 +4,10 @@ use super::common::Feature;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
+use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
 use crate::Result;
 use alloc::boxed::Box;
-use core::ptr::NonNull;
+use core::ptr::{addr_of, NonNull};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -107,15 +107,16 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         out: &mut [u8],
     ) -> u8 {
         let size;
-        let data;
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {
             volwrite!(self.config, select, select as u8);
             volwrite!(self.config, subsel, subsel);
             size = volread!(self.config, size);
-            data = volread!(self.config, data);
+            for i in 0..size {
+                let i = usize::from(i);
+                out[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
+            }
         }
-        out[..size as usize].copy_from_slice(&data[..size as usize]);
         size
     }
 }
@@ -172,7 +173,7 @@ struct Config {
     subsel: WriteOnly<u8>,
     size: ReadOnly<u8>,
     _reversed: [ReadOnly<u8>; 5],
-    data: ReadOnly<[u8; 128]>,
+    data: [ReadOnly<u8>; 128],
 }
 
 #[repr(C)]
