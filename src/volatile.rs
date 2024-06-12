@@ -5,7 +5,7 @@ pub struct ReadOnly<T: Copy>(T);
 
 impl<T: Copy> ReadOnly<T> {
     /// Construct a new instance for testing.
-    pub fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Self(value)
     }
 }
@@ -22,7 +22,7 @@ pub struct Volatile<T: Copy>(T);
 
 impl<T: Copy> Volatile<T> {
     /// Construct a new instance for testing.
-    pub fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Self(value)
     }
 }
