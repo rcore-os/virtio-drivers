@@ -24,9 +24,12 @@ const EVENT_QUEUE_IDX: u16 = 2;
 pub(crate) const QUEUE_SIZE: usize = 8;
 const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX.union(Feature::RING_INDIRECT_DESC);
 
+/// Information about a particular vsock connection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConnectionInfo {
+    /// The address of the peer.
     pub dst: VsockAddr,
+    /// The local port number associated with the connection.
     pub src_port: u32,
     /// The last `buf_alloc` value the peer sent to us, indicating how much receive buffer space in
     /// bytes it has allocated for packet bodies.
@@ -49,6 +52,8 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
+    /// Creates a new `ConnectionInfo` for the given peer address and local port, and default values
+    /// for everything else.
     pub fn new(destination: VsockAddr, src_port: u32) -> Self {
         Self {
             dst: destination,
