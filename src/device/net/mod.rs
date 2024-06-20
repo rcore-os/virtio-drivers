@@ -64,7 +64,8 @@ bitflags! {
         const CTRL_RX = 1 << 18;
         /// Control channel VLAN filtering.
         const CTRL_VLAN = 1 << 19;
-        ///
+        /// Device supports VIRTIO_NET_CTRL_RX_ALLUNI, VIRTIO_NET_CTRL_RX_NOMULTI,
+        /// VIRTIO_NET_CTRL_RX_NOUNI and VIRTIO_NET_CTRL_RX_NOBCAST.
         const CTRL_RX_EXTRA = 1 << 20;
         /// Driver can send gratuitous packets.
         const GUEST_ANNOUNCE = 1 << 21;

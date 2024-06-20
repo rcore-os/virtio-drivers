@@ -95,6 +95,13 @@ pub enum Error {
     SocketDeviceError(device::socket::SocketError),
 }
 
+#[cfg(feature = "alloc")]
+impl From<alloc::string::FromUtf8Error> for Error {
+    fn from(_value: alloc::string::FromUtf8Error) -> Self {
+        Self::IoError
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {

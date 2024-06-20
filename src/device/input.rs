@@ -4,10 +4,12 @@ use super::common::Feature;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
-use crate::Result;
-use alloc::boxed::Box;
-use core::ptr::NonNull;
+use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
+use crate::Error;
+use alloc::{boxed::Box, string::String};
+use core::cmp::min;
+use core::mem::size_of;
+use core::ptr::{addr_of, NonNull};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -25,7 +27,7 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
 
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Create a new VirtIO-Input driver.
-    pub fn new(mut transport: T) -> Result<Self> {
+    pub fn new(mut transport: T) -> Result<Self, Error> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
 
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
@@ -107,16 +109,98 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         out: &mut [u8],
     ) -> u8 {
         let size;
-        let data;
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {
             volwrite!(self.config, select, select as u8);
             volwrite!(self.config, subsel, subsel);
             size = volread!(self.config, size);
-            data = volread!(self.config, data);
+            let size_to_copy = min(usize::from(size), out.len());
+            for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
+                *out_item = addr_of!((*self.config.as_ptr()).data[i]).vread();
+            }
         }
-        out[..size as usize].copy_from_slice(&data[..size as usize]);
         size
+    }
+
+    /// Queries a specific piece of information by `select` and `subsel`, allocates a sufficiently
+    /// large byte buffer for it, and returns it.
+    fn query_config_select_alloc(
+        &mut self,
+        select: InputConfigSelect,
+        subsel: u8,
+    ) -> Result<Box<[u8]>, Error> {
+        // Safe because config points to a valid MMIO region for the config space.
+        unsafe {
+            volwrite!(self.config, select, select as u8);
+            volwrite!(self.config, subsel, subsel);
+            let size = usize::from(volread!(self.config, size));
+            if size > CONFIG_DATA_MAX_LENGTH {
+                return Err(Error::IoError);
+            }
+            let mut buf = u8::new_box_slice_zeroed(size);
+            for i in 0..size {
+                buf[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
+            }
+            Ok(buf)
+        }
+    }
+
+    /// Queries a specific piece of information by `select` and `subsel` into a newly-allocated
+    /// buffer, and tries to convert it to a string.
+    ///
+    /// Returns an error if it is not valid UTF-8.
+    fn query_config_string(
+        &mut self,
+        select: InputConfigSelect,
+        subsel: u8,
+    ) -> Result<String, Error> {
+        Ok(String::from_utf8(
+            self.query_config_select_alloc(select, subsel)?.into(),
+        )?)
+    }
+
+    /// Queries and returns the name of the device, or an error if it is not valid UTF-8.
+    pub fn name(&mut self) -> Result<String, Error> {
+        self.query_config_string(InputConfigSelect::IdName, 0)
+    }
+
+    /// Queries and returns the serial number of the device, or an error if it is not valid UTF-8.
+    pub fn serial_number(&mut self) -> Result<String, Error> {
+        self.query_config_string(InputConfigSelect::IdSerial, 0)
+    }
+
+    /// Queries and returns the ID information of the device.
+    pub fn ids(&mut self) -> Result<DevIDs, Error> {
+        let mut ids = DevIDs::default();
+        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_bytes_mut());
+        if usize::from(size) == size_of::<DevIDs>() {
+            Ok(ids)
+        } else {
+            Err(Error::IoError)
+        }
+    }
+
+    /// Queries and returns the input properties of the device.
+    pub fn prop_bits(&mut self) -> Result<Box<[u8]>, Error> {
+        self.query_config_select_alloc(InputConfigSelect::PropBits, 0)
+    }
+
+    /// Queries and returns a bitmap of supported event codes for the given event type.
+    ///
+    /// If the event type is not supported an empty slice will be returned.
+    pub fn ev_bits(&mut self, event_type: u8) -> Result<Box<[u8]>, Error> {
+        self.query_config_select_alloc(InputConfigSelect::EvBits, event_type)
+    }
+
+    /// Queries and returns information about the given axis of the device.
+    pub fn abs_info(&mut self, axis: u8) -> Result<AbsInfo, Error> {
+        let mut info = AbsInfo::default();
+        let size = self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_bytes_mut());
+        if usize::from(size) == size_of::<AbsInfo>() {
+            Ok(info)
+        } else {
+            Err(Error::IoError)
+        }
     }
 }
 
@@ -140,6 +224,8 @@ impl<H: Hal, T: Transport> Drop for VirtIOInput<H, T> {
         self.transport.queue_unset(QUEUE_STATUS);
     }
 }
+
+const CONFIG_DATA_MAX_LENGTH: usize = 128;
 
 /// Select value used for [`VirtIOInput::query_config_select()`].
 #[repr(u8)]
@@ -171,27 +257,38 @@ struct Config {
     select: WriteOnly<u8>,
     subsel: WriteOnly<u8>,
     size: ReadOnly<u8>,
-    _reversed: [ReadOnly<u8>; 5],
-    data: ReadOnly<[u8; 128]>,
+    _reserved: [ReadOnly<u8>; 5],
+    data: [ReadOnly<u8>; CONFIG_DATA_MAX_LENGTH],
 }
 
+/// Information about an axis of an input device, typically a joystick.
 #[repr(C)]
-#[derive(Debug)]
-struct AbsInfo {
-    min: u32,
-    max: u32,
-    fuzz: u32,
-    flat: u32,
-    res: u32,
+#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+pub struct AbsInfo {
+    /// The minimum value for the axis.
+    pub min: u32,
+    /// The maximum value for the axis.
+    pub max: u32,
+    /// The fuzz value used to filter noise from the event stream.
+    pub fuzz: u32,
+    /// The size of the dead zone; values less than this will be reported as 0.
+    pub flat: u32,
+    /// The resolution for values reported for the axis.
+    pub res: u32,
 }
 
+/// The identifiers of a VirtIO input device.
 #[repr(C)]
-#[derive(Debug)]
-struct DevIDs {
-    bustype: u16,
-    vendor: u16,
-    product: u16,
-    version: u16,
+#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+pub struct DevIDs {
+    /// The bustype identifier.
+    pub bustype: u16,
+    /// The vendor identifier.
+    pub vendor: u16,
+    /// The product identifier.
+    pub product: u16,
+    /// The version identifier.
+    pub version: u16,
 }
 
 /// Both queues use the same `virtio_input_event` struct. `type`, `code` and `value`
@@ -213,3 +310,92 @@ const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX.union(Feature::RING_
 
 // a parameter that can change
 const QUEUE_SIZE: usize = 32;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        hal::fake::FakeHal,
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceType,
+        },
+    };
+    use alloc::{sync::Arc, vec};
+    use core::convert::TryInto;
+    use std::sync::Mutex;
+
+    #[test]
+    fn config() {
+        const DEFAULT_DATA: ReadOnly<u8> = ReadOnly::new(0);
+        let mut config_space = Config {
+            select: WriteOnly::default(),
+            subsel: WriteOnly::default(),
+            size: ReadOnly::new(0),
+            _reserved: Default::default(),
+            data: [DEFAULT_DATA; 128],
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Block,
+            max_queue_size: QUEUE_SIZE.try_into().unwrap(),
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut input = VirtIOInput::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        set_data(&mut config_space, "Test input device".as_bytes());
+        assert_eq!(input.name().unwrap(), "Test input device");
+        assert_eq!(config_space.select.0, InputConfigSelect::IdName as u8);
+        assert_eq!(config_space.subsel.0, 0);
+
+        set_data(&mut config_space, "Serial number".as_bytes());
+        assert_eq!(input.serial_number().unwrap(), "Serial number");
+        assert_eq!(config_space.select.0, InputConfigSelect::IdSerial as u8);
+        assert_eq!(config_space.subsel.0, 0);
+
+        let ids = DevIDs {
+            bustype: 0x4242,
+            product: 0x0067,
+            vendor: 0x1234,
+            version: 0x4321,
+        };
+        set_data(&mut config_space, ids.as_bytes());
+        assert_eq!(input.ids().unwrap(), ids);
+        assert_eq!(config_space.select.0, InputConfigSelect::IdDevids as u8);
+        assert_eq!(config_space.subsel.0, 0);
+
+        set_data(&mut config_space, &[0x12, 0x34, 0x56]);
+        assert_eq!(input.prop_bits().unwrap().as_ref(), &[0x12, 0x34, 0x56]);
+        assert_eq!(config_space.select.0, InputConfigSelect::PropBits as u8);
+        assert_eq!(config_space.subsel.0, 0);
+
+        set_data(&mut config_space, &[0x42, 0x66]);
+        assert_eq!(input.ev_bits(3).unwrap().as_ref(), &[0x42, 0x66]);
+        assert_eq!(config_space.select.0, InputConfigSelect::EvBits as u8);
+        assert_eq!(config_space.subsel.0, 3);
+
+        let abs_info = AbsInfo {
+            min: 12,
+            max: 1234,
+            fuzz: 4,
+            flat: 10,
+            res: 2,
+        };
+        set_data(&mut config_space, abs_info.as_bytes());
+        assert_eq!(input.abs_info(5).unwrap(), abs_info);
+        assert_eq!(config_space.select.0, InputConfigSelect::AbsInfo as u8);
+        assert_eq!(config_space.subsel.0, 5);
+    }
+
+    fn set_data(config_space: &mut Config, value: &[u8]) {
+        config_space.size.0 = value.len().try_into().unwrap();
+        for (i, &byte) in value.into_iter().enumerate() {
+            config_space.data[i].0 = byte;
+        }
+    }
+}
