@@ -6,10 +6,7 @@ use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
 use crate::Error;
-use alloc::{
-    boxed::Box,
-    string::{FromUtf8Error, String},
-};
+use alloc::{boxed::Box, string::String};
 use core::cmp::min;
 use core::mem::size_of;
 use core::ptr::{addr_of, NonNull};
@@ -127,17 +124,24 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
 
     /// Queries a specific piece of information by `select` and `subsel`, allocates a sufficiently
     /// large byte buffer for it, and returns it.
-    fn query_config_select_alloc(&mut self, select: InputConfigSelect, subsel: u8) -> Box<[u8]> {
+    fn query_config_select_alloc(
+        &mut self,
+        select: InputConfigSelect,
+        subsel: u8,
+    ) -> Result<Box<[u8]>, Error> {
         // Safe because config points to a valid MMIO region for the config space.
         unsafe {
             volwrite!(self.config, select, select as u8);
             volwrite!(self.config, subsel, subsel);
             let size = usize::from(volread!(self.config, size));
+            if size > CONFIG_DATA_MAX_LENGTH {
+                return Err(Error::IoError);
+            }
             let mut buf = u8::new_box_slice_zeroed(size);
             for i in 0..size {
                 buf[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
             }
-            buf
+            Ok(buf)
         }
     }
 
@@ -149,17 +153,19 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         &mut self,
         select: InputConfigSelect,
         subsel: u8,
-    ) -> Result<String, FromUtf8Error> {
-        String::from_utf8(self.query_config_select_alloc(select, subsel).into())
+    ) -> Result<String, Error> {
+        Ok(String::from_utf8(
+            self.query_config_select_alloc(select, subsel)?.into(),
+        )?)
     }
 
     /// Queries and returns the name of the device, or an error if it is not valid UTF-8.
-    pub fn name(&mut self) -> Result<String, FromUtf8Error> {
+    pub fn name(&mut self) -> Result<String, Error> {
         self.query_config_string(InputConfigSelect::IdName, 0)
     }
 
     /// Queries and returns the serial number of the device, or an error if it is not valid UTF-8.
-    pub fn serial_number(&mut self) -> Result<String, FromUtf8Error> {
+    pub fn serial_number(&mut self) -> Result<String, Error> {
         self.query_config_string(InputConfigSelect::IdSerial, 0)
     }
 
@@ -170,19 +176,19 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         if usize::from(size) == size_of::<DevIDs>() {
             Ok(ids)
         } else {
-            Err(Error::InvalidParam)
+            Err(Error::IoError)
         }
     }
 
     /// Queries and returns the input properties of the device.
-    pub fn prop_bits(&mut self) -> Box<[u8]> {
+    pub fn prop_bits(&mut self) -> Result<Box<[u8]>, Error> {
         self.query_config_select_alloc(InputConfigSelect::PropBits, 0)
     }
 
     /// Queries and returns a bitmap of supported event codes for the given event type.
     ///
     /// If the event type is not supported an empty slice will be returned.
-    pub fn ev_bits(&mut self, event_type: u8) -> Box<[u8]> {
+    pub fn ev_bits(&mut self, event_type: u8) -> Result<Box<[u8]>, Error> {
         self.query_config_select_alloc(InputConfigSelect::EvBits, event_type)
     }
 
@@ -193,7 +199,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         if usize::from(size) == size_of::<AbsInfo>() {
             Ok(info)
         } else {
-            Err(Error::InvalidParam)
+            Err(Error::IoError)
         }
     }
 }
@@ -218,6 +224,8 @@ impl<H: Hal, T: Transport> Drop for VirtIOInput<H, T> {
         self.transport.queue_unset(QUEUE_STATUS);
     }
 }
+
+const CONFIG_DATA_MAX_LENGTH: usize = 128;
 
 /// Select value used for [`VirtIOInput::query_config_select()`].
 #[repr(u8)]
@@ -250,7 +258,7 @@ struct Config {
     subsel: WriteOnly<u8>,
     size: ReadOnly<u8>,
     _reserved: [ReadOnly<u8>; 5],
-    data: [ReadOnly<u8>; 128],
+    data: [ReadOnly<u8>; CONFIG_DATA_MAX_LENGTH],
 }
 
 /// Information about an axis of an input device, typically a joystick.
@@ -362,12 +370,12 @@ mod tests {
         assert_eq!(config_space.subsel.0, 0);
 
         set_data(&mut config_space, &[0x12, 0x34, 0x56]);
-        assert_eq!(input.prop_bits().as_ref(), &[0x12, 0x34, 0x56]);
+        assert_eq!(input.prop_bits().unwrap().as_ref(), &[0x12, 0x34, 0x56]);
         assert_eq!(config_space.select.0, InputConfigSelect::PropBits as u8);
         assert_eq!(config_space.subsel.0, 0);
 
         set_data(&mut config_space, &[0x42, 0x66]);
-        assert_eq!(input.ev_bits(3).as_ref(), &[0x42, 0x66]);
+        assert_eq!(input.ev_bits(3).unwrap().as_ref(), &[0x42, 0x66]);
         assert_eq!(config_space.select.0, InputConfigSelect::EvBits as u8);
         assert_eq!(config_space.subsel.0, 3);
 
