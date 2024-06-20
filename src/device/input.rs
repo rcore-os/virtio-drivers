@@ -118,8 +118,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             volwrite!(self.config, subsel, subsel);
             size = volread!(self.config, size);
             let size_to_copy = min(usize::from(size), out.len());
-            for i in 0..size_to_copy {
-                out[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
+            for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
+                *out_item = addr_of!((*self.config.as_ptr()).data[i]).vread();
             }
         }
         size
