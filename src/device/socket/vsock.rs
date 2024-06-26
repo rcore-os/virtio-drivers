@@ -233,14 +233,18 @@ pub struct VirtIOSocket<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize = DEFA
 }
 
 // SAFETY: The `rx_queue_buffers` can be accessed from any thread.
-unsafe impl<H: Hal, T: Transport + Send> Send for VirtIOSocket<H, T> where
-    VirtQueue<H, QUEUE_SIZE>: Send
+unsafe impl<H: Hal, T: Transport + Send, const RX_BUFFER_SIZE: usize> Send
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+where
+    VirtQueue<H, QUEUE_SIZE>: Send,
 {
 }
 
 // SAFETY: A `&VirtIOSocket` only allows reading the guest CID from a field.
-unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOSocket<H, T> where
-    VirtQueue<H, QUEUE_SIZE>: Sync
+unsafe impl<H: Hal, T: Transport + Sync, const RX_BUFFER_SIZE: usize> Sync
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+where
+    VirtQueue<H, QUEUE_SIZE>: Sync,
 {
 }
 
