@@ -12,4 +12,6 @@ pub mod net;
 
 pub mod socket;
 
+pub mod sound;
+
 pub(crate) mod common;
