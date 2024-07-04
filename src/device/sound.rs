@@ -11,7 +11,6 @@ use core::{fmt::Display, hint::spin_loop, mem, ops::RangeInclusive};
 use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
-type PCMStateResult<T = ()> = core::result::Result<T, StreamError>;
 
 use crate::{
     queue::VirtQueue,
@@ -20,10 +19,12 @@ use crate::{
     Error, Hal, Result, PAGE_SIZE,
 };
 
+use super::common::Feature;
+
 /// Audio driver based on virtio v1.2.
 ///
 /// Supports synchronous blocking and asynchronous non-blocking audio playback.
-/// 
+///
 /// Currently, only audio playback functionality has been implemented.
 pub struct VirtIOSound<H: Hal, T: Transport> {
     transport: T,
@@ -33,7 +34,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     tx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     rx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
 
-    negotiated_features: SoundFeatures,
+    negotiated_features: Feature,
 
     jacks: u32,
     streams: u32,
@@ -51,7 +52,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     set_up: bool,
 
-    output_rsp: Box<[u8]>, // includes pcm_xfer response msg
+    token_rsp: BTreeMap<u16, Box<Vec<u8>>>, // includes pcm_xfer response msg
 
     event_buf: Box<[u8]>,
 
@@ -61,43 +62,42 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
-    /// Craete a new VirtIO-Sound driver.
+    /// Create a new VirtIO-Sound driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
         info!(
-            "[sound device] negotiated_features: {}",
-            String::from(negotiated_features)
+            "[sound device] negotiated_features: {:?}",
+            negotiated_features
         );
 
         let control_queue = VirtQueue::new(
             &mut transport,
             CONTROL_QUEUE_IDX,
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC),
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
-        // The driver MUST populate the event queue
-        // with empty buffers of at least the struct virtio_snd_event size(struct VirtIOSndEvent Size in config.rs)
         let event_queue = VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC),
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         let tx_queue = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC),
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         let rx_queue = VirtQueue::new(
             &mut transport,
             RX_QUEUE_IDX,
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC),
-            negotiated_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX),
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
+            negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
 
         // read configuration space
         let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
+        // Safe because the Virtio 1.2 standard mandates that audio devices must have these three configuration fields.
         let (jacks, streams, chmaps) = unsafe {
             (
                 volread!(config_ptr, jacks),
@@ -112,8 +112,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
-
-        let output_rsp = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         let event_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
@@ -142,7 +140,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             queue_buf_recv,
             pcm_parameters,
             set_up: false,
-            output_rsp,
+            token_rsp: BTreeMap::new(),
             event_buf,
             pcm_states: vec![],
             token_buf: BTreeMap::new(),
@@ -170,10 +168,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
-        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
-            &[&self.queue_buf_send],
-            &mut [&mut self.queue_buf_recv],
+            &[req.as_bytes()],
+            &mut [self.queue_buf_recv.as_bytes_mut()],
             &mut self.transport,
         )?;
         Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
@@ -211,7 +208,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.chmap_infos = Some(vec![]);
             warn!("[sound device] There are no available chmaps!");
         }
-        // set pcm state to defalut
+        // set pcm state to default
         for _ in 0..self.streams {
             self.pcm_states.push(PCMState::default());
         }
@@ -228,12 +225,11 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
-            hdr: ItemInfomationRequestType::VirtioSndRJackInfo.into(),
+            hdr: ItemInformationRequestType::VirtioSndRJackInfo.into(),
             start_id: jack_start_id,
             count: jack_count,
             size: mem::size_of::<VirtIOSndJackInfo>() as u32,
         })?;
-        // mem::size_of::<VirtIOSndHdr>() bytes are header
         if hdr != RequestStatusCode::VirtioSndSOk.into() {
             return Err(Error::IoError);
         }
@@ -265,14 +261,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             error!("stream_start_id + stream_count > streams! There are not enough streams to be queried!");
             return Err(Error::IoError);
         }
-        let request_hdr = VirtIOSndHdr::from(ItemInfomationRequestType::VirtioSndRPcmInfo);
+        let request_hdr = VirtIOSndHdr::from(ItemInformationRequestType::VirtioSndRPcmInfo);
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
             start_id: stream_start_id,
             count: stream_count,
             size: mem::size_of::<VirtIOSndPcmInfo>() as u32,
         })?;
-        // mem::size_of::<VirtIOSndHdr>() bytes are header
         if hdr != RequestStatusCode::VirtioSndSOk.into() {
             return Err(Error::IoError);
         }
@@ -295,26 +290,26 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     fn chmap_info(
         &mut self,
         chmaps_start_id: u32,
-        chamaps_count: u32,
+        chmaps_count: u32,
     ) -> Result<Vec<VirtIOSndChmapInfo>> {
         if self.chmaps == 0 {
             return Err(Error::ConfigSpaceTooSmall);
         }
-        if chmaps_start_id + chamaps_count > self.chmaps {
-            error!("chmaps_start_id + chamaps_count > self.chmaps");
+        if chmaps_start_id + chmaps_count > self.chmaps {
+            error!("chmaps_start_id + chmaps_count > self.chmaps");
             return Err(Error::IoError);
         }
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
-            hdr: ItemInfomationRequestType::VirtioSndRChmapInfo.into(),
+            hdr: ItemInformationRequestType::VirtioSndRChmapInfo.into(),
             start_id: chmaps_start_id,
-            count: chamaps_count,
+            count: chmaps_count,
             size: mem::size_of::<VirtIOSndChmapInfo>() as u32,
         })?;
         if hdr != RequestStatusCode::VirtioSndSOk.into() {
             return Err(Error::IoError);
         }
         let mut chmap_infos = vec![];
-        for i in 0..chamaps_count as usize {
+        for i in 0..chmaps_count as usize {
             const OFFSET: usize = mem::size_of::<VirtIOSndHdr>();
             let start_byte = OFFSET + i * mem::size_of::<VirtIOSndChmapInfo>();
             let end_byte = OFFSET + (i + 1) * mem::size_of::<VirtIOSndChmapInfo>();
@@ -337,10 +332,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         }
         if self.jacks == 0 {
             error!("[sound device] There is no available jacks!");
-            return Err(Error::InvalidParam);
-        }
-        if self.jack_infos == None {
-            error!("Could not read jack_infos, you need to call set_up() to initate it.");
             return Err(Error::InvalidParam);
         }
         if jack_id >= self.jacks {
@@ -499,7 +490,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
-    /// 
+    ///
+    /// Currently supports only output stream.
+    ///
     /// This is a blocking method that will not return until the audio playback is complete.
     pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
         const U32_SIZE: usize = mem::size_of::<u32>();
@@ -511,21 +504,102 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             warn!("Please set parameters for a stream before using it!");
             return Err(Error::IoError);
         }
-        let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
-        assert!(buffer_size * 2 <= frames.len());
-        let mut buf1 = vec![0; U32_SIZE + buffer_size];
-        let mut buf2 = vec![0; U32_SIZE + buffer_size];
-
-        buf1[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
-        buf1[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(&frames[..buffer_size]);
-
-        buf2[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
-        buf2[U32_SIZE..U32_SIZE + buffer_size]
-            .copy_from_slice(&frames[buffer_size..buffer_size * 2]);
 
         let mut outputs = vec![0; 32];
-        let mut token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() };
-        let mut token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() };
+        let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
+        // If the size of the music is smaller than the buffer size, then one buffer is sufficient for playback.
+        if frames.len() <= buffer_size {
+            let token = unsafe {
+                self.tx_queue
+                    .add(
+                        &[&stream_id.to_le_bytes(), &frames[..]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap()
+            };
+            self.transport.notify(TX_QUEUE_IDX);
+            while !self.tx_queue.can_pop() {
+                spin_loop()
+            }
+            unsafe {
+                self.tx_queue
+                    .pop_used(
+                        token,
+                        &[&stream_id.to_le_bytes(), &frames[..]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap();
+            }
+            return Ok(());
+        } else if buffer_size < frames.len() && frames.len() <= buffer_size * 2 {
+            let token1 = unsafe {
+                self.tx_queue
+                    .add(
+                        &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap()
+            };
+            let token2 = unsafe {
+                self.tx_queue
+                    .add(
+                        &[&stream_id.to_le_bytes(), &frames[buffer_size..]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap()
+            };
+            self.transport.notify(TX_QUEUE_IDX);
+            while !self.tx_queue.can_pop() {
+                spin_loop()
+            }
+            unsafe {
+                self.tx_queue
+                    .pop_used(
+                        token1,
+                        &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap();
+            }
+            while !self.tx_queue.can_pop() {
+                spin_loop()
+            }
+            unsafe {
+                self.tx_queue
+                    .pop_used(
+                        token2,
+                        &[&stream_id.to_le_bytes(), &frames[buffer_size..]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap();
+            }
+            return Ok(());
+        }
+        // Safe because the device reads the buffer one at a time, ensuring that it's impossible for outputs to be occupied simultaneously.
+        let mut token1 = unsafe {
+            self.tx_queue
+                .add(
+                    &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
+                    &mut [&mut outputs],
+                )
+                .unwrap()
+        };
+        let mut token2 = unsafe {
+            self.tx_queue
+                .add(
+                    &[
+                        &stream_id.to_le_bytes(),
+                        &frames[buffer_size..2 * buffer_size],
+                    ],
+                    &mut [&mut outputs],
+                )
+                .unwrap()
+        };
+
+        let mut last_start1 = 0;
+        let mut last_end1 = buffer_size;
+        let mut last_start2 = buffer_size;
+        let mut last_end2 = 2 * buffer_size;
 
         let xfer_times = if frames.len() % buffer_size == 0 {
             frames.len() / buffer_size
@@ -547,55 +621,103 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 frames.len()
             };
             if turn1 {
-                while let Err(_) = unsafe {
-                    self.tx_queue
-                        .pop_used(token1, &[&buf1], &mut [&mut outputs])
-                } {
+                while !self.tx_queue.can_pop() {
                     spin_loop();
+                }
+                // Safe because token1 corresponds to buf1, and there's only one output buffer outputs, maintaining the same relationship as when add() was initially performed.
+                // The following unsafe ones are similarly.
+                unsafe {
+                    self.tx_queue
+                        .pop_used(
+                            token1,
+                            &[&stream_id.to_le_bytes(), &frames[last_start1..last_end1]],
+                            &mut [&mut outputs],
+                        )
+                        .unwrap(); // This operation will never return Err(_), so using unwarp() is reasonable.
                 }
                 turn1 = false;
-                buf1[U32_SIZE..U32_SIZE + end_byte - start_byte]
-                    .copy_from_slice(&frames[start_byte..end_byte]);
-                token1 = unsafe { self.tx_queue.add(&[&buf1], &mut [&mut outputs]).unwrap() }
-            } else {
-                while let Err(_) = unsafe {
+                token1 = unsafe {
                     self.tx_queue
-                        .pop_used(token2, &[&buf2], &mut [&mut outputs])
-                } {
+                        .add(
+                            &[&stream_id.to_le_bytes(), &frames[start_byte..end_byte]],
+                            &mut [&mut outputs],
+                        )
+                        .unwrap()
+                };
+                last_start1 = start_byte;
+                last_end1 = end_byte;
+            } else {
+                while !self.tx_queue.can_pop() {
                     spin_loop();
                 }
+                unsafe {
+                    self.tx_queue
+                        .pop_used(
+                            token2,
+                            &[&stream_id.to_le_bytes(), &frames[last_start2..last_end2]],
+                            &mut [&mut outputs],
+                        )
+                        .unwrap(); // This operation will never return Err(_), so using unwarp() is reasonable.
+                }
                 turn1 = true;
-                buf2[U32_SIZE..U32_SIZE + end_byte - start_byte]
-                    .copy_from_slice(&frames[start_byte..end_byte]);
-                token2 = unsafe { self.tx_queue.add(&[&buf2], &mut [&mut outputs]).unwrap() }
+                token2 = unsafe {
+                    self.tx_queue
+                        .add(
+                            &[&stream_id.to_le_bytes(), &frames[start_byte..end_byte]],
+                            &mut [&mut outputs],
+                        )
+                        .unwrap()
+                };
+                last_start2 = start_byte;
+                last_end2 = end_byte;
             }
         }
         // wait for the last buffer
         if turn1 {
-            while let Err(_) = unsafe {
+            while !self.tx_queue.can_pop() {
+                spin_loop()
+            }
+            unsafe {
                 self.tx_queue
-                    .pop_used(token1, &[&buf1], &mut [&mut outputs])
-            } {
-                spin_loop();
+                    .pop_used(
+                        token1,
+                        &[&stream_id.to_le_bytes(), &frames[last_start1..last_end1]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap();
             }
         } else {
-            while let Err(_) = unsafe {
+            while !self.tx_queue.can_pop() {
+                spin_loop()
+            }
+            unsafe {
                 self.tx_queue
-                    .pop_used(token2, &[&buf2], &mut [&mut outputs])
-            } {
-                spin_loop();
+                    .pop_used(
+                        token2,
+                        &[&stream_id.to_le_bytes(), &frames[last_start2..last_end2]],
+                        &mut [&mut outputs],
+                    )
+                    .unwrap();
             }
         }
         Ok(())
     }
 
     /// Transfer PCM frame to device, based on the stream type(OUTPUT/INPUT).
-    /// 
+    ///
+    /// Currently supports only output stream.
+    ///
     /// This is a non-blocking method that returns a token.
+    ///
+    /// The length of the `frames` must be equal to the buffer size set for the stream corresponding to the `stream_id`.
     pub fn pcm_xfer_nb(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
         if !self.set_up {
             self.set_up();
             self.set_up = true;
+        }
+        if !self.pcm_parameters[stream_id as usize].setup {
+            warn!("Please set parameters for a stream before using it!");
+            return Err(Error::IoError);
         }
         const U32_SIZE: usize = mem::size_of::<u32>();
         let buffer_size: usize = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
@@ -603,27 +725,31 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut buf = Box::new(vec![0; U32_SIZE + buffer_size]);
         buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
         buf[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(frames);
-        let token = unsafe { self.tx_queue.add(&[&buf], &mut [&mut self.output_rsp])? };
+        let mut rsp = Box::new(vec![0; 128]);
+        let token = unsafe { self.tx_queue.add(&[&buf], &mut [&mut rsp])? };
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
         self.token_buf.insert(token, buf);
+        self.token_rsp.insert(token, rsp);
         Ok(token)
     }
 
     /// The PCM frame transmission corresponding to the given token has been completed.
     pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
         assert!(self.token_buf.contains_key(&token));
-        if let Err(_) = unsafe {
-            self.tx_queue.pop_used(
-                token,
-                &[&self.token_buf[&token]],
-                &mut [&mut self.output_rsp],
-            )
-        } {
+        assert!(self.token_rsp.contains_key(&token));
+        let mut rsp = self.token_rsp[&token].clone();
+        if unsafe {
+            self.tx_queue
+                .pop_used(token, &[&self.token_buf[&token]], &mut [&mut rsp])
+        }
+        .is_err()
+        {
             Err(Error::IoError)
         } else {
             self.token_buf.remove(&token);
+            self.token_rsp.remove(&token);
             Ok(())
         }
     }
@@ -713,24 +839,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let pcm_info = &self.pcm_infos.as_ref().unwrap()[stream_id as usize];
         Ok(pcm_info.features.into())
     }
-
-    /// Get the latest notification.
-    pub fn latest_notification(&mut self) -> Result<Notification> {
-        if let Some(token) = self.event_queue.peek_used() {
-            unsafe {
-                self.event_queue
-                    .pop_used(token, &[], &mut [&mut self.event_buf])?;
-            }
-        } else {
-            info!("Not ready");
-            return Err(Error::NotReady);
-        }
-        let event = VirtIOSndEvent::read_from_prefix(&self.event_buf).unwrap();
-        Ok(Notification {
-            notification_type: NotificationType::from(event.hdr.command_code),
-            data: event.data,
-        })
-    }
 }
 
 /// The status of the PCM stream.
@@ -744,84 +852,13 @@ enum PCMState {
     Stop,
 }
 
-/// Stream errors.
-#[derive(Debug, PartialEq, Eq)]
-enum StreamError {
-    InvalidState(&'static str, PCMState),
-    InvalidStateTransition(PCMState, PCMState),
-    InvalidStreamId(u32),
-    DescriptorReadFailed,
-    DescriptorWriteFailed,
-    CouldNotDisconnectStream,
-}
-
-macro_rules! set_new_state {
-    ($new_state_fn:ident, $new_state:expr, $($valid_source_states:tt)*) => {
-        fn $new_state_fn(&mut self) -> PCMStateResult<()> {
-            if !matches!(self, $($valid_source_states)*) {
-                return Err(StreamError::InvalidStateTransition(*self, $new_state));
-            }
-            *self = $new_state;
-            Ok(())
-        }
-    };
-}
-
-impl PCMState {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    set_new_state!(
-        set_parameters,
-        Self::SetParams,
-        Self::SetParams | Self::Prepare | Self::Release
-    );
-
-    set_new_state!(
-        prepare,
-        Self::Prepare,
-        Self::SetParams | Self::Prepare | Self::Release
-    );
-
-    set_new_state!(start, Self::Start, Self::Prepare | Self::Stop);
-
-    set_new_state!(stop, Self::Stop, Self::Start);
-
-    set_new_state!(release, Self::Release, Self::Prepare | Self::Stop);
-}
-
 const QUEUE_SIZE: u16 = 32;
 const CONTROL_QUEUE_IDX: u16 = 0;
 const EVENT_QUEUE_IDX: u16 = 1;
 const TX_QUEUE_IDX: u16 = 2;
 const RX_QUEUE_IDX: u16 = 3;
 
-const SUPPORTED_FEATURES: SoundFeatures = SoundFeatures::all();
-
-bitflags! {
-    /// In virtIO v1.2, there are no specific features defined for virtio-sound, so now it's common
-    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-    struct SoundFeatures: u64 {
-        // device independent
-        const VIRTIO_F_NOTIFY_ON_EMPTY       = 1 << 24; // legacy
-        const VIRTIO_F_ANY_LAYOUT            = 1 << 27; // legacy
-        const VIRTIO_F_INDIRECT_DESC         = 1 << 28;
-        const VIRTIO_F_EVENT_IDX             = 1 << 29;
-        const UNUSED                         = 1 << 30; // legacy
-        const VIRTIO_F_VERSION_1             = 1 << 32; // detect legacy
-
-        // since virtio v1.1
-        const VIRTIO_F_ACCESS_PLATFORM       = 1 << 33;
-        const VIRTIO_F_RING_PACKED           = 1 << 34;
-        const VIRTIO_F_IN_ORDER              = 1 << 35;
-        const VIRTIO_F_ORDER_PLATFORM        = 1 << 36;
-        const VIRTIO_F_SR_IOV                = 1 << 37;
-        const VIRTIO_F_NOTIFICATION_DATA     = 1 << 38;
-        const VIRTIO_F_NOTIF_CONFIG_DATA     = 1 << 39;
-        const VIRTIO_F_RING_RESET            = 1 << 40;
-    }
-}
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
 
 struct JackFeatures(u32);
 
@@ -839,7 +876,7 @@ impl From<u32> for JackFeatures {
 }
 
 /// Supported PCM stream features.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct PcmFeatures(u32);
 
 bitflags! {
@@ -870,9 +907,8 @@ impl Into<u32> for PcmFeatures {
 }
 
 /// Supported PCM sample formats.
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Default)]
 pub struct PcmFormats(u64);
-
 
 bitflags! {
     impl PcmFormats: u64 {
@@ -969,7 +1005,7 @@ impl Into<u8> for PcmFormats {
 }
 
 /// Supported PCM frame rates.
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Default)]
 pub struct PcmRate(u64);
 
 bitflags! {
@@ -1033,49 +1069,6 @@ impl From<PcmRate> for u8 {
     }
 }
 
-impl From<SoundFeatures> for String {
-    fn from(sound_features: SoundFeatures) -> Self {
-        let mut features = vec![];
-        if sound_features.contains(SoundFeatures::VIRTIO_F_NOTIFY_ON_EMPTY) {
-            features.push("NOTIFY_ON_EMPTY");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_ANY_LAYOUT) {
-            features.push("ANY_LAYOUT");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_INDIRECT_DESC) {
-            features.push("RING_INDIRECT_DESC");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_EVENT_IDX) {
-            features.push("RING_EVENT_IDX");
-        }
-        if sound_features.contains(SoundFeatures::UNUSED) {
-            features.push("UNUSED");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_VERSION_1) {
-            features.push("VERSION_1");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_ACCESS_PLATFORM) {
-            features.push("ACCESS_PLATFORM");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_RING_PACKED) {
-            features.push("RING_PACKED");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_IN_ORDER) {
-            features.push("IN_ORDER");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_ORDER_PLATFORM) {
-            features.push("ORDER_PLATFORM");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_SR_IOV) {
-            features.push("SR_IOV");
-        }
-        if sound_features.contains(SoundFeatures::VIRTIO_F_NOTIFICATION_DATA) {
-            features.push("NOTIFICATION_DATA");
-        }
-        format!("[{}]", features.join(", "))
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct VirtIOSoundConfig {
     jacks: ReadOnly<u32>,
@@ -1125,8 +1118,9 @@ enum CommandCode {
 }
 
 /// Enum representing the types of item information requests.
-#[derive(Clone, Copy)]
-pub enum ItemInfomationRequestType {
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemInformationRequestType {
     /// Represents a jack information request.
     VirtioSndRJackInfo = 1,
     /// Represents a PCM information request.
@@ -1135,15 +1129,15 @@ pub enum ItemInfomationRequestType {
     VirtioSndRChmapInfo = 0x0200,
 }
 
-impl From<ItemInfomationRequestType> for VirtIOSndHdr {
-    fn from(value: ItemInfomationRequestType) -> Self {
+impl From<ItemInformationRequestType> for VirtIOSndHdr {
+    fn from(value: ItemInformationRequestType) -> Self {
         VirtIOSndHdr {
             command_code: value as _,
         }
     }
 }
 
-impl Into<u32> for ItemInfomationRequestType {
+impl Into<u32> for ItemInformationRequestType {
     fn into(self) -> u32 {
         self as _
     }
@@ -1176,7 +1170,9 @@ struct VirtIOSndHdr {
 
 impl From<CommandCode> for VirtIOSndHdr {
     fn from(value: CommandCode) -> Self {
-        VirtIOSndHdr { command_code:  value.into() }
+        VirtIOSndHdr {
+            command_code: value.into(),
+        }
     }
 }
 
@@ -1190,7 +1186,7 @@ struct VirtIOSndEvent {
 
 /// The notification type.
 #[repr(u32)]
-#[derive(FromPrimitive, Copy, Clone)]
+#[derive(Debug, FromPrimitive, Copy, Clone, PartialEq, Eq)]
 pub enum NotificationType {
     /// A hardware buffer period has elapsed, the period size is controlled using the `period_bytes` field.
     #[num_enum(default)]
@@ -1204,6 +1200,7 @@ pub enum NotificationType {
 }
 
 /// Notification from sound device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Notification {
     notification_type: NotificationType,
     data: u32,
@@ -1252,7 +1249,7 @@ struct VirtIOSndQueryInfoRsp {
 
 /// Field `hda_fn_nid` indicates a function group node identifier.
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq)]
+#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct VirtIOSndInfo {
     hda_fn_nid: u32,
 }
@@ -1373,32 +1370,9 @@ impl From<PcmSampleFormat> for u64 {
     }
 }
 
-enum PcmFrameRate {
-    VirtioSndPcmRate5512 = 0,
-    VirtioSndPcmRate8000,
-    VirtioSndPcmRate11025,
-    VirtioSndPcmRate16000,
-    VirtioSndPcmRate22050,
-    VirtioSndPcmRate32000,
-    VirtioSndPcmRate44100,
-    VirtioSndPcmRate48000,
-    VirtioSndPcmRate64000,
-    VirtioSndPcmRate88200,
-    VirtioSndPcmRate96000,
-    VirtioSndPcmRate176400,
-    VirtioSndPcmRate192000,
-    VirtioSndPcmRate384000,
-}
-
-impl Into<u64> for PcmFrameRate {
-    fn into(self) -> u64 {
-        1 << self as usize
-    }
-}
-
 /// PCM information.
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, FromBytes, FromZeroes, Clone, Copy, PartialEq, Eq)]
 pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
@@ -1434,6 +1408,7 @@ impl Display for VirtIOSndPcmInfo {
     }
 }
 
+#[derive(Default)]
 struct PcmParameters {
     setup: bool,
     buffer_bytes: u32,
@@ -1442,20 +1417,6 @@ struct PcmParameters {
     channels: u8,
     format: PcmFormats,
     rate: PcmRate,
-}
-
-impl Default for PcmParameters {
-    fn default() -> Self {
-        Self {
-            setup: false,
-            buffer_bytes: Default::default(),
-            period_bytes: Default::default(),
-            features: PcmFeatures(0),
-            channels: Default::default(),
-            format: PcmFormats(0),
-            rate: PcmRate(0),
-        }
-    }
 }
 
 #[repr(C)]
@@ -1534,7 +1495,7 @@ enum ChannelPosition {
 const VIRTIO_SND_CHMAP_MAX_SIZE: usize = 18;
 
 #[repr(C)]
-#[derive(FromBytes, FromZeroes)]
+#[derive(FromBytes, FromZeroes, Debug)]
 struct VirtIOSndChmapInfo {
     hdr: VirtIOSndInfo,
     direction: u8,
