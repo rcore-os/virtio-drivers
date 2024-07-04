@@ -2,7 +2,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use super::error::SocketError;
-use super::protocol::{Feature, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr};
+use super::protocol::{
+    Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
+};
+use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
@@ -19,14 +22,14 @@ pub(crate) const TX_QUEUE_IDX: u16 = 1;
 const EVENT_QUEUE_IDX: u16 = 2;
 
 pub(crate) const QUEUE_SIZE: usize = 8;
-const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX;
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX.union(Feature::RING_INDIRECT_DESC);
 
-/// The size in bytes of each buffer used in the RX virtqueue. This must be bigger than size_of::<VirtioVsockHdr>().
-const RX_BUFFER_SIZE: usize = 512;
-
+/// Information about a particular vsock connection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConnectionInfo {
+    /// The address of the peer.
     pub dst: VsockAddr,
+    /// The local port number associated with the connection.
     pub src_port: u32,
     /// The last `buf_alloc` value the peer sent to us, indicating how much receive buffer space in
     /// bytes it has allocated for packet bodies.
@@ -49,6 +52,8 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
+    /// Creates a new `ConnectionInfo` for the given peer address and local port, and default values
+    /// for everything else.
     pub fn new(destination: VsockAddr, src_port: u32) -> Self {
         Self {
             dst: destination,
@@ -210,7 +215,11 @@ pub enum VsockEventType {
 ///
 /// You probably want to use [`VsockConnectionManager`](super::VsockConnectionManager) rather than
 /// using this directly.
-pub struct VirtIOSocket<H: Hal, T: Transport> {
+///
+/// `RX_BUFFER_SIZE` is the size in bytes of each buffer used in the RX virtqueue. This must be
+/// bigger than `size_of::<VirtioVsockHdr>()`.
+pub struct VirtIOSocket<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE>
+{
     transport: T,
     /// Virtqueue to receive packets.
     rx: VirtQueue<H, { QUEUE_SIZE }>,
@@ -224,18 +233,24 @@ pub struct VirtIOSocket<H: Hal, T: Transport> {
 }
 
 // SAFETY: The `rx_queue_buffers` can be accessed from any thread.
-unsafe impl<H: Hal, T: Transport + Send> Send for VirtIOSocket<H, T> where
-    VirtQueue<H, QUEUE_SIZE>: Send
+unsafe impl<H: Hal, T: Transport + Send, const RX_BUFFER_SIZE: usize> Send
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+where
+    VirtQueue<H, QUEUE_SIZE>: Send,
 {
 }
 
 // SAFETY: A `&VirtIOSocket` only allows reading the guest CID from a field.
-unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOSocket<H, T> where
-    VirtQueue<H, QUEUE_SIZE>: Sync
+unsafe impl<H: Hal, T: Transport + Sync, const RX_BUFFER_SIZE: usize> Sync
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+where
+    VirtQueue<H, QUEUE_SIZE>: Sync,
 {
 }
 
-impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> Drop
+    for VirtIOSocket<H, T, RX_BUFFER_SIZE>
+{
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
@@ -251,9 +266,11 @@ impl<H: Hal, T: Transport> Drop for VirtIOSocket<H, T> {
     }
 }
 
-impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BUFFER_SIZE> {
     /// Create a new VirtIO Vsock driver.
     pub fn new(mut transport: T) -> Result<Self> {
+        assert!(RX_BUFFER_SIZE > size_of::<VirtioVsockHdr>());
+
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         let config = transport.config_space::<VirtioVsockConfig>()?;
@@ -267,19 +284,19 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         let mut rx = VirtQueue::new(
             &mut transport,
             RX_QUEUE_IDX,
-            false,
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         let tx = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
-            false,
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         let event = VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
-            false,
+            negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
 
@@ -409,17 +426,36 @@ impl<H: Hal, T: Transport> VirtIOSocket<H, T> {
         result
     }
 
-    /// Requests to shut down the connection cleanly.
+    /// Requests to shut down the connection cleanly, sending hints about whether we will send or
+    /// receive more data.
+    ///
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
+    /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
+    /// shutdown.
+    pub fn shutdown_with_hints(
+        &mut self,
+        connection_info: &ConnectionInfo,
+        hints: StreamShutdown,
+    ) -> Result {
+        let header = VirtioVsockHdr {
+            op: VirtioVsockOp::Shutdown.into(),
+            flags: hints.into(),
+            ..connection_info.new_header(self.guest_cid)
+        };
+        self.send_packet_to_tx_queue(&header, &[])
+    }
+
+    /// Requests to shut down the connection cleanly, telling the peer that we won't send or receive
+    /// any more data.
     ///
     /// This returns as soon as the request is sent; you should wait until `poll` returns a
     /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
     /// shutdown.
     pub fn shutdown(&mut self, connection_info: &ConnectionInfo) -> Result {
-        let header = VirtioVsockHdr {
-            op: VirtioVsockOp::Shutdown.into(),
-            ..connection_info.new_header(self.guest_cid)
-        };
-        self.send_packet_to_tx_queue(&header, &[])
+        self.shutdown_with_hints(
+            connection_info,
+            StreamShutdown::SEND | StreamShutdown::RECEIVE,
+        )
     }
 
     /// Forcibly closes the connection without waiting for the peer.

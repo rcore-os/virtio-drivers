@@ -11,7 +11,7 @@ use log::info;
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 const QUEUE_SIZE: u16 = 2;
-const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX;
+const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RING_INDIRECT_DESC);
 
 /// A virtio based graphics adapter.
 ///
@@ -56,13 +56,13 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         let control_queue = VirtQueue::new(
             &mut transport,
             QUEUE_TRANSMIT,
-            false,
+            negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
         let cursor_queue = VirtQueue::new(
             &mut transport,
             QUEUE_CURSOR,
-            false,
+            negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
 
