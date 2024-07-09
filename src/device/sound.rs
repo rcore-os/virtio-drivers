@@ -379,7 +379,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         features: PcmFeatures,
         channels: u8,
         format: PcmFormats,
-        rate: PcmRate,
+        rate: PcmRates,
     ) -> Result {
         if !self.set_up {
             self.set_up();
@@ -790,7 +790,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Get the rates that a stream supports.
-    pub fn rates_supported(&mut self, stream_id: u32) -> Result<PcmRate> {
+    pub fn rates_supported(&mut self, stream_id: u32) -> Result<PcmRates> {
         if !self.set_up {
             self.set_up();
             self.set_up = true;
@@ -798,8 +798,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
             return Err(Error::InvalidParam);
         }
-        Ok(PcmRate::from_bits_retain(
-            self.pcm_infos.as_ref().unwrap()[stream_id as usize].rate,
+        Ok(PcmRates::from_bits_retain(
+            self.pcm_infos.as_ref().unwrap()[stream_id as usize].rates,
         ))
     }
 
@@ -981,7 +981,7 @@ impl Into<u8> for PcmFormats {
 bitflags! {
     /// Supported PCM frame rates.
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-    pub struct PcmRate: u64 {
+    pub struct PcmRates: u64 {
         /// 5512 Hz PCM rate.
         const RATE_5512 = 1 << 0;
         /// 8000 Hz PCM rate.
@@ -1013,23 +1013,23 @@ bitflags! {
     }
 }
 
-impl From<PcmRate> for u8 {
-    fn from(value: PcmRate) -> Self {
+impl From<PcmRates> for u8 {
+    fn from(value: PcmRates) -> Self {
         match value {
-            PcmRate::RATE_5512 => 0,
-            PcmRate::RATE_8000 => 1,
-            PcmRate::RATE_11025 => 2,
-            PcmRate::RATE_16000 => 3,
-            PcmRate::RATE_22050 => 4,
-            PcmRate::RATE_32000 => 5,
-            PcmRate::RATE_44100 => 6,
-            PcmRate::RATE_48000 => 7,
-            PcmRate::RATE_64000 => 8,
-            PcmRate::RATE_88200 => 9,
-            PcmRate::RATE_96000 => 10,
-            PcmRate::RATE_176400 => 11,
-            PcmRate::RATE_192000 => 12,
-            PcmRate::RATE_384000 => 13,
+            PcmRates::RATE_5512 => 0,
+            PcmRates::RATE_8000 => 1,
+            PcmRates::RATE_11025 => 2,
+            PcmRates::RATE_16000 => 3,
+            PcmRates::RATE_22050 => 4,
+            PcmRates::RATE_32000 => 5,
+            PcmRates::RATE_44100 => 6,
+            PcmRates::RATE_48000 => 7,
+            PcmRates::RATE_64000 => 8,
+            PcmRates::RATE_88200 => 9,
+            PcmRates::RATE_96000 => 10,
+            PcmRates::RATE_176400 => 11,
+            PcmRates::RATE_192000 => 12,
+            PcmRates::RATE_384000 => 13,
             _ => 0,
         }
     }
@@ -1343,7 +1343,7 @@ pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
     formats: u64,  /* 1 << VIRTIO_SND_PCM_FMT_XXX */
-    rate: u64,     /* 1 << VIRTIO_SND_PCM_RATE_XXX */
+    rates: u64,    /* 1 << VIRTIO_SND_PCM_RATE_XXX */
     /// indicates the direction of data flow (VIRTIO_SND_D_*)
     direction: u8,
     /// indicates a minimum number of supported channels
@@ -1362,9 +1362,9 @@ impl Display for VirtIOSndPcmInfo {
         };
         write!(
             f,
-            "features: {:?}, rate: {:?}, formats: {:?}, direction: {}",
+            "features: {:?}, rates: {:?}, formats: {:?}, direction: {}",
             PcmFeatures::from_bits_retain(self.features),
-            PcmRate::from_bits_retain(self.rate),
+            PcmRates::from_bits_retain(self.rates),
             PcmFormats::from_bits_retain(self.formats),
             direction
         )
@@ -1379,7 +1379,7 @@ struct PcmParameters {
     features: PcmFeatures,
     channels: u8,
     format: PcmFormats,
-    rate: PcmRate,
+    rate: PcmRates,
 }
 
 #[repr(C)]

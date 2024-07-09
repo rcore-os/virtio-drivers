@@ -17,7 +17,7 @@ use virtio_drivers::{
         blk::VirtIOBlk,
         gpu::VirtIOGpu,
         input::VirtIOInput,
-        sound::{PcmFormats, PcmRate, VirtIOSound},
+        sound::{PcmFormats, PcmRates, VirtIOSound},
     },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
@@ -193,10 +193,10 @@ fn virtio_sound<T: Transport>(transport: T) {
         let channel_range = sound.channel_range_supported(output_stream_id).unwrap();
         let features = sound.features_supported(output_stream_id).unwrap();
 
-        let rate = if rates.contains(PcmRate::RATE_44100) {
-            PcmRate::RATE_44100
+        let rate = if rates.contains(PcmRates::RATE_44100) {
+            PcmRates::RATE_44100
         } else {
-            PcmRate::RATE_32000
+            PcmRates::RATE_32000
         };
         let format = if formats.contains(PcmFormats::U8) {
             PcmFormats::U8
