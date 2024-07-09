@@ -1615,3 +1615,49 @@ impl Display for VirtIOSndChmapInfo {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        hal::fake::FakeHal,
+        transport::{
+            fake::{FakeTransport, QueueStatus, State},
+            DeviceType,
+        },
+        volatile::ReadOnly,
+    };
+    use alloc::{sync::Arc, vec};
+    use core::ptr::NonNull;
+    use std::sync::Mutex;
+
+    #[test]
+    fn config() {
+        let mut config_space = VirtIOSoundConfig {
+            jacks: ReadOnly::new(3),
+            streams: ReadOnly::new(4),
+            chmaps: ReadOnly::new(2),
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![
+                QueueStatus::default(),
+                QueueStatus::default(),
+                QueueStatus::default(),
+                QueueStatus::default(),
+            ],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Socket,
+            max_queue_size: 32,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let sound =
+            VirtIOSound::<FakeHal, FakeTransport<VirtIOSoundConfig>>::new(transport).unwrap();
+        assert_eq!(sound.jacks(), 3);
+        assert_eq!(sound.streams(), 4);
+        assert_eq!(sound.chmaps(), 2);
+    }
+}
