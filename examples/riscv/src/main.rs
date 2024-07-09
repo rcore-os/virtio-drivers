@@ -22,7 +22,7 @@ use virtio_drivers::{
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
-    }
+    },
 };
 use virtio_impl::HalImpl;
 
@@ -226,8 +226,12 @@ fn virtio_sound<T: Transport>(transport: T) {
         let music = include_bytes!("../music_44100Hz_u8_stereo.raw");
         info!("[sound device] music len is {} bytes.", music.len());
         // xfer buffer
-        sound.pcm_xfer(output_stream_id, &music[..]).expect("pcm_xfer error");
+        sound
+            .pcm_xfer(output_stream_id, &music[..])
+            .expect("pcm_xfer error");
         sound.pcm_stop(output_stream_id).expect("pcm_stop error");
-        sound.pcm_release(output_stream_id).expect("pcm_release error");
+        sound
+            .pcm_release(output_stream_id)
+            .expect("pcm_release error");
     }
 }
