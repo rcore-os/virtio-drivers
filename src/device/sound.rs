@@ -21,6 +21,8 @@ use crate::{
 
 use super::common::Feature;
 
+const RSP_SIZE: usize = 128;
+
 /// Audio driver based on virtio v1.2.
 ///
 /// Supports synchronous blocking and asynchronous non-blocking audio playback.
@@ -52,13 +54,13 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     set_up: bool,
 
-    token_rsp: BTreeMap<u16, Box<Vec<u8>>>, // includes pcm_xfer response msg
+    token_rsp: BTreeMap<u16, Box<[u8; RSP_SIZE]>>, // includes pcm_xfer response msg
 
     event_buf: Box<[u8]>,
 
     pcm_states: Vec<PCMState>,
 
-    token_buf: BTreeMap<u16, Box<Vec<u8>>>, // store token and its input buf
+    token_buf: BTreeMap<u16, Vec<u8>>, // store token and its input buf
 }
 
 impl<H: Hal, T: Transport> VirtIOSound<H, T> {
@@ -721,11 +723,11 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         const U32_SIZE: usize = mem::size_of::<u32>();
         let buffer_size: usize = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
         assert_eq!(buffer_size, frames.len());
-        let mut buf = Box::new(vec![0; U32_SIZE + buffer_size]);
+        let mut buf = vec![0; U32_SIZE + buffer_size];
         buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
         buf[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(frames);
-        let mut rsp = Box::new(vec![0; 128]);
-        let token = unsafe { self.tx_queue.add(&[&buf], &mut [&mut rsp])? };
+        let mut rsp = Box::new([0; RSP_SIZE]);
+        let token = unsafe { self.tx_queue.add(&[&buf], &mut [rsp.as_mut()])? };
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
@@ -741,7 +743,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut rsp = self.token_rsp[&token].clone();
         if unsafe {
             self.tx_queue
-                .pop_used(token, &[&self.token_buf[&token]], &mut [&mut rsp])
+                .pop_used(token, &[&self.token_buf[&token]], &mut [rsp.as_mut()])
         }
         .is_err()
         {
