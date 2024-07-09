@@ -865,6 +865,7 @@ const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC.union(Feature::R
 
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    #[repr(transparent)]
     struct JackFeatures: u32 {
         /// Jack remapping support.
         const REMAP = 1 << 0;
@@ -874,6 +875,7 @@ bitflags! {
 bitflags! {
     /// Supported PCM stream features.
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    #[repr(transparent)]
     pub struct PcmFeatures: u32 {
         /// Supports sharing a host memory with a guest.
         const SHMEM_HOST = 1 << 0;
@@ -891,6 +893,7 @@ bitflags! {
 bitflags! {
     /// Supported PCM sample formats.
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    #[repr(transparent)]
     pub struct PcmFormats: u64 {
         /// IMA ADPCM format.
         const IMA_ADPCM = 1 << 0;
@@ -1043,6 +1046,7 @@ impl From<PcmFormat> for u8 {
 bitflags! {
     /// Supported PCM frame rates.
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    #[repr(transparent)]
     pub struct PcmRates: u64 {
         /// 5512 Hz PCM rate.
         const RATE_5512 = 1 << 0;
