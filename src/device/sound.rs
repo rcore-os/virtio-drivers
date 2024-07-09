@@ -102,7 +102,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         // read configuration space
         let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
-        // Safe because the Virtio 1.2 standard mandates that audio devices must have these three configuration fields.
+        // SAFETY: config_ptr is a valid pointer to the device configuration space.
         let (jacks, streams, chmaps) = unsafe {
             (
                 volread!(config_ptr, jacks),
