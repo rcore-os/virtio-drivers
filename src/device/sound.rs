@@ -3,11 +3,15 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::{fmt::Display, hint::spin_loop, mem, ops::RangeInclusive};
+use core::{
+    fmt::{self, Display, Formatter},
+    hint::spin_loop,
+    mem,
+    ops::RangeInclusive,
+};
 use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
@@ -339,7 +343,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::InvalidParam);
         }
 
-        let jack_features = JackFeatures::from(
+        let jack_features = JackFeatures::from_bits_retain(
             self.jack_infos
                 .as_ref()
                 .unwrap()
@@ -390,7 +394,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             },
             buffer_bytes,
             period_bytes,
-            features: features.into(),
+            features: features.bits(),
             channels,
             format: format.into(),
             rate: rate.into(),
@@ -795,9 +799,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
             return Err(Error::InvalidParam);
         }
-        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize]
-            .rate
-            .into())
+        Ok(PcmRate::from_bits_retain(
+            self.pcm_infos.as_ref().unwrap()[stream_id as usize].rate,
+        ))
     }
 
     /// Get the formats that a stream supports.
@@ -809,9 +813,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
             return Err(Error::InvalidParam);
         }
-        Ok(self.pcm_infos.as_ref().unwrap()[stream_id as usize]
-            .formats
-            .into())
+        Ok(PcmFormats::from_bits_retain(
+            self.pcm_infos.as_ref().unwrap()[stream_id as usize].formats,
+        ))
     }
 
     /// Get channel range that a stream supports.
@@ -837,7 +841,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::InvalidParam);
         }
         let pcm_info = &self.pcm_infos.as_ref().unwrap()[stream_id as usize];
-        Ok(pcm_info.features.into())
+        Ok(PcmFeatures::from_bits_retain(pcm_info.features))
     }
 }
 
@@ -860,27 +864,18 @@ const RX_QUEUE_IDX: u16 = 3;
 
 const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC.union(Feature::RING_EVENT_IDX);
 
-struct JackFeatures(u32);
-
 bitflags! {
-    impl JackFeatures: u32 {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    struct JackFeatures: u32 {
         /// jack remapping support.
         const VIRTIO_SND_JACK_F_REMAP = 1 << 0;
     }
 }
 
-impl From<u32> for JackFeatures {
-    fn from(value: u32) -> Self {
-        JackFeatures(value)
-    }
-}
-
-/// Supported PCM stream features.
-#[derive(Clone, Copy, Default)]
-pub struct PcmFeatures(u32);
-
 bitflags! {
-    impl PcmFeatures: u32 {
+    /// Supported PCM stream features.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    pub struct PcmFeatures: u32 {
         /// Supports sharing a host memory with a guest.
         const VIRTIO_SND_PCM_F_SHMEM_HOST = 1 << 0;
         /// Supports sharing a guest memory with a host.
@@ -894,24 +889,10 @@ bitflags! {
     }
 }
 
-impl From<u32> for PcmFeatures {
-    fn from(value: u32) -> Self {
-        PcmFeatures(value)
-    }
-}
-
-impl Into<u32> for PcmFeatures {
-    fn into(self) -> u32 {
-        self.0
-    }
-}
-
-/// Supported PCM sample formats.
-#[derive(PartialEq, Eq, Clone, Copy, Default)]
-pub struct PcmFormats(u64);
-
 bitflags! {
-    impl PcmFormats: u64 {
+    /// Supported PCM sample formats.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    pub struct PcmFormats: u64 {
         /// IMA ADPCM format.
         const VIRTIO_SND_PCM_FMT_IMA_ADPCM = 1 << 0;
         /// Mu-law format.
@@ -965,12 +946,6 @@ bitflags! {
     }
 }
 
-impl From<u64> for PcmFormats {
-    fn from(value: u64) -> Self {
-        PcmFormats(value)
-    }
-}
-
 impl Into<u8> for PcmFormats {
     fn into(self) -> u8 {
         match self {
@@ -1004,12 +979,10 @@ impl Into<u8> for PcmFormats {
     }
 }
 
-/// Supported PCM frame rates.
-#[derive(PartialEq, Eq, Clone, Copy, Default)]
-pub struct PcmRate(u64);
-
 bitflags! {
-    impl PcmRate: u64 {
+    /// Supported PCM frame rates.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    pub struct PcmRate: u64 {
         /// 5512 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
         /// 8000 Hz PCM rate.
@@ -1038,12 +1011,6 @@ bitflags! {
         const VIRTIO_SND_PCM_RATE_192000 = 1 << 12;
         /// 384000 Hz PCM rate.
         const VIRTIO_SND_PCM_RATE_384000 = 1 << 13;
-    }
-}
-
-impl From<u64> for PcmRate {
-    fn from(value: u64) -> Self {
-        PcmRate(value)
     }
 }
 
@@ -1132,7 +1099,7 @@ pub enum ItemInformationRequestType {
 impl From<ItemInformationRequestType> for VirtIOSndHdr {
     fn from(value: ItemInformationRequestType) -> Self {
         VirtIOSndHdr {
-            command_code: value as _,
+            command_code: value.into(),
         }
     }
 }
@@ -1279,10 +1246,7 @@ pub struct VirtIOSndJackInfo {
 }
 
 impl Display for VirtIOSndJackInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let jack_features = JackFeatures::from(self.features);
-        let mut jack_features_str = String::new();
-        bitflags::parser::to_writer(&jack_features, &mut jack_features_str).unwrap();
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let connected_status = if self.connected == 1 {
             "CONNECTED"
         } else {
@@ -1290,8 +1254,11 @@ impl Display for VirtIOSndJackInfo {
         };
         write!(
             f,
-            "features: {}, hda_reg_defconf: {}, hda_reg_caps: {}, connected: {}",
-            jack_features_str, self.hda_reg_defconf, self.hda_reg_caps, connected_status
+            "features: {:?}, hda_reg_defconf: {}, hda_reg_caps: {}, connected: {}",
+            JackFeatures::from_bits_retain(self.features),
+            self.hda_reg_defconf,
+            self.hda_reg_caps,
+            connected_status
         )
     }
 }
@@ -1389,12 +1356,6 @@ pub struct VirtIOSndPcmInfo {
 
 impl Display for VirtIOSndPcmInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut features = String::new();
-        bitflags::parser::to_writer(&PcmFeatures::from(self.features), &mut features).unwrap();
-        let mut rates = String::new();
-        let _ = bitflags::parser::to_writer(&PcmRate::from(self.rate), &mut rates).unwrap();
-        let mut formats = String::new();
-        let _ = bitflags::parser::to_writer(&PcmFormats::from(self.formats), &mut formats).unwrap();
         let direction = if self.direction == VIRTIO_SND_D_INPUT {
             "INPUT"
         } else {
@@ -1402,8 +1363,11 @@ impl Display for VirtIOSndPcmInfo {
         };
         write!(
             f,
-            "features: {}, rates: {}, formats: {}, direction: {}",
-            features, rates, formats, direction
+            "features: {:?}, rate: {:?}, formats: {:?}, direction: {}",
+            PcmFeatures::from_bits_retain(self.features),
+            PcmRate::from_bits_retain(self.rate),
+            PcmFormats::from_bits_retain(self.formats),
+            direction
         )
     }
 }
@@ -1504,7 +1468,7 @@ struct VirtIOSndChmapInfo {
 }
 
 impl Display for VirtIOSndChmapInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let direction = if self.direction == VIRTIO_SND_D_INPUT {
             "INPUT"
         } else {
