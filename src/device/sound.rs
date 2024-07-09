@@ -1,14 +1,9 @@
 //! Driver for VirtIO Sound devices.
 
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use bitflags::bitflags;
-use core::fmt::Debug;
 use core::{
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
     mem,
     ops::RangeInclusive,
