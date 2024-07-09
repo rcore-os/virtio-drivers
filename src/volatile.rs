@@ -1,5 +1,5 @@
 /// An MMIO register which can only be read from.
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default)]
 #[repr(transparent)]
 pub struct ReadOnly<T: Copy>(pub(crate) T);
 
