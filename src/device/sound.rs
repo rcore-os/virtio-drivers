@@ -227,12 +227,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
-            hdr: ItemInformationRequestType::VirtioSndRJackInfo.into(),
+            hdr: ItemInformationRequestType::RJackInfo.into(),
             start_id: jack_start_id,
             count: jack_count,
             size: mem::size_of::<VirtIOSndJackInfo>() as u32,
         })?;
-        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+        if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
         }
         // read struct VirtIOSndJackInfo
@@ -263,14 +263,14 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             error!("stream_start_id + stream_count > streams! There are not enough streams to be queried!");
             return Err(Error::IoError);
         }
-        let request_hdr = VirtIOSndHdr::from(ItemInformationRequestType::VirtioSndRPcmInfo);
+        let request_hdr = VirtIOSndHdr::from(ItemInformationRequestType::RPcmInfo);
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
             start_id: stream_start_id,
             count: stream_count,
             size: mem::size_of::<VirtIOSndPcmInfo>() as u32,
         })?;
-        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+        if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
         }
         // read struct VirtIOSndPcmInfo
@@ -302,12 +302,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
-            hdr: ItemInformationRequestType::VirtioSndRChmapInfo.into(),
+            hdr: ItemInformationRequestType::RChmapInfo.into(),
             start_id: chmaps_start_id,
             count: chmaps_count,
             size: mem::size_of::<VirtIOSndChmapInfo>() as u32,
         })?;
-        if hdr != RequestStatusCode::VirtioSndSOk.into() {
+        if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
         }
         let mut chmap_infos = vec![];
@@ -355,13 +355,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         }
         let hdr: VirtIOSndHdr = self.request(VirtIOSndJackRemap {
             hdr: VirtIOSndJackHdr {
-                hdr: CommandCode::VirtioSndRJackRemap.into(),
+                hdr: CommandCode::RJackRemap.into(),
                 jack_id,
             },
             association,
             sequence,
         })?;
-        if hdr == RequestStatusCode::VirtioSndSOk.into() {
+        if hdr == RequestStatusCode::Ok.into() {
             Ok(())
         } else {
             Err(Error::Unsupported)
@@ -383,7 +383,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up();
             self.set_up = true;
         }
-        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmSetParams);
+        let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmSetParams);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
             hdr: VirtIOSndPcmHdr {
                 hdr: request_hdr,
@@ -398,7 +398,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             _padding: 0,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
-        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::Ok) {
             self.pcm_parameters[stream_id as usize] = PcmParameters {
                 setup: true,
                 buffer_bytes,
@@ -420,13 +420,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up();
             self.set_up = true;
         }
-        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmPrepare);
+        let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmPrepare);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
-        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::Ok) {
             Ok(())
         } else {
             Err(Error::IoError)
@@ -439,13 +439,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up();
             self.set_up = true;
         }
-        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmRelease);
+        let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmRelease);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
-        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::Ok) {
             Ok(())
         } else {
             Err(Error::IoError)
@@ -458,13 +458,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up();
             self.set_up = true;
         }
-        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStart);
+        let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStart);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
-        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::Ok) {
             Ok(())
         } else {
             Err(Error::IoError)
@@ -477,13 +477,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up();
             self.set_up = true;
         }
-        let request_hdr = VirtIOSndHdr::from(CommandCode::VirtioSndRPcmStop);
+        let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStop);
         let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
         // rsp is just a header, so it can be compared with VirtIOSndHdr
-        if rsp == VirtIOSndHdr::from(RequestStatusCode::VirtioSndSOk) {
+        if rsp == VirtIOSndHdr::from(RequestStatusCode::Ok) {
             Ok(())
         } else {
             Err(Error::IoError)
@@ -512,10 +512,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         if frames.len() <= buffer_size {
             let token = unsafe {
                 self.tx_queue
-                    .add(
-                        &[&stream_id.to_le_bytes(), &frames[..]],
-                        &mut [&mut outputs],
-                    )
+                    .add(&[&stream_id.to_le_bytes(), frames], &mut [&mut outputs])
                     .unwrap()
             };
             self.transport.notify(TX_QUEUE_IDX);
@@ -526,7 +523,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 self.tx_queue
                     .pop_used(
                         token,
-                        &[&stream_id.to_le_bytes(), &frames[..]],
+                        &[&stream_id.to_le_bytes(), frames],
                         &mut [&mut outputs],
                     )
                     .unwrap();
@@ -1153,38 +1150,38 @@ struct VirtIOSoundConfig {
 #[derive(Copy, Clone, Debug, Eq, FromPrimitive, IntoPrimitive, PartialEq)]
 enum CommandCode {
     /* jack control request types */
-    VirtioSndRJackInfo = 1,
-    VirtioSndRJackRemap,
+    RJackInfo = 1,
+    RJackRemap,
 
     /* PCM control request types */
-    VirtioSndRPcmInfo = 0x0100,
-    VirtioSndRPcmSetParams,
-    VirtioSndRPcmPrepare,
-    VirtioSndRPcmRelease,
-    VirtioSndRPcmStart,
-    VirtioSndRPcmStop,
+    RPcmInfo = 0x0100,
+    RPcmSetParams,
+    RPcmPrepare,
+    RPcmRelease,
+    RPcmStart,
+    RPcmStop,
 
     /* channel map control request types */
-    VirtioSndRChmapInfo = 0x0200,
+    RChmapInfo = 0x0200,
 
     /* jack event types */
-    VirtioSndEvtJackConnected = 0x1000,
-    VirtioSndEvtJackDisconnected,
+    EvtJackConnected = 0x1000,
+    EvtJackDisconnected,
 
     /* PCM event types */
-    VirtioSndEvtPcmPeriodElapsed = 0x1100,
-    VirtioSndEvtPcmXrun,
+    EvtPcmPeriodElapsed = 0x1100,
+    EvtPcmXrun,
 
     /* common status codes */
     /// success
     #[num_enum(default)]
-    VirtioSndSOk = 0x8000,
+    SOk = 0x8000,
     /// a control message is malformed or contains invalid parameters
-    VirtioSndSBadMsg,
+    SBadMsg,
     /// requested operation or parameters are not supported
-    VirtioSndSNotSupp,
+    SNotSupp,
     ///  an I/O error occurred
-    VirtioSndSIoErr,
+    SIoErr,
 }
 
 /// Enum representing the types of item information requests.
@@ -1192,11 +1189,11 @@ enum CommandCode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ItemInformationRequestType {
     /// Represents a jack information request.
-    VirtioSndRJackInfo = 1,
+    RJackInfo = 1,
     /// Represents a PCM information request.
-    VirtioSndRPcmInfo = 0x0100,
+    RPcmInfo = 0x0100,
     /// Represents a channel map information request.
-    VirtioSndRChmapInfo = 0x0200,
+    RChmapInfo = 0x0200,
 }
 
 impl From<ItemInformationRequestType> for VirtIOSndHdr {
@@ -1207,9 +1204,9 @@ impl From<ItemInformationRequestType> for VirtIOSndHdr {
     }
 }
 
-impl Into<u32> for ItemInformationRequestType {
-    fn into(self) -> u32 {
-        self as _
+impl From<ItemInformationRequestType> for u32 {
+    fn from(request_type: ItemInformationRequestType) -> u32 {
+        request_type as _
     }
 }
 
@@ -1217,10 +1214,10 @@ impl Into<u32> for ItemInformationRequestType {
 #[repr(u32)]
 enum RequestStatusCode {
     /* common status codes */
-    VirtioSndSOk = 0x8000,
-    VirtioSndSBadMsg,
-    VirtioSndSNotSupp,
-    VirtioSndSIoErr,
+    Ok = 0x8000,
+    BadMsg,
+    NotSupp,
+    IoErr,
 }
 
 impl From<RequestStatusCode> for VirtIOSndHdr {
@@ -1403,12 +1400,13 @@ struct VirtIOSndPcmHdr {
     stream_id: u32,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum PcmStreamFeatures {
-    VirtioSndPcmFShmemHost = 0,
-    VirtioSndPcmFShmemGuest,
-    VirtioSndPcmFMsgPolling,
-    VirtioSndPcmFEvtShmemPeriods,
-    VirtioSndPcmFEvtXruns,
+    ShmemHost = 0,
+    ShmemGuest,
+    MsgPolling,
+    EvtShmemPeriods,
+    EvtXruns,
 }
 
 impl From<PcmStreamFeatures> for u32 {
@@ -1417,34 +1415,36 @@ impl From<PcmStreamFeatures> for u32 {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u64)]
 enum PcmSampleFormat {
     /* analog formats (width / physical width) */
-    VirtioSndPcmFmtImaAdpcm = 0, /* 4 / 4 bits */
-    VirtioSndPcmFmtMuLaw,        /* 8 / 8 bits */
-    VirtioSndPcmFmtALaw,         /* 8 / 8 bits */
-    VirtioSndPcmFmtS8,           /* 8 / 8 bits */
-    VirtioSndPcmFmtU8,           /* 8 / 8 bits */
-    VirtioSndPcmFmtS16,          /* 16 / 16 bits */
-    VirtioSndPcmFmtU16,          /* 16 / 16 bits */
-    VirtioSndPcmFmtS18_3,        /* 18 / 24 bits */
-    VirtioSndPcmFmtU18_3,        /* 18 / 24 bits */
-    VirtioSndPcmFmtS20_3,        /* 20 / 24 bits */
-    VirtioSndPcmFmtU20_3,        /* 20 / 24 bits */
-    VirtioSndPcmFmtS24_3,        /* 24 / 24 bits */
-    VirtioSndPcmFmtU24_3,        /* 24 / 24 bits */
-    VirtioSndPcmFmtS20,          /* 20 / 32 bits */
-    VirtioSndPcmFmtU20,          /* 20 / 32 bits */
-    VirtioSndPcmFmtS24,          /* 24 / 32 bits */
-    VirtioSndPcmFmtU24,          /* 24 / 32 bits */
-    VirtioSndPcmFmtS32,          /* 32 / 32 bits */
-    VirtioSndPcmFmtU32,          /* 32 / 32 bits */
-    VirtioSndPcmFmtFloat,        /* 32 / 32 bits */
-    VirtioSndPcmFmtFloat64,      /* 64 / 64 bits */
+    ImaAdpcm = 0, /* 4 / 4 bits */
+    MuLaw,        /* 8 / 8 bits */
+    ALaw,         /* 8 / 8 bits */
+    S8,           /* 8 / 8 bits */
+    U8,           /* 8 / 8 bits */
+    S16,          /* 16 / 16 bits */
+    U16,          /* 16 / 16 bits */
+    S18_3,        /* 18 / 24 bits */
+    U18_3,        /* 18 / 24 bits */
+    S20_3,        /* 20 / 24 bits */
+    U20_3,        /* 20 / 24 bits */
+    S24_3,        /* 24 / 24 bits */
+    U24_3,        /* 24 / 24 bits */
+    S20,          /* 20 / 32 bits */
+    U20,          /* 20 / 32 bits */
+    S24,          /* 24 / 32 bits */
+    U24,          /* 24 / 32 bits */
+    S32,          /* 32 / 32 bits */
+    U32,          /* 32 / 32 bits */
+    Float,        /* 32 / 32 bits */
+    Float64,      /* 64 / 64 bits */
     /* digital formats (width / physical width) */
-    VirtioSndPcmFmtDsdU8,          /* 8 / 8 bits */
-    VirtioSndPcmFmtDsdU16,         /* 16 / 16 bits */
-    VirtioSndPcmFmtDsdU32,         /* 32 / 32 bits */
-    VirtioSndPcmFmtIec958Subframe, /* 32 / 32 bits */
+    DsdU8,          /* 8 / 8 bits */
+    DsdU16,         /* 16 / 16 bits */
+    DsdU32,         /* 32 / 32 bits */
+    Iec958Subframe, /* 32 / 32 bits */
 }
 
 impl From<PcmSampleFormat> for u64 {
@@ -1547,43 +1547,43 @@ struct VirtIOSndPcmStatus {
 #[repr(u8)]
 enum ChannelPosition {
     #[num_enum(default)]
-    VirtioSndChmapNone = 0, /* undefined */
-    VirtioSndChmapNa,   /* silent */
-    VirtioSndChmapMono, /* mono stream */
-    VirtioSndChmapFl,   /* front left */
-    VirtioSndChmapFr,   /* front right */
-    VirtioSndChmapRl,   /* rear left */
-    VirtioSndChmapRr,   /* rear right */
-    VirtioSndChmapFc,   /* front center */
-    VirtioSndChmapLfe,  /* low frequency (LFE) */
-    VirtioSndChmapSl,   /* side left */
-    VirtioSndChmapSr,   /* side right */
-    VirtioSndChmapRc,   /* rear center */
-    VirtioSndChmapFlc,  /* front left center */
-    VirtioSndChmapFrc,  /* front right center */
-    VirtioSndChmapRlc,  /* rear left center */
-    VirtioSndChmapRrc,  /* rear right center */
-    VirtioSndChmapFlw,  /* front left wide */
-    VirtioSndChmapFrw,  /* front right wide */
-    VirtioSndChmapFlh,  /* front left high */
-    VirtioSndChmapFch,  /* front center high */
-    VirtioSndChmapFrh,  /* front right high */
-    VirtioSndChmapTc,   /* top center */
-    VirtioSndChmapTfl,  /* top front left */
-    VirtioSndChmapTfr,  /* top front right */
-    VirtioSndChmapTfc,  /* top front center */
-    VirtioSndChmapTrl,  /* top rear left */
-    VirtioSndChmapTrr,  /* top rear right */
-    VirtioSndChmapTrc,  /* top rear center */
-    VirtioSndChmapTflc, /* top front left center */
-    VirtioSndChmapTfrc, /* top front right center */
-    VirtioSndChmapTsl,  /* top side left */
-    VirtioSndChmapTsr,  /* top side right */
-    VirtioSndChmapLlfe, /* left LFE */
-    VirtioSndChmapRlfe, /* right LFE */
-    VirtioSndChmapBc,   /* bottom center */
-    VirtioSndChmapBlc,  /* bottom left center */
-    VirtioSndChmapBrc,  /* bottom right center */
+    None = 0, /* undefined */
+    Na,   /* silent */
+    Mono, /* mono stream */
+    Fl,   /* front left */
+    Fr,   /* front right */
+    Rl,   /* rear left */
+    Rr,   /* rear right */
+    Fc,   /* front center */
+    Lfe,  /* low frequency (LFE) */
+    Sl,   /* side left */
+    Sr,   /* side right */
+    Rc,   /* rear center */
+    Flc,  /* front left center */
+    Frc,  /* front right center */
+    Rlc,  /* rear left center */
+    Rrc,  /* rear right center */
+    Flw,  /* front left wide */
+    Frw,  /* front right wide */
+    Flh,  /* front left high */
+    Fch,  /* front center high */
+    Frh,  /* front right high */
+    Tc,   /* top center */
+    Tfl,  /* top front left */
+    Tfr,  /* top front right */
+    Tfc,  /* top front center */
+    Trl,  /* top rear left */
+    Trr,  /* top rear right */
+    Trc,  /* top rear center */
+    Tflc, /* top front left center */
+    Tfrc, /* top front right center */
+    Tsl,  /* top side left */
+    Tsr,  /* top side right */
+    Llfe, /* left LFE */
+    Rlfe, /* right LFE */
+    Bc,   /* bottom center */
+    Blc,  /* bottom left center */
+    Brc,  /* bottom right center */
 }
 
 /// maximum possible number of channels
