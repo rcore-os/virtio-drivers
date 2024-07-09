@@ -378,8 +378,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         period_bytes: u32,
         features: PcmFeatures,
         channels: u8,
-        format: PcmFormats,
-        rate: PcmRates,
+        format: PcmFormat,
+        rate: PcmRate,
     ) -> Result {
         if !self.set_up {
             self.set_up();
@@ -945,36 +945,98 @@ bitflags! {
     }
 }
 
-impl Into<u8> for PcmFormats {
-    fn into(self) -> u8 {
-        match self {
-            PcmFormats::IMA_ADPCM => 0,
-            PcmFormats::MU_LAW => 1,
-            PcmFormats::A_LAW => 2,
-            PcmFormats::S8 => 3,
-            PcmFormats::U8 => 4,
-            PcmFormats::S16 => 5,
-            PcmFormats::U16 => 6,
-            PcmFormats::S18_3 => 7,
-            PcmFormats::U18_3 => 8,
-            PcmFormats::S20_3 => 9,
-            PcmFormats::U20_3 => 10,
-            PcmFormats::S24_3 => 11,
-            PcmFormats::U24_3 => 12,
-            PcmFormats::S20 => 13,
-            PcmFormats::U20 => 14,
-            PcmFormats::S24 => 15,
-            PcmFormats::U24 => 16,
-            PcmFormats::S32 => 17,
-            PcmFormats::U32 => 18,
-            PcmFormats::FLOAT => 19,
-            PcmFormats::FLOAT64 => 20,
-            PcmFormats::DSD_U8 => 21,
-            PcmFormats::DSD_U16 => 22,
-            PcmFormats::DSD_U32 => 23,
-            PcmFormats::IEC958_SUBFRAME => 24,
-            _ => 0,
+/// A single PCM sample format.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum PcmFormat {
+    /// IMA ADPCM format.
+    #[default]
+    ImaAdpcm = 0,
+    /// Mu-law format.
+    MuLaw = 1,
+    /// A-law format.
+    ALaw = 2,
+    /// Signed 8-bit format.
+    S8 = 3,
+    /// Unsigned 8-bit format.
+    U8 = 4,
+    /// Signed 16-bit format.
+    S16 = 5,
+    /// Unsigned 16-bit format.
+    U16 = 6,
+    /// Signed 18.3-bit format.
+    S18_3 = 7,
+    /// Unsigned 18.3-bit format.
+    U18_3 = 8,
+    /// Signed 20.3-bit format.
+    S20_3 = 9,
+    /// Unsigned 20.3-bit format.
+    U20_3 = 10,
+    /// Signed 24.3-bit format.
+    S24_3 = 11,
+    /// Unsigned 24.3-bit format.
+    U24_3 = 12,
+    /// Signed 20-bit format.
+    S20 = 13,
+    /// Unsigned 20-bit format.
+    U20 = 14,
+    /// Signed 24-bit format.
+    S24 = 15,
+    /// Unsigned 24-bit format.
+    U24 = 16,
+    /// Signed 32-bit format.
+    S32 = 17,
+    /// Unsigned 32-bit format.
+    U32 = 18,
+    /// 32-bit floating-point format.
+    FLOAT = 19,
+    /// 64-bit floating-point format.
+    FLOAT64 = 20,
+    /// DSD unsigned 8-bit format.
+    DsdU8 = 21,
+    /// DSD unsigned 16-bit format.
+    DsdU16 = 22,
+    /// DSD unsigned 32-bit format.
+    DsdU32 = 23,
+    /// IEC958 subframe format.
+    Iec958Subframe = 24,
+}
+
+impl From<PcmFormat> for PcmFormats {
+    fn from(format: PcmFormat) -> Self {
+        match format {
+            PcmFormat::ImaAdpcm => PcmFormats::IMA_ADPCM,
+            PcmFormat::MuLaw => PcmFormats::MU_LAW,
+            PcmFormat::ALaw => PcmFormats::A_LAW,
+            PcmFormat::S8 => PcmFormats::S8,
+            PcmFormat::U8 => PcmFormats::U8,
+            PcmFormat::S16 => PcmFormats::S16,
+            PcmFormat::U16 => PcmFormats::U16,
+            PcmFormat::S18_3 => PcmFormats::S18_3,
+            PcmFormat::U18_3 => PcmFormats::U18_3,
+            PcmFormat::S20_3 => PcmFormats::S20_3,
+            PcmFormat::U20_3 => PcmFormats::U20_3,
+            PcmFormat::S24_3 => PcmFormats::S24_3,
+            PcmFormat::U24_3 => PcmFormats::U24_3,
+            PcmFormat::S20 => PcmFormats::S20,
+            PcmFormat::U20 => PcmFormats::U20,
+            PcmFormat::S24 => PcmFormats::S24,
+            PcmFormat::U24 => PcmFormats::U24,
+            PcmFormat::S32 => PcmFormats::S32,
+            PcmFormat::U32 => PcmFormats::U32,
+            PcmFormat::FLOAT => PcmFormats::FLOAT,
+            PcmFormat::FLOAT64 => PcmFormats::FLOAT64,
+            PcmFormat::DsdU8 => PcmFormats::DSD_U8,
+            PcmFormat::DsdU16 => PcmFormats::DSD_U16,
+            PcmFormat::DsdU32 => PcmFormats::DSD_U32,
+            PcmFormat::Iec958Subframe => PcmFormats::IEC958_SUBFRAME,
         }
+    }
+}
+
+impl From<PcmFormat> for u8 {
+    fn from(format: PcmFormat) -> u8 {
+        format as _
     }
 }
 
@@ -1013,25 +1075,65 @@ bitflags! {
     }
 }
 
-impl From<PcmRates> for u8 {
-    fn from(value: PcmRates) -> Self {
-        match value {
-            PcmRates::RATE_5512 => 0,
-            PcmRates::RATE_8000 => 1,
-            PcmRates::RATE_11025 => 2,
-            PcmRates::RATE_16000 => 3,
-            PcmRates::RATE_22050 => 4,
-            PcmRates::RATE_32000 => 5,
-            PcmRates::RATE_44100 => 6,
-            PcmRates::RATE_48000 => 7,
-            PcmRates::RATE_64000 => 8,
-            PcmRates::RATE_88200 => 9,
-            PcmRates::RATE_96000 => 10,
-            PcmRates::RATE_176400 => 11,
-            PcmRates::RATE_192000 => 12,
-            PcmRates::RATE_384000 => 13,
-            _ => 0,
+/// A PCM frame rate.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum PcmRate {
+    /// 5512 Hz PCM rate.
+    #[default]
+    Rate5512 = 0,
+    /// 8000 Hz PCM rate.
+    Rate8000 = 1,
+    /// 11025 Hz PCM rate.
+    Rate11025 = 2,
+    /// 16000 Hz PCM rate.
+    Rate16000 = 3,
+    /// 22050 Hz PCM rate.
+    Rate22050 = 4,
+    /// 32000 Hz PCM rate.
+    Rate32000 = 5,
+    /// 44100 Hz PCM rate.
+    Rate44100 = 6,
+    /// 48000 Hz PCM rate.
+    Rate48000 = 7,
+    /// 64000 Hz PCM rate.
+    Rate64000 = 8,
+    /// 88200 Hz PCM rate.
+    Rate88200 = 9,
+    /// 96000 Hz PCM rate.
+    Rate96000 = 10,
+    /// 176400 Hz PCM rate.
+    Rate176400 = 11,
+    /// 192000 Hz PCM rate.
+    Rate192000 = 12,
+    /// 384000 Hz PCM rate.
+    Rate384000 = 13,
+}
+
+impl From<PcmRate> for PcmRates {
+    fn from(rate: PcmRate) -> Self {
+        match rate {
+            PcmRate::Rate5512 => Self::RATE_5512,
+            PcmRate::Rate8000 => Self::RATE_8000,
+            PcmRate::Rate11025 => Self::RATE_11025,
+            PcmRate::Rate16000 => Self::RATE_16000,
+            PcmRate::Rate22050 => Self::RATE_22050,
+            PcmRate::Rate32000 => Self::RATE_32000,
+            PcmRate::Rate44100 => Self::RATE_44100,
+            PcmRate::Rate48000 => Self::RATE_48000,
+            PcmRate::Rate64000 => Self::RATE_64000,
+            PcmRate::Rate88200 => Self::RATE_88200,
+            PcmRate::Rate96000 => Self::RATE_96000,
+            PcmRate::Rate176400 => Self::RATE_176400,
+            PcmRate::Rate192000 => Self::RATE_192000,
+            PcmRate::Rate384000 => Self::RATE_384000,
         }
+    }
+}
+
+impl From<PcmRate> for u8 {
+    fn from(rate: PcmRate) -> Self {
+        rate as _
     }
 }
 
@@ -1378,8 +1480,8 @@ struct PcmParameters {
     period_bytes: u32,
     features: PcmFeatures,
     channels: u8,
-    format: PcmFormats,
-    rate: PcmRates,
+    format: PcmFormat,
+    rate: PcmRate,
 }
 
 #[repr(C)]
