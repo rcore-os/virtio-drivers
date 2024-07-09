@@ -1069,6 +1069,7 @@ impl From<PcmRate> for u8 {
     }
 }
 
+#[repr(C)]
 struct VirtIOSoundConfig {
     jacks: ReadOnly<u32>,
     streams: ReadOnly<u32>,
