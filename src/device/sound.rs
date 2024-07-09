@@ -1152,7 +1152,7 @@ struct VirtIOSoundConfig {
 ///
 /// To avoid ambiguity in its meaning, I use the term "CommandCode" here.
 #[repr(u32)]
-#[derive(FromPrimitive, IntoPrimitive)]
+#[derive(Copy, Clone, Debug, Eq, FromPrimitive, IntoPrimitive, PartialEq)]
 enum CommandCode {
     /* jack control request types */
     VirtioSndRJackInfo = 1,
@@ -1235,7 +1235,7 @@ impl From<RequestStatusCode> for VirtIOSndHdr {
 
 /// A common header
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
+#[derive(AsBytes, Clone, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 struct VirtIOSndHdr {
     command_code: u32,
 }
@@ -1272,7 +1272,7 @@ pub enum NotificationType {
 }
 
 /// Notification from sound device.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Notification {
     notification_type: NotificationType,
     data: u32,
@@ -1294,7 +1294,7 @@ const VIRTIO_SND_D_OUTPUT: u8 = 0;
 const VIRTIO_SND_D_INPUT: u8 = 1;
 
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Debug, FromBytes, FromZeroes)]
 struct VirtIOSndQueryInfo {
     /// specifies a particular item request type (VIRTIO_SND_R_*_INFO)
     hdr: VirtIOSndHdr,
@@ -1313,7 +1313,7 @@ struct VirtIOSndQueryInfo {
 }
 
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Debug, FromBytes, FromZeroes)]
 struct VirtIOSndQueryInfoRsp {
     hdr: VirtIOSndHdr,
     info: VirtIOSndInfo,
@@ -1327,7 +1327,7 @@ pub struct VirtIOSndInfo {
 }
 
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Clone, Debug, FromBytes, FromZeroes)]
 struct VirtIOSndJackHdr {
     hdr: VirtIOSndHdr,
     /// specifies a jack identifier from 0 to jacks - 1
@@ -1336,7 +1336,7 @@ struct VirtIOSndJackHdr {
 
 /// Jack infomation.
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, PartialEq, Eq)]
+#[derive(AsBytes, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct VirtIOSndJackInfo {
     hdr: VirtIOSndInfo,
     features: u32,
@@ -1444,7 +1444,7 @@ impl From<PcmSampleFormat> for u64 {
 
 /// PCM information.
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, Clone, Copy, PartialEq, Eq)]
+#[derive(AsBytes, Clone, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct VirtIOSndPcmInfo {
     hdr: VirtIOSndInfo,
     features: u32, /* 1 << VIRTIO_SND_PCM_F_XXX */
@@ -1477,7 +1477,7 @@ impl Display for VirtIOSndPcmInfo {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct PcmParameters {
     setup: bool,
     buffer_bytes: u32,
@@ -1564,7 +1564,7 @@ enum ChannelPosition {
 const VIRTIO_SND_CHMAP_MAX_SIZE: usize = 18;
 
 #[repr(C)]
-#[derive(FromBytes, FromZeroes, Debug)]
+#[derive(Debug, FromBytes, FromZeroes)]
 struct VirtIOSndChmapInfo {
     hdr: VirtIOSndInfo,
     direction: u8,
