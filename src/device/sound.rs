@@ -6,6 +6,7 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::fmt::Debug;
 use core::{
     fmt::{self, Display, Formatter},
     hint::spin_loop,
@@ -1350,6 +1351,19 @@ pub struct VirtIOSndJackInfo {
     _padding: [u8; 7],
 }
 
+impl Debug for VirtIOSndJackInfo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("VirtIOSndJackInfo")
+            .field("hdr", &self.hdr)
+            .field("features", &JackFeatures::from_bits_retain(self.features))
+            .field("hda_reg_defconf", &self.hda_reg_defconf)
+            .field("hda_reg_caps", &self.hda_reg_caps)
+            .field("connected", &self.connected)
+            .field("_padding", &self._padding)
+            .finish()
+    }
+}
+
 impl Display for VirtIOSndJackInfo {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let connected_status = if self.connected == 1 {
@@ -1457,6 +1471,21 @@ pub struct VirtIOSndPcmInfo {
     /// indicates a maximum number of supported channels
     channels_max: u8,
     _padding: [u8; 5],
+}
+
+impl Debug for VirtIOSndPcmInfo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("VirtIOSndPcmInfo")
+            .field("hdr", &self.hdr)
+            .field("features", &PcmFeatures::from_bits_retain(self.features))
+            .field("formats", &PcmFormats::from_bits_retain(self.formats))
+            .field("rates", &PcmRates::from_bits_retain(self.rates))
+            .field("direction", &self.direction)
+            .field("channels_min", &self.channels_min)
+            .field("channels_max", &self.channels_max)
+            .field("_padding", &self._padding)
+            .finish()
+    }
 }
 
 impl Display for VirtIOSndPcmInfo {
