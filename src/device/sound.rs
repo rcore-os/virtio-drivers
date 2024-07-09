@@ -351,8 +351,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 .unwrap()
                 .features,
         );
-        if !jack_features.contains(JackFeatures::VIRTIO_SND_JACK_F_REMAP) {
-            // not support VIRTIO_SND_JACK_F_REMAP
+        if !jack_features.contains(JackFeatures::REMAP) {
             error!("The jack selected does not support VIRTIO_SND_JACK_F_REMAP!");
             return Err(Error::Unsupported);
         }
@@ -867,8 +866,8 @@ const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC.union(Feature::R
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct JackFeatures: u32 {
-        /// jack remapping support.
-        const VIRTIO_SND_JACK_F_REMAP = 1 << 0;
+        /// Jack remapping support.
+        const REMAP = 1 << 0;
     }
 }
 
@@ -877,15 +876,15 @@ bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct PcmFeatures: u32 {
         /// Supports sharing a host memory with a guest.
-        const VIRTIO_SND_PCM_F_SHMEM_HOST = 1 << 0;
+        const SHMEM_HOST = 1 << 0;
         /// Supports sharing a guest memory with a host.
-        const VIRTIO_SND_PCM_F_SHMEM_GUEST = 1 << 1;
+        const SHMEM_GUEST = 1 << 1;
         /// Supports polling mode for message-based transport.
-        const VIRTIO_SND_PCM_F_MSG_POLLING = 1 << 2;
+        const MSG_POLLING = 1 << 2;
         /// Supports elapsed period notifications for shared memory transport.
-        const VIRTIO_SND_PCM_F_EVT_SHMEM_PERIODS = 1 << 3;
+        const EVT_SHMEM_PERIODS = 1 << 3;
         /// Supports underrun/overrun notifications.
-        const VIRTIO_SND_PCM_F_EVT_XRUNS = 1 << 4;
+        const EVT_XRUNS = 1 << 4;
     }
 }
 
@@ -894,86 +893,86 @@ bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct PcmFormats: u64 {
         /// IMA ADPCM format.
-        const VIRTIO_SND_PCM_FMT_IMA_ADPCM = 1 << 0;
+        const IMA_ADPCM = 1 << 0;
         /// Mu-law format.
-        const VIRTIO_SND_PCM_FMT_MU_LAW = 1 << 1;
+        const MU_LAW = 1 << 1;
         /// A-law format.
-        const VIRTIO_SND_PCM_FMT_A_LAW = 1 << 2;
+        const A_LAW = 1 << 2;
         /// Signed 8-bit format.
-        const VIRTIO_SND_PCM_FMT_S8 = 1 << 3;
+        const S8 = 1 << 3;
         /// Unsigned 8-bit format.
-        const VIRTIO_SND_PCM_FMT_U8 = 1 << 4;
+        const U8 = 1 << 4;
         /// Signed 16-bit format.
-        const VIRTIO_SND_PCM_FMT_S16 = 1 << 5;
+        const S16 = 1 << 5;
         /// Unsigned 16-bit format.
-        const VIRTIO_SND_PCM_FMT_U16 = 1 << 6;
+        const U16 = 1 << 6;
         /// Signed 18.3-bit format.
-        const VIRTIO_SND_PCM_FMT_S18_3 = 1 << 7;
+        const S18_3 = 1 << 7;
         /// Unsigned 18.3-bit format.
-        const VIRTIO_SND_PCM_FMT_U18_3 = 1 << 8;
+        const U18_3 = 1 << 8;
         /// Signed 20.3-bit format.
-        const VIRTIO_SND_PCM_FMT_S20_3 = 1 << 9;
+        const S20_3 = 1 << 9;
         /// Unsigned 20.3-bit format.
-        const VIRTIO_SND_PCM_FMT_U20_3 = 1 << 10;
+        const U20_3 = 1 << 10;
         /// Signed 24.3-bit format.
-        const VIRTIO_SND_PCM_FMT_S24_3 = 1 << 11;
+        const S24_3 = 1 << 11;
         /// Unsigned 24.3-bit format.
-        const VIRTIO_SND_PCM_FMT_U24_3 = 1 << 12;
+        const U24_3 = 1 << 12;
         /// Signed 20-bit format.
-        const VIRTIO_SND_PCM_FMT_S20 = 1 << 13;
+        const S20 = 1 << 13;
         /// Unsigned 20-bit format.
-        const VIRTIO_SND_PCM_FMT_U20 = 1 << 14;
+        const U20 = 1 << 14;
         /// Signed 24-bit format.
-        const VIRTIO_SND_PCM_FMT_S24 = 1 << 15;
+        const S24 = 1 << 15;
         /// Unsigned 24-bit format.
-        const VIRTIO_SND_PCM_FMT_U24 = 1 << 16;
+        const U24 = 1 << 16;
         /// Signed 32-bit format.
-        const VIRTIO_SND_PCM_FMT_S32 = 1 << 17;
+        const S32 = 1 << 17;
         /// Unsigned 32-bit format.
-        const VIRTIO_SND_PCM_FMT_U32 = 1 << 18;
+        const U32 = 1 << 18;
         /// 32-bit floating-point format.
-        const VIRTIO_SND_PCM_FMT_FLOAT = 1 << 19;
+        const FLOAT = 1 << 19;
         /// 64-bit floating-point format.
-        const VIRTIO_SND_PCM_FMT_FLOAT64 = 1 << 20;
+        const FLOAT64 = 1 << 20;
         /// DSD unsigned 8-bit format.
-        const VIRTIO_SND_PCM_FMT_DSD_U8 = 1 << 21;
+        const DSD_U8 = 1 << 21;
         /// DSD unsigned 16-bit format.
-        const VIRTIO_SND_PCM_FMT_DSD_U16 = 1 << 22;
+        const DSD_U16 = 1 << 22;
         /// DSD unsigned 32-bit format.
-        const VIRTIO_SND_PCM_FMT_DSD_U32 = 1 << 23;
+        const DSD_U32 = 1 << 23;
         /// IEC958 subframe format.
-        const VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME = 1 << 24;
+        const IEC958_SUBFRAME = 1 << 24;
     }
 }
 
 impl Into<u8> for PcmFormats {
     fn into(self) -> u8 {
         match self {
-            PcmFormats::VIRTIO_SND_PCM_FMT_IMA_ADPCM => 0,
-            PcmFormats::VIRTIO_SND_PCM_FMT_MU_LAW => 1,
-            PcmFormats::VIRTIO_SND_PCM_FMT_A_LAW => 2,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S8 => 3,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U8 => 4,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S16 => 5,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U16 => 6,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S18_3 => 7,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U18_3 => 8,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S20_3 => 9,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U20_3 => 10,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S24_3 => 11,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U24_3 => 12,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S20 => 13,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U20 => 14,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S24 => 15,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U24 => 16,
-            PcmFormats::VIRTIO_SND_PCM_FMT_S32 => 17,
-            PcmFormats::VIRTIO_SND_PCM_FMT_U32 => 18,
-            PcmFormats::VIRTIO_SND_PCM_FMT_FLOAT => 19,
-            PcmFormats::VIRTIO_SND_PCM_FMT_FLOAT64 => 20,
-            PcmFormats::VIRTIO_SND_PCM_FMT_DSD_U8 => 21,
-            PcmFormats::VIRTIO_SND_PCM_FMT_DSD_U16 => 22,
-            PcmFormats::VIRTIO_SND_PCM_FMT_DSD_U32 => 23,
-            PcmFormats::VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME => 24,
+            PcmFormats::IMA_ADPCM => 0,
+            PcmFormats::MU_LAW => 1,
+            PcmFormats::A_LAW => 2,
+            PcmFormats::S8 => 3,
+            PcmFormats::U8 => 4,
+            PcmFormats::S16 => 5,
+            PcmFormats::U16 => 6,
+            PcmFormats::S18_3 => 7,
+            PcmFormats::U18_3 => 8,
+            PcmFormats::S20_3 => 9,
+            PcmFormats::U20_3 => 10,
+            PcmFormats::S24_3 => 11,
+            PcmFormats::U24_3 => 12,
+            PcmFormats::S20 => 13,
+            PcmFormats::U20 => 14,
+            PcmFormats::S24 => 15,
+            PcmFormats::U24 => 16,
+            PcmFormats::S32 => 17,
+            PcmFormats::U32 => 18,
+            PcmFormats::FLOAT => 19,
+            PcmFormats::FLOAT64 => 20,
+            PcmFormats::DSD_U8 => 21,
+            PcmFormats::DSD_U16 => 22,
+            PcmFormats::DSD_U32 => 23,
+            PcmFormats::IEC958_SUBFRAME => 24,
             _ => 0,
         }
     }
@@ -984,53 +983,53 @@ bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     pub struct PcmRate: u64 {
         /// 5512 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_5512 = 1 << 0;
+        const RATE_5512 = 1 << 0;
         /// 8000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_8000 = 1 << 1;
+        const RATE_8000 = 1 << 1;
         /// 11025 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_11025 = 1 << 2;
+        const RATE_11025 = 1 << 2;
         /// 16000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_16000 = 1 << 3;
+        const RATE_16000 = 1 << 3;
         /// 22050 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_22050 = 1 << 4;
+        const RATE_22050 = 1 << 4;
         /// 32000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_32000 = 1 << 5;
+        const RATE_32000 = 1 << 5;
         /// 44100 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_44100 = 1 << 6;
+        const RATE_44100 = 1 << 6;
         /// 48000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_48000 = 1 << 7;
+        const RATE_48000 = 1 << 7;
         /// 64000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_64000 = 1 << 8;
+        const RATE_64000 = 1 << 8;
         /// 88200 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_88200 = 1 << 9;
+        const RATE_88200 = 1 << 9;
         /// 96000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_96000 = 1 << 10;
+        const RATE_96000 = 1 << 10;
         /// 176400 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_176400 = 1 << 11;
+        const RATE_176400 = 1 << 11;
         /// 192000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_192000 = 1 << 12;
+        const RATE_192000 = 1 << 12;
         /// 384000 Hz PCM rate.
-        const VIRTIO_SND_PCM_RATE_384000 = 1 << 13;
+        const RATE_384000 = 1 << 13;
     }
 }
 
 impl From<PcmRate> for u8 {
     fn from(value: PcmRate) -> Self {
         match value {
-            PcmRate::VIRTIO_SND_PCM_RATE_5512 => 0,
-            PcmRate::VIRTIO_SND_PCM_RATE_8000 => 1,
-            PcmRate::VIRTIO_SND_PCM_RATE_11025 => 2,
-            PcmRate::VIRTIO_SND_PCM_RATE_16000 => 3,
-            PcmRate::VIRTIO_SND_PCM_RATE_22050 => 4,
-            PcmRate::VIRTIO_SND_PCM_RATE_32000 => 5,
-            PcmRate::VIRTIO_SND_PCM_RATE_44100 => 6,
-            PcmRate::VIRTIO_SND_PCM_RATE_48000 => 7,
-            PcmRate::VIRTIO_SND_PCM_RATE_64000 => 8,
-            PcmRate::VIRTIO_SND_PCM_RATE_88200 => 9,
-            PcmRate::VIRTIO_SND_PCM_RATE_96000 => 10,
-            PcmRate::VIRTIO_SND_PCM_RATE_176400 => 11,
-            PcmRate::VIRTIO_SND_PCM_RATE_192000 => 12,
-            PcmRate::VIRTIO_SND_PCM_RATE_384000 => 13,
+            PcmRate::RATE_5512 => 0,
+            PcmRate::RATE_8000 => 1,
+            PcmRate::RATE_11025 => 2,
+            PcmRate::RATE_16000 => 3,
+            PcmRate::RATE_22050 => 4,
+            PcmRate::RATE_32000 => 5,
+            PcmRate::RATE_44100 => 6,
+            PcmRate::RATE_48000 => 7,
+            PcmRate::RATE_64000 => 8,
+            PcmRate::RATE_88200 => 9,
+            PcmRate::RATE_96000 => 10,
+            PcmRate::RATE_176400 => 11,
+            PcmRate::RATE_192000 => 12,
+            PcmRate::RATE_384000 => 13,
             _ => 0,
         }
     }

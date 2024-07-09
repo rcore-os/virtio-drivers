@@ -193,15 +193,15 @@ fn virtio_sound<T: Transport>(transport: T) {
         let channel_range = sound.channel_range_supported(output_stream_id).unwrap();
         let features = sound.features_supported(output_stream_id).unwrap();
 
-        let rate = if rates.contains(PcmRate::VIRTIO_SND_PCM_RATE_44100) {
-            PcmRate::VIRTIO_SND_PCM_RATE_44100
+        let rate = if rates.contains(PcmRate::RATE_44100) {
+            PcmRate::RATE_44100
         } else {
-            PcmRate::VIRTIO_SND_PCM_RATE_32000
+            PcmRate::RATE_32000
         };
-        let format = if formats.contains(PcmFormats::VIRTIO_SND_PCM_FMT_U8) {
-            PcmFormats::VIRTIO_SND_PCM_FMT_U8
+        let format = if formats.contains(PcmFormats::U8) {
+            PcmFormats::U8
         } else {
-            PcmFormats::VIRTIO_SND_PCM_FMT_U32
+            PcmFormats::U32
         };
         let channel = if channel_range.contains(&2) {
             2 as u8
