@@ -1547,43 +1547,80 @@ struct VirtIOSndPcmStatus {
 #[repr(u8)]
 enum ChannelPosition {
     #[num_enum(default)]
-    None = 0, /* undefined */
-    Na,   /* silent */
-    Mono, /* mono stream */
-    Fl,   /* front left */
-    Fr,   /* front right */
-    Rl,   /* rear left */
-    Rr,   /* rear right */
-    Fc,   /* front center */
-    Lfe,  /* low frequency (LFE) */
-    Sl,   /* side left */
-    Sr,   /* side right */
-    Rc,   /* rear center */
-    Flc,  /* front left center */
-    Frc,  /* front right center */
-    Rlc,  /* rear left center */
-    Rrc,  /* rear right center */
-    Flw,  /* front left wide */
-    Frw,  /* front right wide */
-    Flh,  /* front left high */
-    Fch,  /* front center high */
-    Frh,  /* front right high */
-    Tc,   /* top center */
-    Tfl,  /* top front left */
-    Tfr,  /* top front right */
-    Tfc,  /* top front center */
-    Trl,  /* top rear left */
-    Trr,  /* top rear right */
-    Trc,  /* top rear center */
-    Tflc, /* top front left center */
-    Tfrc, /* top front right center */
-    Tsl,  /* top side left */
-    Tsr,  /* top side right */
-    Llfe, /* left LFE */
-    Rlfe, /* right LFE */
-    Bc,   /* bottom center */
-    Blc,  /* bottom left center */
-    Brc,  /* bottom right center */
+    /// undefined
+    None = 0,
+    /// silent
+    Na,
+    /// mono stream
+    Mono,
+    /// front left
+    Fl,
+    /// front right
+    Fr,
+    /// rear left
+    Rl,
+    /// rear right
+    Rr,
+    /// front center
+    Fc,
+    /// low frequency (LFE)
+    Lfe,
+    /// side left
+    Sl,
+    /// side right
+    Sr,
+    /// rear center
+    Rc,
+    /// front left center
+    Flc,
+    /// front right center
+    Frc,
+    /// rear left center
+    Rlc,
+    /// rear right center
+    Rrc,
+    /// front left wide
+    Flw,
+    /// front right wide
+    Frw,
+    /// front left high
+    Flh,
+    /// front center high
+    Fch,
+    /// front right high
+    Frh,
+    /// top center
+    Tc,
+    /// top front left
+    Tfl,
+    /// top front right
+    Tfr,
+    /// top front center
+    Tfc,
+    /// top rear left
+    Trl,
+    /// top rear right
+    Trr,
+    /// top rear center
+    Trc,
+    /// top front left center
+    Tflc,
+    /// top front right center
+    Tfrc,
+    /// top side left
+    Tsl,
+    /// top side right
+    Tsr,
+    /// left LFE
+    Llfe,
+    /// right LFE
+    Rlfe,
+    /// bottom center
+    Bc,
+    /// bottom left center
+    Blc,
+    /// bottom right center
+    Brc,
 }
 
 /// maximum possible number of channels
