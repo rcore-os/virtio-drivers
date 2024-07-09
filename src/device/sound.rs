@@ -1272,7 +1272,7 @@ pub enum NotificationType {
 }
 
 /// Notification from sound device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notification {
     notification_type: NotificationType,
     data: u32,
@@ -1321,7 +1321,7 @@ struct VirtIOSndQueryInfoRsp {
 
 /// Field `hda_fn_nid` indicates a function group node identifier.
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(AsBytes, Clone, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct VirtIOSndInfo {
     hda_fn_nid: u32,
 }
