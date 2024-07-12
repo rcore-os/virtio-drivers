@@ -8,11 +8,11 @@ use crate::{Error, Result};
 use log::{debug, info, warn};
 use zerocopy::AsBytes;
 
-/// Raw driver for a VirtIO block device.
+/// Raw driver for a VirtIO network device.
 ///
 /// This is a raw version of the VirtIONet driver. It provides non-blocking
 /// methods for transmitting and receiving raw slices, without the buffer
-/// management. For more higher-level fucntions such as receive buffer backing,
+/// management. For more higher-level functions such as receive buffer backing,
 /// see [`VirtIONet`].
 ///
 /// [`VirtIONet`]: super::VirtIONet
