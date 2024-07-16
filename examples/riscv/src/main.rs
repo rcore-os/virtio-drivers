@@ -233,5 +233,9 @@ fn virtio_sound<T: Transport>(transport: T) {
         sound
             .pcm_release(output_stream_id)
             .expect("pcm_release error");
+        match sound.latest_notification() {
+            Ok(notification) => info!("{:?}", notification),
+            Err(e) => warn!("{}", e),
+        }
     }
 }

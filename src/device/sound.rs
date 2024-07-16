@@ -1,6 +1,7 @@
 //! Driver for VirtIO Sound devices.
 
-use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
+use alloc::vec;
+use alloc::{boxed::Box, collections::{BTreeMap, VecDeque}, format, vec::Vec};
 use bitflags::bitflags;
 use core::{
     fmt::{self, Debug, Display, Formatter},
@@ -56,7 +57,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     token_rsp: BTreeMap<u16, Box<[u8; RSP_SIZE]>>, // includes pcm_xfer response msg
 
-    event_buf: Box<[u8]>,
+    event_buf: VecDeque<Box<[u8]>>,
 
     pcm_states: Vec<PCMState>,
 
@@ -78,12 +79,21 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
-        let event_queue = VirtQueue::new(
+        let mut event_queue = VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
+        // Add buffers to event_queue
+        let mut event_buf = VecDeque::new();
+        for _ in 0..PAGE_SIZE / 2 {
+            let mut buf = FromZeroes::new_box_slice_zeroed(64);
+            unsafe {
+                let _ = event_queue.add(&[], &mut[buf.as_mut()]);
+            }
+            event_buf.push_back(buf);
+        }
         let tx_queue = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
@@ -114,8 +124,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
         let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
-
-        let event_buf = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
 
         // set pcm params to default
         let mut pcm_parameters = vec![];
@@ -215,6 +223,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.pcm_states.push(PCMState::default());
         }
         self.event_queue.set_dev_notify(true);
+        self.transport.notify(EVENT_QUEUE_IDX);
     }
 
     /// Query information about the available jacks.
@@ -836,6 +845,31 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         }
         let pcm_info = &self.pcm_infos.as_ref().unwrap()[stream_id as usize];
         Ok(PcmFeatures::from_bits_retain(pcm_info.features))
+    }
+
+    
+    
+    /// Get the latest notification.
+    pub fn latest_notification(&mut self) -> Result<Notification> {
+        // If the device has written notifications to the event_queue, 
+        // then the oldest notification should be at the front of the queue.
+        let mut buf = self.event_buf.pop_front().unwrap();
+        if let Some(token) = self.event_queue.peek_used() {
+            unsafe {
+                self.event_queue
+                    .pop_used(token, &[], &mut [buf.as_mut()])?;
+            }
+        } else {
+            info!("Not ready");
+            return Err(Error::NotReady);
+        }
+        let event = VirtIOSndEvent::read_from_prefix(&buf).unwrap();
+        // After reading the notification from the buf, place the buf at the end of the queue for reuse.
+        self.event_buf.push_back(buf);
+        Ok(Notification {
+            notification_type: NotificationType::from(event.hdr.command_code),
+            data: event.data,
+        })
     }
 }
 
