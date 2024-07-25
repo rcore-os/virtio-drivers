@@ -1,5 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(feature = "alloc")]
+pub mod owning;
+
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
