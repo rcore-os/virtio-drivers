@@ -511,24 +511,11 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Ok(());
         } else if frames.len() <= buffer_size {
             // If the size of the music is smaller than the buffer size, then one buffer is sufficient for playback.
-            let token = unsafe {
-                self.tx_queue
-                    .add(&[&stream_id.to_le_bytes(), frames], &mut [&mut outputs])
-                    .unwrap()
-            };
-            self.transport.notify(TX_QUEUE_IDX);
-            while !self.tx_queue.can_pop() {
-                spin_loop()
-            }
-            unsafe {
-                self.tx_queue
-                    .pop_used(
-                        token,
-                        &[&stream_id.to_le_bytes(), frames],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap();
-            }
+            self.tx_queue.add_notify_wait_pop(
+                &[&stream_id.to_le_bytes(), frames],
+                &mut [&mut outputs],
+                &mut self.transport,
+            )?;
             return Ok(());
         } else if buffer_size < frames.len() && frames.len() <= buffer_size * 2 {
             let token1 = unsafe {
