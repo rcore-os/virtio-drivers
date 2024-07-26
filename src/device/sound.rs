@@ -1,18 +1,19 @@
 //! Driver for VirtIO Sound devices.
 
 use alloc::vec;
-use alloc::{boxed::Box, collections::{BTreeMap, VecDeque}, format, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use bitflags::bitflags;
 use core::{
     fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
-    mem,
+    mem::size_of,
     ops::RangeInclusive,
 };
 use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
+use crate::queue::owning::OwningQueue;
 use crate::{
     queue::VirtQueue,
     transport::Transport,
@@ -33,7 +34,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
     transport: T,
 
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    event_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    event_queue: OwningQueue<H, { QUEUE_SIZE as usize }, { size_of::<VirtIOSndEvent>() }>,
     tx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     rx_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
 
@@ -57,8 +58,6 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     token_rsp: BTreeMap<u16, Box<[u8; RSP_SIZE]>>, // includes pcm_xfer response msg
 
-    event_buf: VecDeque<Box<[u8]>>,
-
     pcm_states: Vec<PCMState>,
 
     token_buf: BTreeMap<u16, Vec<u8>>, // store token and its input buf
@@ -79,21 +78,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
-        let mut event_queue = VirtQueue::new(
+        let event_queue = OwningQueue::new(VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
-        )?;
-        // Add buffers to event_queue
-        let mut event_buf = VecDeque::new();
-        for _ in 0..PAGE_SIZE / 2 {
-            let mut buf = FromZeroes::new_box_slice_zeroed(64);
-            unsafe {
-                let _ = event_queue.add(&[], &mut[buf.as_mut()]);
-            }
-            event_buf.push_back(buf);
-        }
+        )?)?;
         let tx_queue = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
@@ -133,6 +123,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         transport.finish_init();
 
+        if event_queue.should_notify() {
+            transport.notify(EVENT_QUEUE_IDX);
+        }
+
         Ok(VirtIOSound {
             transport,
             control_queue,
@@ -151,7 +145,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             pcm_parameters,
             set_up: false,
             token_rsp: BTreeMap::new(),
-            event_buf,
             pcm_states: vec![],
             token_buf: BTreeMap::new(),
         })
@@ -223,7 +216,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.pcm_states.push(PCMState::default());
         }
         self.event_queue.set_dev_notify(true);
-        self.transport.notify(EVENT_QUEUE_IDX);
     }
 
     /// Query information about the available jacks.
@@ -239,7 +231,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             hdr: ItemInformationRequestType::RJackInfo.into(),
             start_id: jack_start_id,
             count: jack_count,
-            size: mem::size_of::<VirtIOSndJackInfo>() as u32,
+            size: size_of::<VirtIOSndJackInfo>() as u32,
         })?;
         if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
@@ -247,8 +239,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         // read struct VirtIOSndJackInfo
         let mut jack_infos = vec![];
         for i in 0..jack_count as usize {
-            const HDR_SIZE: usize = mem::size_of::<VirtIOSndHdr>();
-            const JACK_INFO_SIZE: usize = mem::size_of::<VirtIOSndJackInfo>();
+            const HDR_SIZE: usize = size_of::<VirtIOSndHdr>();
+            const JACK_INFO_SIZE: usize = size_of::<VirtIOSndJackInfo>();
             let start_byte_idx = HDR_SIZE + i * JACK_INFO_SIZE;
             let end_byte_idx = HDR_SIZE + (i + 1) * JACK_INFO_SIZE;
             let jack_info =
@@ -277,7 +269,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             hdr: request_hdr,
             start_id: stream_start_id,
             count: stream_count,
-            size: mem::size_of::<VirtIOSndPcmInfo>() as u32,
+            size: size_of::<VirtIOSndPcmInfo>() as u32,
         })?;
         if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
@@ -285,8 +277,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         // read struct VirtIOSndPcmInfo
         let mut pcm_infos = vec![];
         for i in 0..stream_count as usize {
-            const HDR_SIZE: usize = mem::size_of::<VirtIOSndHdr>();
-            const PCM_INFO_SIZE: usize = mem::size_of::<VirtIOSndPcmInfo>();
+            const HDR_SIZE: usize = size_of::<VirtIOSndHdr>();
+            const PCM_INFO_SIZE: usize = size_of::<VirtIOSndPcmInfo>();
             let start_byte_idx = HDR_SIZE + i * PCM_INFO_SIZE;
             let end_byte_idx = HDR_SIZE + (i + 1) * PCM_INFO_SIZE;
             let pcm_info =
@@ -314,16 +306,16 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             hdr: ItemInformationRequestType::RChmapInfo.into(),
             start_id: chmaps_start_id,
             count: chmaps_count,
-            size: mem::size_of::<VirtIOSndChmapInfo>() as u32,
+            size: size_of::<VirtIOSndChmapInfo>() as u32,
         })?;
         if hdr != RequestStatusCode::Ok.into() {
             return Err(Error::IoError);
         }
         let mut chmap_infos = vec![];
         for i in 0..chmaps_count as usize {
-            const OFFSET: usize = mem::size_of::<VirtIOSndHdr>();
-            let start_byte = OFFSET + i * mem::size_of::<VirtIOSndChmapInfo>();
-            let end_byte = OFFSET + (i + 1) * mem::size_of::<VirtIOSndChmapInfo>();
+            const OFFSET: usize = size_of::<VirtIOSndHdr>();
+            let start_byte = OFFSET + i * size_of::<VirtIOSndChmapInfo>();
+            let end_byte = OFFSET + (i + 1) * size_of::<VirtIOSndChmapInfo>();
             let chmap_info =
                 VirtIOSndChmapInfo::read_from(&self.queue_buf_recv[start_byte..end_byte]).unwrap();
             chmap_infos.push(chmap_info);
@@ -505,7 +497,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     ///
     /// This is a blocking method that will not return until the audio playback is complete.
     pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
-        const U32_SIZE: usize = mem::size_of::<u32>();
+        const U32_SIZE: usize = size_of::<u32>();
         if !self.set_up {
             self.set_up();
             self.set_up = true;
@@ -726,7 +718,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             warn!("Please set parameters for a stream before using it!");
             return Err(Error::IoError);
         }
-        const U32_SIZE: usize = mem::size_of::<u32>();
+        const U32_SIZE: usize = size_of::<u32>();
         let buffer_size: usize = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
         assert_eq!(buffer_size, frames.len());
         let mut buf = vec![0; U32_SIZE + buffer_size];
@@ -847,28 +839,15 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         Ok(PcmFeatures::from_bits_retain(pcm_info.features))
     }
 
-    
-    
     /// Get the latest notification.
-    pub fn latest_notification(&mut self) -> Result<Notification> {
-        // If the device has written notifications to the event_queue, 
+    pub fn latest_notification(&mut self) -> Result<Option<Notification>> {
+        // If the device has written notifications to the event_queue,
         // then the oldest notification should be at the front of the queue.
-        let mut buf = self.event_buf.pop_front().unwrap();
-        if let Some(token) = self.event_queue.peek_used() {
-            unsafe {
-                self.event_queue
-                    .pop_used(token, &[], &mut [buf.as_mut()])?;
-            }
-        } else {
-            info!("Not ready");
-            return Err(Error::NotReady);
-        }
-        let event = VirtIOSndEvent::read_from_prefix(&buf).unwrap();
-        // After reading the notification from the buf, place the buf at the end of the queue for reuse.
-        self.event_buf.push_back(buf);
-        Ok(Notification {
-            notification_type: NotificationType::from(event.hdr.command_code),
-            data: event.data,
+        self.event_queue.poll(&mut self.transport, |buffer| {
+            Ok(VirtIOSndEvent::read_from(buffer).map(|event| Notification {
+                notification_type: NotificationType::from(event.hdr.command_code),
+                data: event.data,
+            }))
         })
     }
 }
