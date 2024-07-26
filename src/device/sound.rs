@@ -1721,6 +1721,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_info() {
+        let (fake, transport) = FakeSoundDevice::new(vec![], vec![], vec![]);
+        let mut sound =
+            VirtIOSound::<FakeHal, FakeTransport<VirtIOSoundConfig>>::new(transport).unwrap();
+        let handle = fake.spawn();
+
+        assert_eq!(sound.jacks(), 0);
+        assert_eq!(sound.streams(), 0);
+        assert_eq!(sound.chmaps(), 0);
+        assert_eq!(sound.output_streams(), vec![]);
+        assert_eq!(sound.input_streams(), vec![]);
+
+        fake.terminate();
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn stream_info() {
         let (fake, transport) = FakeSoundDevice::new(
             vec![VirtIOSndJackInfo {
