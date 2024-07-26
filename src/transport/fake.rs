@@ -178,12 +178,19 @@ impl State {
 
     /// Waits until the given queue is notified.
     pub fn wait_until_queue_notified(state: &Mutex<Self>, queue_index: u16) {
-        while !state.lock().unwrap().queues[usize::from(queue_index)]
-            .notified
-            .swap(false, Ordering::SeqCst)
-        {
+        while !Self::poll_queue_notified(state, queue_index) {
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// Checks if the given queue has been notified.
+    ///
+    /// If it has, returns true and resets the status so this will return false until it is notified
+    /// again.
+    pub fn poll_queue_notified(state: &Mutex<Self>, queue_index: u16) -> bool {
+        state.lock().unwrap().queues[usize::from(queue_index)]
+            .notified
+            .swap(false, Ordering::SeqCst)
     }
 }
 

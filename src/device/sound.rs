@@ -1,5 +1,8 @@
 //! Driver for VirtIO Sound devices.
 
+#[cfg(test)]
+mod fake;
+
 use alloc::vec;
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use bitflags::bitflags;
@@ -1344,7 +1347,7 @@ struct VirtIOSndJackHdr {
 
 /// Jack infomation.
 #[repr(C)]
-#[derive(AsBytes, Eq, FromBytes, FromZeroes, PartialEq)]
+#[derive(AsBytes, Clone, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct VirtIOSndJackInfo {
     hdr: VirtIOSndInfo,
     features: u32,
@@ -1640,7 +1643,7 @@ enum ChannelPosition {
 const VIRTIO_SND_CHMAP_MAX_SIZE: usize = 18;
 
 #[repr(C)]
-#[derive(Debug, FromBytes, FromZeroes)]
+#[derive(AsBytes, Clone, Debug, FromBytes, FromZeroes)]
 struct VirtIOSndChmapInfo {
     hdr: VirtIOSndInfo,
     direction: u8,
@@ -1684,6 +1687,7 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;
+    use fake::FakeSoundDevice;
     use std::sync::Mutex;
 
     #[test]
@@ -1703,7 +1707,7 @@ mod tests {
             ..Default::default()
         }));
         let transport = FakeTransport {
-            device_type: DeviceType::Socket,
+            device_type: DeviceType::Sound,
             max_queue_size: 32,
             device_features: 0,
             config_space: NonNull::from(&mut config_space),
@@ -1714,5 +1718,56 @@ mod tests {
         assert_eq!(sound.jacks(), 3);
         assert_eq!(sound.streams(), 4);
         assert_eq!(sound.chmaps(), 2);
+    }
+
+    #[test]
+    fn stream_info() {
+        let (fake, transport) = FakeSoundDevice::new(
+            vec![VirtIOSndJackInfo {
+                hdr: VirtIOSndInfo { hda_fn_nid: 0 },
+                features: 0,
+                hda_reg_defconf: 0,
+                hda_reg_caps: 0,
+                connected: 0,
+                _padding: Default::default(),
+            }],
+            vec![
+                VirtIOSndPcmInfo {
+                    hdr: VirtIOSndInfo { hda_fn_nid: 0 },
+                    features: 0,
+                    formats: 0,
+                    rates: 0,
+                    direction: VIRTIO_SND_D_OUTPUT,
+                    channels_min: 0,
+                    channels_max: 0,
+                    _padding: Default::default(),
+                },
+                VirtIOSndPcmInfo {
+                    hdr: VirtIOSndInfo { hda_fn_nid: 0 },
+                    features: 0,
+                    formats: 0,
+                    rates: 0,
+                    direction: VIRTIO_SND_D_INPUT,
+                    channels_min: 0,
+                    channels_max: 0,
+                    _padding: Default::default(),
+                },
+            ],
+            vec![VirtIOSndChmapInfo {
+                hdr: VirtIOSndInfo { hda_fn_nid: 0 },
+                direction: 0,
+                channels: 0,
+                positions: [0; 18],
+            }],
+        );
+        let mut sound =
+            VirtIOSound::<FakeHal, FakeTransport<VirtIOSoundConfig>>::new(transport).unwrap();
+        let handle = fake.spawn();
+
+        assert_eq!(sound.output_streams(), vec![0]);
+        assert_eq!(sound.input_streams(), vec![1]);
+
+        fake.terminate();
+        handle.join().unwrap();
     }
 }
