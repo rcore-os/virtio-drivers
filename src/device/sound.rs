@@ -382,6 +382,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up()?;
             self.set_up = true;
         }
+        if period_bytes == 0 || period_bytes > buffer_bytes || buffer_bytes % period_bytes != 0 {
+            return Err(Error::InvalidParam);
+        }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmSetParams);
         let rsp = self.request(VirtIOSndPcmSetParams {
             hdr: VirtIOSndPcmHdr {
