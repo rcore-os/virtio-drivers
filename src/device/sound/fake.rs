@@ -2,9 +2,11 @@
 
 use super::{
     CommandCode, VirtIOSndChmapInfo, VirtIOSndHdr, VirtIOSndJackInfo, VirtIOSndPcmInfo,
-    VirtIOSndQueryInfo, VirtIOSoundConfig, CONTROL_QUEUE_IDX, QUEUE_SIZE,
+    VirtIOSndPcmStatus, VirtIOSndPcmXfer, VirtIOSndQueryInfo, VirtIOSoundConfig, CONTROL_QUEUE_IDX,
+    QUEUE_SIZE, TX_QUEUE_IDX,
 };
 use crate::{
+    device::sound::{VirtIOSndPcmHdr, VirtIOSndPcmSetParams},
     transport::{
         fake::{FakeTransport, QueueStatus, State},
         DeviceType,
@@ -19,6 +21,7 @@ use core::{
     time::Duration,
 };
 use std::{
+    iter::repeat_with,
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -31,6 +34,10 @@ use zerocopy::{AsBytes, FromBytes};
 pub struct FakeSoundDevice {
     pub state: Arc<Mutex<State>>,
     pub terminate: Arc<AtomicBool>,
+    /// The paramaters set for each stream, if any.
+    pub params: Arc<Mutex<Vec<Option<VirtIOSndPcmSetParams>>>>,
+    /// The bytes send on the TX queue for each channel.
+    pub played_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
     pub jack_infos: Vec<VirtIOSndJackInfo>,
     pub pcm_infos: Vec<VirtIOSndPcmInfo>,
     pub chmap_infos: Vec<VirtIOSndChmapInfo>,
@@ -63,11 +70,15 @@ impl FakeSoundDevice {
             config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
+        let params = repeat_with(|| None).take(pcm_infos.len()).collect();
+        let played_bytes = vec![vec![]; pcm_infos.len()];
 
         (
             Self {
                 state,
                 terminate: Arc::new(AtomicBool::new(false)),
+                params: Arc::new(Mutex::new(params)),
+                played_bytes: Arc::new(Mutex::new(played_bytes)),
                 jack_infos,
                 pcm_infos,
                 chmap_infos,
@@ -98,10 +109,31 @@ impl FakeSoundDevice {
                     .read_write_queue::<{ QUEUE_SIZE as usize }>(CONTROL_QUEUE_IDX, |request| {
                         self.handle_control_request(&request)
                     })
+            } else if State::poll_queue_notified(&self.state, TX_QUEUE_IDX) {
+                println!("TX queue was notified");
+                self.state
+                    .lock()
+                    .unwrap()
+                    .read_write_queue::<{ QUEUE_SIZE as usize }>(TX_QUEUE_IDX, |request| {
+                        self.handle_tx(&request)
+                    })
             } else {
                 thread::sleep(Duration::from_millis(10));
             }
         }
+    }
+
+    fn handle_tx(&self, request: &[u8]) -> Vec<u8> {
+        let header = VirtIOSndPcmXfer::read_from_prefix(&request).expect("TX request too short");
+        self.played_bytes.lock().unwrap()[usize::try_from(header.stream_id).unwrap()]
+            .extend(&request[size_of::<VirtIOSndPcmXfer>()..]);
+
+        VirtIOSndPcmStatus {
+            status: CommandCode::SOk.into(),
+            latency_bytes: 0,
+        }
+        .as_bytes()
+        .to_owned()
     }
 
     fn handle_control_request(&self, request: &[u8]) -> Vec<u8> {
@@ -109,13 +141,18 @@ impl FakeSoundDevice {
             let header =
                 VirtIOSndHdr::read_from_prefix(&request).expect("Control request too short");
             let mut response = Vec::new();
-            const RJACKINFO: u32 = CommandCode::RJackInfo as u32;
-            const RPCMINFO: u32 = CommandCode::RPcmInfo as u32;
-            const RCHMAPINFO: u32 = CommandCode::RChmapInfo as u32;
+            const R_JACK_INFO: u32 = CommandCode::RJackInfo as u32;
+            const R_PCM_INFO: u32 = CommandCode::RPcmInfo as u32;
+            const R_CHMAP_INFO: u32 = CommandCode::RChmapInfo as u32;
+            const R_PCM_SET_PARAMS: u32 = CommandCode::RPcmSetParams as u32;
+            const R_PCM_PREPARE: u32 = CommandCode::RPcmPrepare as u32;
+            const R_PCM_START: u32 = CommandCode::RPcmStart as u32;
+            const R_PCM_STOP: u32 = CommandCode::RPcmStop as u32;
+            const R_PCM_RELEASE: u32 = CommandCode::RPcmRelease as u32;
             match header.command_code {
-                RJACKINFO => {
+                R_JACK_INFO => {
                     let request = VirtIOSndQueryInfo::read_from(&request)
-                        .expect("RJackInfo control request wrong length");
+                        .expect("R_JACK_INFO control request wrong length");
                     assert_eq!(
                         request.size,
                         u32::try_from(size_of::<VirtIOSndJackInfo>()).unwrap()
@@ -132,9 +169,9 @@ impl FakeSoundDevice {
                         response.extend_from_slice(jack_info.as_bytes());
                     }
                 }
-                RPCMINFO => {
+                R_PCM_INFO => {
                     let request = VirtIOSndQueryInfo::read_from(&request)
-                        .expect("RPcmInfo control request wrong length");
+                        .expect("R_PCM_INFO control request wrong length");
                     assert_eq!(
                         request.size,
                         u32::try_from(size_of::<VirtIOSndPcmInfo>()).unwrap()
@@ -151,9 +188,9 @@ impl FakeSoundDevice {
                         response.extend_from_slice(pcm_info.as_bytes());
                     }
                 }
-                RCHMAPINFO => {
+                R_CHMAP_INFO => {
                     let request = VirtIOSndQueryInfo::read_from(&request)
-                        .expect("RJackInfo control request wrong length");
+                        .expect("R_CHMAP_INFO control request wrong length");
                     assert_eq!(
                         request.size,
                         u32::try_from(size_of::<VirtIOSndChmapInfo>()).unwrap()
@@ -169,6 +206,29 @@ impl FakeSoundDevice {
                     {
                         response.extend_from_slice(chmap_info.as_bytes());
                     }
+                }
+                R_PCM_SET_PARAMS => {
+                    let request = VirtIOSndPcmSetParams::read_from(&request)
+                        .expect("R_PCM_SET_PARAMS request wrong length");
+                    let stream_id = request.hdr.stream_id;
+                    self.params.lock().unwrap()[usize::try_from(stream_id).unwrap()] =
+                        Some(request);
+                    response.extend_from_slice(
+                        VirtIOSndHdr {
+                            command_code: CommandCode::SOk.into(),
+                        }
+                        .as_bytes(),
+                    );
+                }
+                R_PCM_PREPARE | R_PCM_START | R_PCM_STOP | R_PCM_RELEASE => {
+                    let _request =
+                        VirtIOSndPcmHdr::read_from(&request).expect("Request wrong length");
+                    response.extend_from_slice(
+                        VirtIOSndHdr {
+                            command_code: CommandCode::SOk.into(),
+                        }
+                        .as_bytes(),
+                    );
                 }
                 _ => {
                     panic!("Unexpected control request, header {:?}", header);

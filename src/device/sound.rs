@@ -1407,7 +1407,7 @@ struct VirtIOSndJackRemap {
 }
 
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 struct VirtIOSndPcmHdr {
     /// specifies request type (VIRTIO_SND_R_PCM_*)
     hdr: VirtIOSndHdr,
@@ -1530,7 +1530,7 @@ struct PcmParameters {
 }
 
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 struct VirtIOSndPcmSetParams {
     hdr: VirtIOSndPcmHdr, /* .code = VIRTIO_SND_R_PCM_SET_PARAMS */
     buffer_bytes: u32,
@@ -1545,14 +1545,14 @@ struct VirtIOSndPcmSetParams {
 
 /// An I/O header
 #[repr(C)]
-#[derive(AsBytes)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmXfer {
-    srteam_id: u32,
+    stream_id: u32,
 }
 
 /// An I/O status
 #[repr(C)]
-#[derive(FromBytes, FromZeroes)]
+#[derive(AsBytes, FromBytes, FromZeroes)]
 struct VirtIOSndPcmStatus {
     status: u32,
     latency_bytes: u32,
@@ -1751,11 +1751,11 @@ mod tests {
                 VirtIOSndPcmInfo {
                     hdr: VirtIOSndInfo { hda_fn_nid: 0 },
                     features: 0,
-                    formats: 0,
-                    rates: 0,
+                    formats: (PcmFormats::U8 | PcmFormats::U32).bits(),
+                    rates: (PcmRates::RATE_44100 | PcmRates::RATE_32000).bits(),
                     direction: VIRTIO_SND_D_OUTPUT,
-                    channels_min: 0,
-                    channels_max: 0,
+                    channels_min: 1,
+                    channels_max: 2,
                     _padding: Default::default(),
                 },
                 VirtIOSndPcmInfo {
@@ -1781,7 +1781,116 @@ mod tests {
         let handle = fake.spawn();
 
         assert_eq!(sound.output_streams().unwrap(), vec![0]);
+        assert_eq!(
+            sound.rates_supported(0).unwrap(),
+            PcmRates::RATE_44100 | PcmRates::RATE_32000
+        );
+        assert_eq!(
+            sound.formats_supported(0).unwrap(),
+            PcmFormats::U8 | PcmFormats::U32
+        );
+        assert_eq!(sound.channel_range_supported(0).unwrap(), 1..=2);
+        assert_eq!(sound.features_supported(0).unwrap(), PcmFeatures::empty());
+
         assert_eq!(sound.input_streams().unwrap(), vec![1]);
+        assert_eq!(sound.rates_supported(1).unwrap(), PcmRates::empty());
+        assert_eq!(sound.formats_supported(1).unwrap(), PcmFormats::empty());
+        assert_eq!(sound.channel_range_supported(1).unwrap(), 0..=0);
+        assert_eq!(sound.features_supported(1).unwrap(), PcmFeatures::empty());
+
+        fake.terminate();
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn play() {
+        let (fake, transport) = FakeSoundDevice::new(
+            vec![],
+            vec![VirtIOSndPcmInfo {
+                hdr: VirtIOSndInfo { hda_fn_nid: 0 },
+                features: 0,
+                formats: (PcmFormats::U8 | PcmFormats::U32).bits(),
+                rates: (PcmRates::RATE_44100 | PcmRates::RATE_32000).bits(),
+                direction: VIRTIO_SND_D_OUTPUT,
+                channels_min: 1,
+                channels_max: 2,
+                _padding: Default::default(),
+            }],
+            vec![],
+        );
+        let mut sound =
+            VirtIOSound::<FakeHal, FakeTransport<VirtIOSoundConfig>>::new(transport).unwrap();
+        let handle = fake.spawn();
+
+        assert_eq!(sound.output_streams().unwrap(), vec![0]);
+        assert_eq!(sound.input_streams().unwrap(), vec![]);
+
+        sound
+            .pcm_set_params(
+                0,
+                100,
+                100,
+                PcmFeatures::empty(),
+                1,
+                PcmFormat::U8,
+                PcmRate::Rate8000,
+            )
+            .unwrap();
+        assert_eq!(
+            fake.params.lock().unwrap()[0],
+            Some(VirtIOSndPcmSetParams {
+                hdr: VirtIOSndPcmHdr {
+                    hdr: VirtIOSndHdr {
+                        command_code: CommandCode::RPcmSetParams.into(),
+                    },
+                    stream_id: 0,
+                },
+                buffer_bytes: 100,
+                period_bytes: 100,
+                features: 0,
+                channels: 1,
+                format: PcmFormat::U8.into(),
+                rate: PcmRate::Rate8000.into(),
+                _padding: Default::default(),
+            })
+        );
+
+        sound.pcm_prepare(0).unwrap();
+        sound.pcm_start(0).unwrap();
+
+        let mut expected_sound = vec![];
+
+        // Playing an empty set of frames should be a no-op.
+        println!("Playing empty");
+        sound.pcm_xfer(0, &[]).unwrap();
+        assert_eq!(fake.played_bytes.lock().unwrap()[0], expected_sound);
+
+        // Send one buffer worth.
+        println!("Playing 100");
+        sound.pcm_xfer(0, &[42; 100]).unwrap();
+        expected_sound.extend([42; 100]);
+        assert_eq!(fake.played_bytes.lock().unwrap()[0], expected_sound);
+
+        // Send two buffers worth.
+        println!("Playing 200");
+        sound.pcm_xfer(0, &[66; 200]).unwrap();
+        expected_sound.extend([66; 200]);
+        assert_eq!(fake.played_bytes.lock().unwrap()[0], expected_sound);
+
+        // Send half a buffer worth.
+        println!("Playing 50");
+        sound.pcm_xfer(0, &[55; 50]).unwrap();
+        expected_sound.extend([55; 50]);
+        assert_eq!(fake.played_bytes.lock().unwrap()[0], expected_sound);
+
+        // Send enough that the queue will fill up.
+        println!("Playing 5000");
+        sound.pcm_xfer(0, &[12; 5000]).unwrap();
+        expected_sound.extend([12; 5000]);
+        assert_eq!(fake.played_bytes.lock().unwrap()[0], expected_sound);
+
+        sound.pcm_stop(0).unwrap();
+        sound.pcm_release(0).unwrap();
 
         fake.terminate();
         handle.join().unwrap();
