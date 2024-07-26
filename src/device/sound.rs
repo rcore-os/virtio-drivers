@@ -183,7 +183,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Set up the driver, initate pcm_infos and jacks_infos
-    fn set_up(&mut self) {
+    fn set_up(&mut self) -> Result<()> {
         // init jack info
         if let Ok(jack_infos) = self.jack_info(0, self.jacks) {
             for jack_info in &jack_infos {
@@ -192,18 +192,16 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.jack_infos = Some(jack_infos);
         } else {
             self.jack_infos = Some(vec![]);
-            warn!("[sound device] There are no available jacks!");
+            warn!("[sound device] Error getting jack infos");
         }
+
         // init pcm info
-        if let Ok(pcm_infos) = self.pcm_info(0, self.streams) {
-            for pcm_info in &pcm_infos {
-                info!("[sound device] pcm_info: {}", pcm_info);
-            }
-            self.pcm_infos = Some(pcm_infos);
-        } else {
-            self.pcm_infos = Some(vec![]);
-            warn!("[sound device] There are no available streams!");
+        let pcm_infos = self.pcm_info(0, self.streams)?;
+        for pcm_info in &pcm_infos {
+            info!("[sound device] pcm_info: {}", pcm_info);
         }
+        self.pcm_infos = Some(pcm_infos);
+
         // init chmap info
         if let Ok(chmap_infos) = self.chmap_info(0, self.chmaps) {
             for chmap_info in &chmap_infos {
@@ -212,20 +210,19 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.chmap_infos = Some(chmap_infos);
         } else {
             self.chmap_infos = Some(vec![]);
-            warn!("[sound device] There are no available chmaps!");
+            warn!("[sound device] Error getting chmap infos");
         }
+
         // set pcm state to default
         for _ in 0..self.streams {
             self.pcm_states.push(PCMState::default());
         }
         self.event_queue.set_dev_notify(true);
+        Ok(())
     }
 
     /// Query information about the available jacks.
     fn jack_info(&mut self, jack_start_id: u32, jack_count: u32) -> Result<Vec<VirtIOSndJackInfo>> {
-        if self.jacks == 0 {
-            return Err(Error::ConfigSpaceTooSmall);
-        }
         if jack_start_id + jack_count > self.jacks {
             error!("jack_start_id + jack_count > jacks! There are not enough jacks to be queried!");
             return Err(Error::IoError);
@@ -260,9 +257,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         stream_start_id: u32,
         stream_count: u32,
     ) -> Result<Vec<VirtIOSndPcmInfo>> {
-        if self.streams == 0 {
-            return Err(Error::ConfigSpaceTooSmall);
-        }
         if stream_start_id + stream_count > self.streams {
             error!("stream_start_id + stream_count > streams! There are not enough streams to be queried!");
             return Err(Error::IoError);
@@ -298,9 +292,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         chmaps_start_id: u32,
         chmaps_count: u32,
     ) -> Result<Vec<VirtIOSndChmapInfo>> {
-        if self.chmaps == 0 {
-            return Err(Error::ConfigSpaceTooSmall);
-        }
         if chmaps_start_id + chmaps_count > self.chmaps {
             error!("chmaps_start_id + chmaps_count > self.chmaps");
             return Err(Error::IoError);
@@ -333,7 +324,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// * `jack_id` - A u32 int which is in the range of [0, jacks)
     pub fn jack_remap(&mut self, jack_id: u32, association: u32, sequence: u32) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if self.jacks == 0 {
@@ -384,7 +375,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         rate: PcmRate,
     ) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmSetParams);
@@ -421,7 +412,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Prepare a stream with specified stream ID.
     pub fn pcm_prepare(&mut self, stream_id: u32) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmPrepare);
@@ -440,7 +431,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Release a stream with specified stream ID.
     pub fn pcm_release(&mut self, stream_id: u32) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmRelease);
@@ -459,7 +450,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Start a stream with specified stream ID.
     pub fn pcm_start(&mut self, stream_id: u32) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStart);
@@ -478,7 +469,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Stop a stream with specified stream ID.
     pub fn pcm_stop(&mut self, stream_id: u32) -> Result {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStop);
@@ -502,7 +493,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     pub fn pcm_xfer(&mut self, stream_id: u32, frames: &[u8]) -> Result {
         const U32_SIZE: usize = size_of::<u32>();
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if !self.pcm_parameters[stream_id as usize].setup {
@@ -714,7 +705,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// The length of the `frames` must be equal to the buffer size set for the stream corresponding to the `stream_id`.
     pub fn pcm_xfer_nb(&mut self, stream_id: u32, frames: &[u8]) -> Result<u16> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if !self.pcm_parameters[stream_id as usize].setup {
@@ -757,41 +748,43 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Get all output streams.
-    pub fn output_streams(&mut self) -> Vec<u32> {
+    pub fn output_streams(&mut self) -> Result<Vec<u32>> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
-        self.pcm_infos
+        Ok(self
+            .pcm_infos
             .as_ref()
             .unwrap()
             .iter()
             .enumerate()
             .filter(|(_, info)| info.direction == VIRTIO_SND_D_OUTPUT)
             .map(|(idx, _)| idx as u32)
-            .collect()
+            .collect())
     }
 
     /// Get all input streams.
-    pub fn input_streams(&mut self) -> Vec<u32> {
+    pub fn input_streams(&mut self) -> Result<Vec<u32>> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
-        self.pcm_infos
+        Ok(self
+            .pcm_infos
             .as_ref()
             .unwrap()
             .iter()
             .enumerate()
             .filter(|(_, info)| info.direction == VIRTIO_SND_D_INPUT)
             .map(|(idx, _)| idx as u32)
-            .collect()
+            .collect())
     }
 
     /// Get the rates that a stream supports.
     pub fn rates_supported(&mut self, stream_id: u32) -> Result<PcmRates> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
@@ -805,7 +798,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Get the formats that a stream supports.
     pub fn formats_supported(&mut self, stream_id: u32) -> Result<PcmFormats> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
@@ -819,7 +812,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Get channel range that a stream supports.
     pub fn channel_range_supported(&mut self, stream_id: u32) -> Result<RangeInclusive<u8>> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
@@ -832,7 +825,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     /// Get features that a stream supports.
     pub fn features_supported(&mut self, stream_id: u32) -> Result<PcmFeatures> {
         if !self.set_up {
-            self.set_up();
+            self.set_up()?;
             self.set_up = true;
         }
         if stream_id >= self.pcm_infos.as_ref().unwrap().len() as u32 {
@@ -1730,8 +1723,8 @@ mod tests {
         assert_eq!(sound.jacks(), 0);
         assert_eq!(sound.streams(), 0);
         assert_eq!(sound.chmaps(), 0);
-        assert_eq!(sound.output_streams(), vec![]);
-        assert_eq!(sound.input_streams(), vec![]);
+        assert_eq!(sound.output_streams().unwrap(), vec![]);
+        assert_eq!(sound.input_streams().unwrap(), vec![]);
 
         fake.terminate();
         handle.join().unwrap();
@@ -1781,8 +1774,8 @@ mod tests {
             VirtIOSound::<FakeHal, FakeTransport<VirtIOSoundConfig>>::new(transport).unwrap();
         let handle = fake.spawn();
 
-        assert_eq!(sound.output_streams(), vec![0]);
-        assert_eq!(sound.input_streams(), vec![1]);
+        assert_eq!(sound.output_streams().unwrap(), vec![0]);
+        assert_eq!(sound.input_streams().unwrap(), vec![1]);
 
         fake.terminate();
         handle.join().unwrap();
