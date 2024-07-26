@@ -103,20 +103,24 @@ impl FakeSoundDevice {
             if State::poll_queue_notified(&self.state, CONTROL_QUEUE_IDX) {
                 println!("Control queue was notified.");
 
-                self.state
+                while self
+                    .state
                     .lock()
                     .unwrap()
                     .read_write_queue::<{ QUEUE_SIZE as usize }>(CONTROL_QUEUE_IDX, |request| {
                         self.handle_control_request(&request)
                     })
+                {}
             } else if State::poll_queue_notified(&self.state, TX_QUEUE_IDX) {
                 println!("TX queue was notified");
-                self.state
+                while self
+                    .state
                     .lock()
                     .unwrap()
                     .read_write_queue::<{ QUEUE_SIZE as usize }>(TX_QUEUE_IDX, |request| {
                         self.handle_tx(&request)
                     })
+                {}
             } else {
                 thread::sleep(Duration::from_millis(10));
             }

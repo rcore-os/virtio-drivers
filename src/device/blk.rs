@@ -632,7 +632,7 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            state
+            assert!(state
                 .lock()
                 .unwrap()
                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
@@ -656,7 +656,7 @@ mod tests {
                     );
 
                     response
-                });
+                }));
         });
 
         // Read a block from the device.
@@ -702,7 +702,7 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            state
+            assert!(state
                 .lock()
                 .unwrap()
                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
@@ -728,7 +728,7 @@ mod tests {
                     );
 
                     response
-                });
+                }));
         });
 
         // Write a block to the device.
@@ -777,7 +777,7 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            state
+            assert!(state
                 .lock()
                 .unwrap()
                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
@@ -800,7 +800,7 @@ mod tests {
                     );
 
                     response
-                });
+                }));
         });
 
         // Request to flush.
@@ -844,7 +844,7 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            state
+            assert!(state
                 .lock()
                 .unwrap()
                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
@@ -868,7 +868,7 @@ mod tests {
                     );
 
                     response
-                });
+                }));
         });
 
         let mut id = [0; 20];
