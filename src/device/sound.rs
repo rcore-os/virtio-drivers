@@ -507,8 +507,10 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
 
         let mut outputs = vec![0; 32];
         let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
-        // If the size of the music is smaller than the buffer size, then one buffer is sufficient for playback.
-        if frames.len() <= buffer_size {
+        if frames.is_empty() {
+            return Ok(());
+        } else if frames.len() <= buffer_size {
+            // If the size of the music is smaller than the buffer size, then one buffer is sufficient for playback.
             let token = unsafe {
                 self.tx_queue
                     .add(&[&stream_id.to_le_bytes(), frames], &mut [&mut outputs])
