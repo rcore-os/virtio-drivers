@@ -173,13 +173,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         self.transport.ack_interrupt()
     }
 
-    fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
+    fn request<Req: AsBytes>(&mut self, req: Req) -> Result<VirtIOSndHdr> {
         self.control_queue.add_notify_wait_pop(
             &[req.as_bytes()],
             &mut [self.queue_buf_recv.as_bytes_mut()],
             &mut self.transport,
         )?;
-        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
+        Ok(VirtIOSndHdr::read_from_prefix(&self.queue_buf_recv).unwrap())
     }
 
     /// Set up the driver, initate pcm_infos and jacks_infos
@@ -231,7 +231,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             error!("jack_start_id + jack_count > jacks! There are not enough jacks to be queried!");
             return Err(Error::IoError);
         }
-        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
+        let hdr = self.request(VirtIOSndQueryInfo {
             hdr: ItemInformationRequestType::RJackInfo.into(),
             start_id: jack_start_id,
             count: jack_count,
@@ -266,7 +266,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         let request_hdr = VirtIOSndHdr::from(ItemInformationRequestType::RPcmInfo);
-        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
+        let hdr = self.request(VirtIOSndQueryInfo {
             hdr: request_hdr,
             start_id: stream_start_id,
             count: stream_count,
@@ -300,7 +300,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             error!("chmaps_start_id + chmaps_count > self.chmaps");
             return Err(Error::IoError);
         }
-        let hdr: VirtIOSndHdr = self.request(VirtIOSndQueryInfo {
+        let hdr = self.request(VirtIOSndQueryInfo {
             hdr: ItemInformationRequestType::RChmapInfo.into(),
             start_id: chmaps_start_id,
             count: chmaps_count,
@@ -352,7 +352,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             error!("The jack selected does not support VIRTIO_SND_JACK_F_REMAP!");
             return Err(Error::Unsupported);
         }
-        let hdr: VirtIOSndHdr = self.request(VirtIOSndJackRemap {
+        let hdr = self.request(VirtIOSndJackRemap {
             hdr: VirtIOSndJackHdr {
                 hdr: CommandCode::RJackRemap.into(),
                 jack_id,
@@ -383,7 +383,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmSetParams);
-        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmSetParams {
+        let rsp = self.request(VirtIOSndPcmSetParams {
             hdr: VirtIOSndPcmHdr {
                 hdr: request_hdr,
                 stream_id,
@@ -420,7 +420,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmPrepare);
-        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+        let rsp = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
@@ -439,7 +439,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmRelease);
-        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+        let rsp = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
@@ -458,7 +458,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStart);
-        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+        let rsp = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
@@ -477,7 +477,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             self.set_up = true;
         }
         let request_hdr = VirtIOSndHdr::from(CommandCode::RPcmStop);
-        let rsp: VirtIOSndHdr = self.request(VirtIOSndPcmHdr {
+        let rsp = self.request(VirtIOSndPcmHdr {
             hdr: request_hdr,
             stream_id,
         })?;
