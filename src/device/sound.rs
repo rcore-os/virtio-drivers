@@ -1,7 +1,7 @@
 //! Driver for VirtIO Sound devices.
 
 use alloc::vec;
-use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use bitflags::bitflags;
 use core::{
     fmt::{self, Debug, Display, Formatter},
@@ -1655,16 +1655,19 @@ impl Display for VirtIOSndChmapInfo {
         } else {
             "OUTPUT"
         };
-        let mut positions = vec![];
-        for i in 0..self.channels as usize {
-            let position = format!("{:?}", ChannelPosition::from(self.positions[i]));
-            positions.push(position);
-        }
         write!(
             f,
-            "direction: {}, channels: {}, postions: {:?}",
-            direction, self.channels, positions
-        )
+            "direction: {}, channels: {}, postions: [",
+            direction, self.channels
+        )?;
+        for i in 0..usize::from(self.channels) {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:?}", ChannelPosition::from(self.positions[i]))?;
+        }
+        write!(f, "]")?;
+        Ok(())
     }
 }
 
