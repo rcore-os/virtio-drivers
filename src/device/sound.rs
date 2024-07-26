@@ -217,8 +217,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         for _ in 0..self.streams {
             self.pcm_states.push(PCMState::default());
         }
-        self.event_queue.set_dev_notify(true);
         Ok(())
+    }
+
+    /// Enables interrupts from the device.
+    pub fn enable_interrupts(&mut self, enable: bool) {
+        self.event_queue.set_dev_notify(enable);
     }
 
     /// Query information about the available jacks.
