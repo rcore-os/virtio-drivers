@@ -3,8 +3,14 @@
 #[cfg(test)]
 mod fake;
 
-use alloc::vec;
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use super::common::Feature;
+use crate::{
+    queue::{owning::OwningQueue, VirtQueue},
+    transport::Transport,
+    volatile::{volread, ReadOnly},
+    Error, Hal, Result, PAGE_SIZE,
+};
+use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 use bitflags::bitflags;
 use core::{
     array,
@@ -16,16 +22,6 @@ use core::{
 use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
-
-use crate::queue::owning::OwningQueue;
-use crate::{
-    queue::VirtQueue,
-    transport::Transport,
-    volatile::{volread, ReadOnly},
-    Error, Hal, Result, PAGE_SIZE,
-};
-
-use super::common::Feature;
 
 const RSP_SIZE: usize = 128;
 
