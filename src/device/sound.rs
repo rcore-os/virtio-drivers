@@ -7,6 +7,7 @@ use alloc::vec;
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use bitflags::bitflags;
 use core::{
+    array,
     fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
     mem::size_of,
@@ -508,187 +509,64 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
 
-        let mut outputs = vec![0; 32];
-        let buffer_size = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
-        if frames.is_empty() {
-            return Ok(());
-        } else if frames.len() <= buffer_size {
-            // If the size of the music is smaller than the buffer size, then one buffer is sufficient for playback.
-            self.tx_queue.add_notify_wait_pop(
-                &[&stream_id.to_le_bytes(), frames],
-                &mut [&mut outputs],
-                &mut self.transport,
-            )?;
-            return Ok(());
-        } else if buffer_size < frames.len() && frames.len() <= buffer_size * 2 {
-            let token1 = unsafe {
-                self.tx_queue
-                    .add(
-                        &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap()
-            };
-            let token2 = unsafe {
-                self.tx_queue
-                    .add(
-                        &[&stream_id.to_le_bytes(), &frames[buffer_size..]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap()
-            };
-            self.transport.notify(TX_QUEUE_IDX);
-            while !self.tx_queue.can_pop() {
-                spin_loop()
-            }
-            unsafe {
-                self.tx_queue
-                    .pop_used(
-                        token1,
-                        &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap();
-            }
-            while !self.tx_queue.can_pop() {
-                spin_loop()
-            }
-            unsafe {
-                self.tx_queue
-                    .pop_used(
-                        token2,
-                        &[&stream_id.to_le_bytes(), &frames[buffer_size..]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap();
-            }
-            return Ok(());
-        }
-        // Safe because the device reads the buffer one at a time, ensuring that it's impossible for outputs to be occupied simultaneously.
-        let mut token1 = unsafe {
-            self.tx_queue
-                .add(
-                    &[&stream_id.to_le_bytes(), &frames[..buffer_size]],
-                    &mut [&mut outputs],
-                )
-                .unwrap()
-        };
-        let mut token2 = unsafe {
-            self.tx_queue
-                .add(
-                    &[
-                        &stream_id.to_le_bytes(),
-                        &frames[buffer_size..2 * buffer_size],
-                    ],
-                    &mut [&mut outputs],
-                )
-                .unwrap()
-        };
+        let stream_id_bytes = stream_id.to_le_bytes();
+        let period_size = self.pcm_parameters[stream_id as usize].period_bytes as usize;
 
-        let mut last_start1 = 0;
-        let mut last_end1 = buffer_size;
-        let mut last_start2 = buffer_size;
-        let mut last_end2 = 2 * buffer_size;
+        let mut remaining_buffers = frames.chunks(period_size);
+        let mut buffers: [Option<&[u8]>; QUEUE_SIZE as usize] = [None; QUEUE_SIZE as usize];
+        let mut statuses: [VirtIOSndPcmStatus; QUEUE_SIZE as usize] =
+            array::from_fn(|_| Default::default());
+        let mut tokens = [0; QUEUE_SIZE as usize];
+        // The next element of `statuses` and `tokens` to use for adding to the queue.
+        let mut head = 0;
+        // The next element of `status` and `tokens` to use for popping the queue.
+        let mut tail = 0;
 
-        let xfer_times = if frames.len() % buffer_size == 0 {
-            frames.len() / buffer_size
-        } else {
-            frames.len() / buffer_size + 1
-        };
-
-        let mut turn1 = true;
-
-        for i in 2..xfer_times {
-            if self.tx_queue.should_notify() {
-                self.transport.notify(TX_QUEUE_IDX);
-            }
-
-            let start_byte = i * buffer_size;
-            let end_byte = if i != xfer_times - 1 {
-                (i + 1) * buffer_size
-            } else {
-                frames.len()
-            };
-            if turn1 {
-                while !self.tx_queue.can_pop() {
-                    spin_loop();
+        loop {
+            // Add as buffers to the TX queue if possible. 3 descriptors are required for the 2
+            // input buffers and 1 output buffer.
+            if self.tx_queue.available_desc() >= 3 {
+                if let Some(buffer) = remaining_buffers.next() {
+                    tokens[head] = unsafe {
+                        self.tx_queue.add(
+                            &[&stream_id_bytes, buffer],
+                            &mut [statuses[head].as_bytes_mut()],
+                        )?
+                    };
+                    if self.tx_queue.should_notify() {
+                        self.transport.notify(TX_QUEUE_IDX);
+                    }
+                    info!("Added buffer, head = {}, token = {}", head, tokens[head]);
+                    buffers[head] = Some(buffer);
+                    head += 1;
+                    if head >= usize::from(QUEUE_SIZE) {
+                        head = 0;
+                    }
+                } else if head == tail {
+                    info!("head = {head}, tail = {tail}, breaking");
+                    break;
                 }
-                // Safe because token1 corresponds to buf1, and there's only one output buffer outputs, maintaining the same relationship as when add() was initially performed.
-                // The following unsafe ones are similarly.
+            }
+            if self.tx_queue.can_pop() {
                 unsafe {
-                    self.tx_queue
-                        .pop_used(
-                            token1,
-                            &[&stream_id.to_le_bytes(), &frames[last_start1..last_end1]],
-                            &mut [&mut outputs],
-                        )
-                        .unwrap(); // This operation will never return Err(_), so using unwarp() is reasonable.
+                    self.tx_queue.pop_used(
+                        tokens[tail],
+                        &[&stream_id_bytes, buffers[tail].unwrap()],
+                        &mut [statuses[tail].as_bytes_mut()],
+                    )?;
                 }
-                turn1 = false;
-                token1 = unsafe {
-                    self.tx_queue
-                        .add(
-                            &[&stream_id.to_le_bytes(), &frames[start_byte..end_byte]],
-                            &mut [&mut outputs],
-                        )
-                        .unwrap()
-                };
-                last_start1 = start_byte;
-                last_end1 = end_byte;
-            } else {
-                while !self.tx_queue.can_pop() {
-                    spin_loop();
+                info!("Popped buffer, tail = {}, token = {}", tail, tokens[tail]);
+                if statuses[tail].status != CommandCode::SOk.into() {
+                    return Err(Error::IoError);
                 }
-                unsafe {
-                    self.tx_queue
-                        .pop_used(
-                            token2,
-                            &[&stream_id.to_le_bytes(), &frames[last_start2..last_end2]],
-                            &mut [&mut outputs],
-                        )
-                        .unwrap(); // This operation will never return Err(_), so using unwarp() is reasonable.
+                tail += 1;
+                if tail >= usize::from(QUEUE_SIZE) {
+                    tail = 0;
                 }
-                turn1 = true;
-                token2 = unsafe {
-                    self.tx_queue
-                        .add(
-                            &[&stream_id.to_le_bytes(), &frames[start_byte..end_byte]],
-                            &mut [&mut outputs],
-                        )
-                        .unwrap()
-                };
-                last_start2 = start_byte;
-                last_end2 = end_byte;
             }
+            spin_loop();
         }
-        // wait for the last buffer
-        if turn1 {
-            while !self.tx_queue.can_pop() {
-                spin_loop()
-            }
-            unsafe {
-                self.tx_queue
-                    .pop_used(
-                        token1,
-                        &[&stream_id.to_le_bytes(), &frames[last_start1..last_end1]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap();
-            }
-        } else {
-            while !self.tx_queue.can_pop() {
-                spin_loop()
-            }
-            unsafe {
-                self.tx_queue
-                    .pop_used(
-                        token2,
-                        &[&stream_id.to_le_bytes(), &frames[last_start2..last_end2]],
-                        &mut [&mut outputs],
-                    )
-                    .unwrap();
-            }
-        }
+
         Ok(())
     }
 
@@ -1542,7 +1420,7 @@ struct VirtIOSndPcmXfer {
 
 /// An I/O status
 #[repr(C)]
-#[derive(AsBytes, FromBytes, FromZeroes)]
+#[derive(AsBytes, Default, FromBytes, FromZeroes)]
 struct VirtIOSndPcmStatus {
     status: u32,
     latency_bytes: u32,
