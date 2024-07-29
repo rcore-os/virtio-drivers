@@ -19,8 +19,8 @@ use core::{
     mem::size_of,
     ops::RangeInclusive,
 };
+use enumn::N;
 use log::{error, info, warn};
-use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// Audio driver based on virtio v1.2.
@@ -706,10 +706,15 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         // If the device has written notifications to the event_queue,
         // then the oldest notification should be at the front of the queue.
         self.event_queue.poll(&mut self.transport, |buffer| {
-            Ok(VirtIOSndEvent::read_from(buffer).map(|event| Notification {
-                notification_type: NotificationType::from(event.hdr.command_code),
-                data: event.data,
-            }))
+            if let Some(event) = VirtIOSndEvent::read_from(buffer) {
+                Ok(Some(Notification {
+                    notification_type: NotificationType::n(event.hdr.command_code)
+                        .ok_or(Error::IoError)?,
+                    data: event.data,
+                }))
+            } else {
+                Ok(None)
+            }
         })
     }
 }
@@ -1022,7 +1027,7 @@ struct VirtIOSoundConfig {
 ///
 /// To avoid ambiguity in its meaning, I use the term "CommandCode" here.
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, Eq, FromPrimitive, IntoPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, N, PartialEq)]
 enum CommandCode {
     /* jack control request types */
     RJackInfo = 1,
@@ -1049,7 +1054,6 @@ enum CommandCode {
 
     /* common status codes */
     /// success
-    #[num_enum(default)]
     SOk = 0x8000,
     /// a control message is malformed or contains invalid parameters
     SBadMsg,
@@ -1057,6 +1061,12 @@ enum CommandCode {
     SNotSupp,
     ///  an I/O error occurred
     SIoErr,
+}
+
+impl From<CommandCode> for u32 {
+    fn from(code: CommandCode) -> u32 {
+        code as u32
+    }
 }
 
 /// Enum representing the types of item information requests.
@@ -1085,7 +1095,7 @@ impl From<ItemInformationRequestType> for u32 {
     }
 }
 
-#[derive(IntoPrimitive)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
 enum RequestStatusCode {
     /* common status codes */
@@ -1128,17 +1138,29 @@ struct VirtIOSndEvent {
 
 /// The notification type.
 #[repr(u32)]
-#[derive(Debug, FromPrimitive, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum NotificationType {
-    /// A hardware buffer period has elapsed, the period size is controlled using the `period_bytes` field.
-    #[num_enum(default)]
-    PcmPeriodElapsed = 0x1100,
-    /// An underflow for the output stream or an overflow for the inputstream has occurred.
-    PcmXrun,
     /// An external device has been connected to the jack.
     JackConnected = 0x1000,
     /// An external device has been disconnected from the jack.
     JackDisconnected,
+    /// A hardware buffer period has elapsed, the period size is controlled using the `period_bytes` field.
+    PcmPeriodElapsed = 0x1100,
+    /// An underflow for the output stream or an overflow for the inputstream has occurred.
+    PcmXrun,
+}
+
+impl NotificationType {
+    /// Converts the given value to a variant of this enum, if any matches.
+    fn n(value: u32) -> Option<Self> {
+        match value {
+            0x1100 => Some(Self::PcmPeriodElapsed),
+            0x1101 => Some(Self::PcmXrun),
+            0x1000 => Some(Self::JackConnected),
+            0x1001 => Some(Self::JackDisconnected),
+            _ => None,
+        }
+    }
 }
 
 /// Notification from sound device.
@@ -1418,10 +1440,9 @@ struct VirtIOSndPcmStatus {
     latency_bytes: u32,
 }
 
-#[derive(FromPrimitive, Debug)]
+#[derive(Copy, Clone, Debug, Eq, N, PartialEq)]
 #[repr(u8)]
 enum ChannelPosition {
-    #[num_enum(default)]
     /// undefined
     None = 0,
     /// silent
@@ -1526,7 +1547,11 @@ impl Display for VirtIOSndChmapInfo {
             if i != 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{:?}", ChannelPosition::from(self.positions[i]))?;
+            if let Some(position) = ChannelPosition::n(self.positions[i]) {
+                write!(f, "{:?}", position)?;
+            } else {
+                write!(f, "{}", self.positions[i])?;
+            }
         }
         write!(f, "]")?;
         Ok(())
