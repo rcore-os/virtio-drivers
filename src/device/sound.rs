@@ -23,8 +23,6 @@ use log::{error, info, warn};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
-const RSP_SIZE: usize = 128;
-
 /// Audio driver based on virtio v1.2.
 ///
 /// Supports synchronous blocking and asynchronous non-blocking audio playback.
@@ -56,7 +54,7 @@ pub struct VirtIOSound<H: Hal, T: Transport> {
 
     set_up: bool,
 
-    token_rsp: BTreeMap<u16, Box<[u8; RSP_SIZE]>>, // includes pcm_xfer response msg
+    token_rsp: BTreeMap<u16, Box<VirtIOSndPcmStatus>>, // includes pcm_xfer response msg
 
     pcm_states: Vec<PCMState>,
 
@@ -583,13 +581,13 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             return Err(Error::IoError);
         }
         const U32_SIZE: usize = size_of::<u32>();
-        let buffer_size: usize = self.pcm_parameters[stream_id as usize].buffer_bytes as usize;
-        assert_eq!(buffer_size, frames.len());
-        let mut buf = vec![0; U32_SIZE + buffer_size];
+        let period_size: usize = self.pcm_parameters[stream_id as usize].period_bytes as usize;
+        assert_eq!(period_size, frames.len());
+        let mut buf = vec![0; U32_SIZE + period_size];
         buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
-        buf[U32_SIZE..U32_SIZE + buffer_size].copy_from_slice(frames);
-        let mut rsp = Box::new([0; RSP_SIZE]);
-        let token = unsafe { self.tx_queue.add(&[&buf], &mut [rsp.as_mut()])? };
+        buf[U32_SIZE..U32_SIZE + period_size].copy_from_slice(frames);
+        let mut rsp = VirtIOSndPcmStatus::new_box_zeroed();
+        let token = unsafe { self.tx_queue.add(&[&buf], &mut [rsp.as_bytes_mut()])? };
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
@@ -602,19 +600,17 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
         assert!(self.token_buf.contains_key(&token));
         assert!(self.token_rsp.contains_key(&token));
-        let mut rsp = self.token_rsp[&token].clone();
-        if unsafe {
-            self.tx_queue
-                .pop_used(token, &[&self.token_buf[&token]], &mut [rsp.as_mut()])
+        unsafe {
+            self.tx_queue.pop_used(
+                token,
+                &[&self.token_buf[&token]],
+                &mut [self.token_rsp.get_mut(&token).unwrap().as_bytes_mut()],
+            )?;
         }
-        .is_err()
-        {
-            Err(Error::IoError)
-        } else {
-            self.token_buf.remove(&token);
-            self.token_rsp.remove(&token);
-            Ok(())
-        }
+
+        self.token_buf.remove(&token);
+        self.token_rsp.remove(&token);
+        Ok(())
     }
 
     /// Get all output streams.
