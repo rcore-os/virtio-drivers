@@ -411,9 +411,8 @@ fn allocate_bars(
     device_function: DeviceFunction,
     allocator: &mut PciMemory32Allocator,
 ) {
-    let mut bar_index = 0;
-    while bar_index < 6 {
-        let info = root.bar_info(device_function, bar_index).unwrap();
+    for (bar_index, info) in root.bars(device_function).unwrap().into_iter().enumerate() {
+        let Some(info) = info else { continue };
         debug!("BAR {}: {}", bar_index, info);
         // Ignore I/O bars, as they aren't required for the VirtIO driver.
         if let BarInfo::Memory {
@@ -425,24 +424,19 @@ fn allocate_bars(
                     if size > 0 {
                         let address = allocator.allocate_memory_32(size);
                         debug!("Allocated address {:#010x}", address);
-                        root.set_bar_32(device_function, bar_index, address);
+                        root.set_bar_32(device_function, bar_index as u8, address);
                     }
                 }
                 MemoryBarType::Width64 => {
                     if size > 0 {
                         let address = allocator.allocate_memory_32(size);
                         debug!("Allocated address {:#010x}", address);
-                        root.set_bar_64(device_function, bar_index, address.into());
+                        root.set_bar_64(device_function, bar_index as u8, address.into());
                     }
                 }
 
                 _ => panic!("Memory BAR address type {:?} not supported.", address_type),
             }
-        }
-
-        bar_index += 1;
-        if info.takes_two_entries() {
-            bar_index += 1;
         }
     }
 
