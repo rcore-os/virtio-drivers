@@ -17,6 +17,7 @@ categories = ["hardware-support", "no-std"]
 [dependencies]
 log = "0.4"
 bitflags = "2.3.0"
+enumn = "0.1.13"
 zerocopy = { version = "0.7.5", features = ["derive"] }
 
 [features]

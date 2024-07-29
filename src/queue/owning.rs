@@ -41,6 +41,11 @@ impl<H: Hal, const SIZE: usize, const BUFFER_SIZE: usize> OwningQueue<H, SIZE, B
         self.queue.should_notify()
     }
 
+    /// Tells the device whether to send used buffer notifications.
+    pub fn set_dev_notify(&mut self, enable: bool) {
+        self.queue.set_dev_notify(enable);
+    }
+
     /// Adds the buffer at the given index in `buffers` back to the queue.
     ///
     /// Automatically notifies the device if required.

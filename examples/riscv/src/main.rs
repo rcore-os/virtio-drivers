@@ -13,7 +13,12 @@ use core::ptr::NonNull;
 use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
-    device::{blk::VirtIOBlk, gpu::VirtIOGpu, input::VirtIOInput},
+    device::{
+        blk::VirtIOBlk,
+        gpu::VirtIOGpu,
+        input::VirtIOInput,
+        sound::{PcmFormat, PcmRate, VirtIOSound},
+    },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
@@ -85,6 +90,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::GPU => virtio_gpu(transport),
         DeviceType::Input => virtio_input(transport),
         DeviceType::Network => virtio_net(transport),
+        DeviceType::Sound => virtio_sound(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
 }
@@ -173,5 +179,63 @@ fn virtio_net<T: Transport>(transport: T) {
         .expect("failed to create net driver");
         info!("MAC address: {:02x?}", net.mac_address());
         tcp::test_echo_server(net);
+    }
+}
+
+fn virtio_sound<T: Transport>(transport: T) {
+    let mut sound =
+        VirtIOSound::<HalImpl, T>::new(transport).expect("failed to create sound driver");
+    let output_streams = sound.output_streams().unwrap();
+    if output_streams.len() > 0 {
+        let output_stream_id = *output_streams.first().unwrap();
+        let rates = sound.rates_supported(output_stream_id).unwrap();
+        let formats = sound.formats_supported(output_stream_id).unwrap();
+        let channel_range = sound.channel_range_supported(output_stream_id).unwrap();
+        let features = sound.features_supported(output_stream_id).unwrap();
+
+        let rate = if rates.contains(PcmRate::Rate44100.into()) {
+            PcmRate::Rate44100
+        } else {
+            PcmRate::Rate32000
+        };
+        let format = if formats.contains(PcmFormat::U8.into()) {
+            PcmFormat::U8
+        } else {
+            PcmFormat::U32
+        };
+        let channel = if channel_range.contains(&2) {
+            2 as u8
+        } else {
+            *channel_range.start()
+        };
+        sound
+            .pcm_set_params(
+                output_stream_id,
+                4410 * 2,
+                4410,
+                features,
+                channel,
+                format,
+                rate,
+            )
+            .expect("pcm_set_params error");
+        sound
+            .pcm_prepare(output_stream_id)
+            .expect("pcm_prepare error");
+        sound.pcm_start(output_stream_id).expect("pcm_start error");
+        let music = include_bytes!("../music_44100Hz_u8_stereo.raw");
+        info!("[sound device] music len is {} bytes.", music.len());
+        // xfer buffer
+        sound
+            .pcm_xfer(output_stream_id, &music[..])
+            .expect("pcm_xfer error");
+        sound.pcm_stop(output_stream_id).expect("pcm_stop error");
+        sound
+            .pcm_release(output_stream_id)
+            .expect("pcm_release error");
+        match sound.latest_notification() {
+            Ok(notification) => info!("{:?}", notification),
+            Err(e) => warn!("{}", e),
+        }
     }
 }

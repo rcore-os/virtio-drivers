@@ -50,7 +50,7 @@ jobs:
           args: --all-features
 
   examples:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -77,4 +77,4 @@ jobs:
         run: make kernel
       - name: Run
         working-directory: examples/${{ matrix.example }}
-        run: QEMU_ARGS="-display none" make qemu accel="off"
+        run: QEMU_ARGS="-display none -audiodev none,id=audio0" make qemu accel="off"

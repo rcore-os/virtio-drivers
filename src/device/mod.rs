@@ -11,5 +11,7 @@ pub mod input;
 pub mod net;
 
 pub mod socket;
+#[cfg(feature = "alloc")]
+pub mod sound;
 
 pub(crate) mod common;

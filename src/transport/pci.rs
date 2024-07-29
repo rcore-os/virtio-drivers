@@ -525,11 +525,12 @@ mod tests {
 
     #[test]
     fn offset_device_ids() {
+        assert_eq!(device_type(0x1040), DeviceType::Invalid);
         assert_eq!(device_type(0x1045), DeviceType::MemoryBalloon);
         assert_eq!(device_type(0x1049), DeviceType::_9P);
         assert_eq!(device_type(0x1058), DeviceType::Memory);
-        assert_eq!(device_type(0x1040), DeviceType::Invalid);
-        assert_eq!(device_type(0x1059), DeviceType::Invalid);
+        assert_eq!(device_type(0x1059), DeviceType::Sound);
+        assert_eq!(device_type(0x1060), DeviceType::Invalid);
     }
 
     #[test]
