@@ -2,6 +2,7 @@
 
 use bitflags::bitflags;
 use core::{
+    array,
     convert::TryFrom,
     fmt::{self, Display, Formatter},
 };
@@ -244,6 +245,22 @@ impl PciRoot {
             device_function,
             next_capability_offset: self.capabilities_offset(device_function),
         }
+    }
+
+    /// Returns information about all the given device function's BARs.
+    pub fn bars(
+        &mut self,
+        device_function: DeviceFunction,
+    ) -> Result<[Option<BarInfo>; 6], PciError> {
+        let mut bars = array::from_fn(|_| None);
+        let mut bar_index = 0;
+        while bar_index < 6 {
+            let info = self.bar_info(device_function, bar_index)?;
+            let takes_two_entries = info.takes_two_entries();
+            bars[usize::from(bar_index)] = Some(info);
+            bar_index += if takes_two_entries { 2 } else { 1 };
+        }
+        Ok(bars)
     }
 
     /// Gets information about the given BAR of the given device function.
