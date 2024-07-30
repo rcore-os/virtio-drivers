@@ -186,7 +186,7 @@ fn virtio_sound<T: Transport>(transport: T) {
     let mut sound =
         VirtIOSound::<HalImpl, T>::new(transport).expect("failed to create sound driver");
     let output_streams = sound.output_streams().unwrap();
-    if output_streams.len() > 0 {
+    if !output_streams.is_empty() {
         let output_stream_id = *output_streams.first().unwrap();
         let rates = sound.rates_supported(output_stream_id).unwrap();
         let formats = sound.formats_supported(output_stream_id).unwrap();
@@ -204,7 +204,7 @@ fn virtio_sound<T: Transport>(transport: T) {
             PcmFormat::U32
         };
         let channel = if channel_range.contains(&2) {
-            2 as u8
+            2
         } else {
             *channel_range.start()
         };
