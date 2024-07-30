@@ -335,7 +335,7 @@ impl PciMemory32Allocator {
         let mut memory_32_size = 0;
         for i in 0..ranges.value.len() / 28 {
             let range = &ranges.value[i * 28..(i + 1) * 28];
-            let prefetchable = range[0] & 0x80 != 0;
+            let prefetchable = range[0] & 0x40 != 0;
             let range_type = PciRangeType::from(range[0] & 0x3);
             let bus_address = u64::from_be_bytes(range[4..12].try_into().unwrap());
             let cpu_physical = u64::from_be_bytes(range[12..20].try_into().unwrap());
