@@ -530,14 +530,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                     if self.tx_queue.should_notify() {
                         self.transport.notify(TX_QUEUE_IDX);
                     }
-                    info!("Added buffer, head = {}, token = {}", head, tokens[head]);
                     buffers[head] = Some(buffer);
                     head += 1;
                     if head >= usize::from(QUEUE_SIZE) {
                         head = 0;
                     }
                 } else if head == tail {
-                    info!("head = {head}, tail = {tail}, breaking");
                     break;
                 }
             }
@@ -549,7 +547,6 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                         &mut [statuses[tail].as_bytes_mut()],
                     )?;
                 }
-                info!("Popped buffer, tail = {}, token = {}", tail, tokens[tail]);
                 if statuses[tail].status != CommandCode::SOk.into() {
                     return Err(Error::IoError);
                 }
