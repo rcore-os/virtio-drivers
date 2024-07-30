@@ -267,8 +267,8 @@ enum PciRangeType {
     Memory64,
 }
 
-impl From<u8> for PciRangeType {
-    fn from(value: u8) -> Self {
+impl From<u32> for PciRangeType {
+    fn from(value: u32) -> Self {
         match value {
             0 => Self::ConfigurationSpace,
             1 => Self::IoSpace,
@@ -324,18 +324,14 @@ struct PciMemory32Allocator {
 impl PciMemory32Allocator {
     /// Creates a new allocator based on the ranges property of the given PCI node.
     pub fn for_pci_ranges(pci_node: &FdtNode) -> Self {
-        let ranges = pci_node
-            .property("ranges")
-            .expect("PCI node missing ranges property.");
         let mut memory_32_address = 0;
         let mut memory_32_size = 0;
-        for i in 0..ranges.value.len() / 28 {
-            let range = &ranges.value[i * 28..(i + 1) * 28];
-            let prefetchable = range[0] & 0x40 != 0;
-            let range_type = PciRangeType::from(range[0] & 0x3);
-            let bus_address = u64::from_be_bytes(range[4..12].try_into().unwrap());
-            let cpu_physical = u64::from_be_bytes(range[12..20].try_into().unwrap());
-            let size = u64::from_be_bytes(range[20..28].try_into().unwrap());
+        for range in pci_node.ranges() {
+            let prefetchable = range.child_bus_address_hi & 0x4000_0000 != 0;
+            let range_type = PciRangeType::from((range.child_bus_address_hi & 0x0300_0000) >> 24);
+            let bus_address = range.child_bus_address as u64;
+            let cpu_physical = range.parent_bus_address as u64;
+            let size = range.size as u64;
             info!(
                 "range: {:?} {}prefetchable bus address: {:#018x} host physical address: {:#018x} size: {:#018x}",
                 range_type,
