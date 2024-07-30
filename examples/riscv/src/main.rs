@@ -10,7 +10,7 @@ extern crate opensbi_rt;
 
 use alloc::vec;
 use core::ptr::NonNull;
-use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
+use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
 use virtio_drivers::{
     device::{
@@ -58,7 +58,7 @@ fn walk_dt(fdt: Fdt) {
 }
 
 fn virtio_probe(node: FdtNode) {
-    if let Some(reg) = node.reg().and_then(|mut reg| reg.next()) {
+    if let Some(reg) = node.reg().next() {
         let paddr = reg.starting_address as usize;
         let size = reg.size.unwrap();
         let vaddr = paddr;

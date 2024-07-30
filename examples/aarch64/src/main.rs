@@ -21,7 +21,7 @@ use core::{
     panic::PanicInfo,
     ptr::{self, NonNull},
 };
-use fdt::{node::FdtNode, standard_nodes::Compatible, Fdt};
+use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use smccc::{psci::system_off, Hvc};
@@ -86,20 +86,16 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
             node.name,
             node.compatible().map(Compatible::first),
         );
-        if let Some(reg) = node.reg() {
-            for range in reg {
-                trace!(
-                    "  {:#018x?}, length {:?}",
-                    range.starting_address,
-                    range.size
-                );
-            }
+        for range in node.reg() {
+            trace!(
+                "  {:#018x?}, length {:?}",
+                range.starting_address,
+                range.size
+            );
         }
 
         // Check whether it is a VirtIO MMIO device.
-        if let (Some(compatible), Some(region)) =
-            (node.compatible(), node.reg().and_then(|mut reg| reg.next()))
-        {
+        if let (Some(compatible), Some(region)) = (node.compatible(), node.reg().next()) {
             if compatible.all().any(|s| s == "virtio,mmio")
                 && region.size.unwrap_or(0) > size_of::<VirtIOHeader>()
             {
@@ -284,7 +280,7 @@ impl From<u8> for PciRangeType {
 }
 
 fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
-    let reg = pci_node.reg().expect("PCI node missing reg property.");
+    let reg = pci_node.reg();
     let mut allocator = PciMemory32Allocator::for_pci_ranges(&pci_node);
 
     for region in reg {
