@@ -5,9 +5,9 @@ authors = ["Andrew Walbran <qwandor@google.com>"]
 edition = "2021"
 
 [dependencies]
-buddy_system_allocator = "0.9.0"
-fdt = "0.1.5"
-log = "0.4.17"
+buddy_system_allocator = "0.10.0"
+flat_device_tree = "3.1.1"
+log = "0.4.22"
 smccc = "0.1.1"
 spin = "0.9.8"
 virtio-drivers = { path = "../.." }
