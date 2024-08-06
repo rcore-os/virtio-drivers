@@ -18,11 +18,13 @@ categories = ["hardware-support", "no-std"]
 log = "0.4.22"
 bitflags = "2.6.0"
 enumn = "0.1.14"
+embedded-io = { version = "0.6.1", optional = true }
 zerocopy = { version = "0.7.35", features = ["derive"] }
 
 [features]
-default = ["alloc"]
+default = ["alloc", "embedded-io"]
 alloc = ["zerocopy/alloc"]
+embedded-io = ["dep:embedded-io"]
 
 [dev-dependencies]
 zerocopy = { version = "0.7.35", features = ["alloc"] }
