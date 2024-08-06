@@ -207,6 +207,13 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             .add_notify_wait_pop(&[&buf], &mut [], &mut self.transport)?;
         Ok(())
     }
+
+    /// Sends one or more bytes to the console.
+    pub fn send_bytes(&mut self, buffer: &[u8]) -> Result {
+        self.transmitq
+            .add_notify_wait_pop(&[buffer], &mut [], &mut self.transport)?;
+        Ok(())
+    }
 }
 
 impl<H: Hal, T: Transport> Drop for VirtIOConsole<H, T> {
