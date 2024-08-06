@@ -10,7 +10,11 @@ use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
-use core::ptr::NonNull;
+use core::{
+    fmt::{self, Write},
+    ptr::NonNull,
+};
+use log::error;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -227,6 +231,15 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             self.finish_receive()?;
         }
         Ok(())
+    }
+}
+
+impl<H: Hal, T: Transport> Write for VirtIOConsole<H, T> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.send_bytes(s.as_bytes()).map_err(|e| {
+            error!("Error writing to conosel: {}", e);
+            fmt::Error
+        })
     }
 }
 
