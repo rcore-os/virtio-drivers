@@ -6,8 +6,9 @@ use crate::{transport::Transport, Hal, Result};
 use alloc::{boxed::Box, vec::Vec};
 use core::cmp::min;
 use core::convert::TryInto;
+use core::fmt::{self, Debug, Formatter, Write};
 use core::hint::spin_loop;
-use log::debug;
+use log::{debug, error};
 use zerocopy::FromZeros;
 
 const DEFAULT_PER_CONNECTION_BUFFER_CAPACITY: u32 = 1024;
@@ -298,6 +299,66 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
 
         self.connections.swap_remove(index);
         Ok(())
+    }
+
+    /// Returns a struct representing a particular connection on this connection manager.
+    ///
+    /// This doesn't check whether the connection actually exists. If you try to get a connection
+    /// which doesn't exist then this will still return it, but sending to or receiving from it will
+    /// fail.
+    pub fn connection(
+        &mut self,
+        peer: VsockAddr,
+        local_port: u32,
+    ) -> VsockConnection<H, T, RX_BUFFER_SIZE> {
+        VsockConnection {
+            peer,
+            local_port,
+            manager: self,
+        }
+    }
+}
+
+/// A reference to a particular open vsock connection, which may be used to send or receive data.
+pub struct VsockConnection<
+    'a,
+    H: Hal,
+    T: Transport,
+    const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
+> {
+    pub peer: VsockAddr,
+    pub local_port: u32,
+    pub manager: &'a mut VsockConnectionManager<H, T, RX_BUFFER_SIZE>,
+}
+
+impl<H: Hal, T: Transport> Debug for VsockConnection<'_, H, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("VsockConnection")
+            .field("peer", &self.peer)
+            .field("local_port", &self.local_port)
+            .field("manager", &"...")
+            .finish()
+    }
+}
+
+impl<H: Hal, T: Transport> VsockConnection<'_, H, T> {
+    /// Sends the given bytes to the connection.
+    pub fn send(&mut self, buffer: &[u8]) -> Result {
+        self.manager.send(self.peer, self.local_port, buffer)
+    }
+
+    /// Reads data from the connection.
+    pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
+        self.manager.recv(self.peer, self.local_port, buffer)
+    }
+}
+
+impl<H: Hal, T: Transport> Write for VsockConnection<'_, H, T> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.send(s.as_bytes()).map_err(|e| {
+            error!("Error writing to vsock connection: {}", e);
+            fmt::Error
+        })
     }
 }
 
