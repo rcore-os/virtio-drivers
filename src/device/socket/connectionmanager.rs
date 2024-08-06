@@ -1,3 +1,6 @@
+#[cfg(feature = "embedded-io")]
+mod embedded_io;
+
 use super::{
     protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket,
     VsockEvent, VsockEventType, DEFAULT_RX_BUFFER_SIZE,
