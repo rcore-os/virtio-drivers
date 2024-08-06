@@ -304,6 +304,13 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
         Ok(())
     }
 
+    /// Returns the amount of buffer space the peer has to receive data from the given connection,
+    /// and requests a credit update if it is 0.
+    pub fn peer_buffer_available(&mut self, peer: VsockAddr, local_port: u32) -> Result<usize> {
+        let (_, connection) = get_connection(&mut self.connections, peer, local_port)?;
+        self.driver.peer_buffer_available(&mut connection.info)
+    }
+
     /// Returns a struct representing a particular connection on this connection manager.
     ///
     /// This doesn't check whether the connection actually exists. If you try to get a connection
@@ -353,6 +360,12 @@ impl<H: Hal, T: Transport> VsockConnection<'_, H, T> {
     /// Reads data from the connection.
     pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize> {
         self.manager.recv(self.peer, self.local_port, buffer)
+    }
+
+    /// Returns the amount of buffer space the peer has to receive data from the connection.
+    pub fn peer_buffer_available(&mut self) -> Result<usize> {
+        self.manager
+            .peer_buffer_available(self.peer, self.local_port)
     }
 }
 

@@ -343,6 +343,17 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
         self.send_packet_to_tx_queue(&header, buffer)
     }
 
+    /// Returns the cached amount of buffer space the peer has to receive data from the given
+    /// connection, and requests a credit update if it is 0.
+    pub fn peer_buffer_available(&mut self, connection_info: &mut ConnectionInfo) -> Result<usize> {
+        let peer_free = connection_info.peer_free();
+        if peer_free == 0 && !connection_info.has_pending_credit_request {
+            self.request_credit(connection_info)?;
+            connection_info.has_pending_credit_request = true;
+        }
+        Ok(usize::try_from(peer_free).unwrap())
+    }
+
     fn check_peer_buffer_is_sufficient(
         &mut self,
         connection_info: &mut ConnectionInfo,
