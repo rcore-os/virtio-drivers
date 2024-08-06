@@ -6,8 +6,8 @@ mod embedded_io;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, ReadOnly, WriteOnly};
-use crate::{Result, PAGE_SIZE};
+use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
+use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::{
@@ -21,7 +21,8 @@ const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: usize = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
     .union(Features::RING_INDIRECT_DESC)
-    .union(Features::SIZE);
+    .union(Features::SIZE)
+    .union(Features::EMERG_WRITE);
 
 /// Driver for a VirtIO console device.
 ///
@@ -239,6 +240,21 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         }
         Ok(())
     }
+
+    /// Sends a character to the console using the emergency write feature.
+    ///
+    /// Returns an error if the device doesn't support emergency write.
+    pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
+        if self.negotiated_features.contains(Features::EMERG_WRITE) {
+            // SAFETY: `self.config_space` is a valid pointer to the device configuration space.
+            unsafe {
+                volwrite!(self.config_space, emerg_wr, chr.into());
+            }
+            Ok(())
+        } else {
+            Err(Error::Unsupported)
+        }
+    }
 }
 
 impl<H: Hal, T: Transport> Write for VirtIOConsole<H, T> {
@@ -358,6 +374,31 @@ mod tests {
                 rows: 42
             })
         );
+    }
+
+    #[test]
+    fn emergency_write() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(0),
+            rows: ReadOnly::new(0),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::default(),
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0x07,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        console.emergency_write(42).unwrap();
+        assert_eq!(config_space.emerg_wr.0, 42);
     }
 
     #[test]
