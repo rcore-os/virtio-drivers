@@ -207,7 +207,7 @@ fn virtio_console<T: Transport>(transport: T) {
     let mut console =
         VirtIOConsole::<HalImpl, T>::new(transport).expect("Failed to create console driver");
     if let Some(size) = console.size() {
-        info!("VirtIO console {}x{}", size.rows, size.columns);
+        info!("VirtIO console {}", size);
     }
     for &c in b"Hello world on console!\n" {
         console.send(c).expect("Failed to send character");
