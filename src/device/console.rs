@@ -6,12 +6,12 @@ mod embedded_io;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, ReadOnly, WriteOnly};
-use crate::{Result, PAGE_SIZE};
+use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
+use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::{
-    fmt::{self, Write},
+    fmt::{self, Display, Formatter, Write},
     ptr::NonNull,
 };
 use log::error;
@@ -19,12 +19,14 @@ use log::error;
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
 const QUEUE_SIZE: usize = 2;
-const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RING_INDIRECT_DESC);
+const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
+    .union(Features::RING_INDIRECT_DESC)
+    .union(Features::SIZE)
+    .union(Features::EMERG_WRITE);
 
 /// Driver for a VirtIO console device.
 ///
-/// Only a single port is allowed since `alloc` is disabled. Emergency write and cols/rows are not
-/// implemented.
+/// Only a single port is supported.
 ///
 /// # Example
 ///
@@ -34,8 +36,8 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RI
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
 ///
-/// let info = console.info();
-/// println!("VirtIO console {}x{}", info.rows, info.columns);
+/// let size = console.size().unwrap();
+/// println!("VirtIO console {}x{}", size.rows, size.columns);
 ///
 /// for &c in b"Hello console!\n" {
 ///   console.send(c)?;
@@ -48,6 +50,7 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RI
 /// ```
 pub struct VirtIOConsole<H: Hal, T: Transport> {
     transport: T,
+    negotiated_features: Features,
     config_space: NonNull<Config>,
     receiveq: VirtQueue<H, QUEUE_SIZE>,
     transmitq: VirtQueue<H, QUEUE_SIZE>,
@@ -72,15 +75,19 @@ unsafe impl<H: Hal, T: Transport + Sync> Sync for VirtIOConsole<H, T> where
 {
 }
 
-/// Information about a console device, read from its configuration space.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ConsoleInfo {
-    /// The console height in characters.
-    pub rows: u16,
+/// The width and height of a console, in characters.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Size {
     /// The console width in characters.
     pub columns: u16,
-    /// The maxumum number of ports supported by the console device.
-    pub max_ports: u32,
+    /// The console height in characters.
+    pub rows: u16,
+}
+
+impl Display for Size {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}x{}", self.columns, self.rows)
+    }
 }
 
 impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
@@ -109,6 +116,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         transport.finish_init();
         let mut console = VirtIOConsole {
             transport,
+            negotiated_features,
             config_space,
             receiveq,
             transmitq,
@@ -121,18 +129,18 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         Ok(console)
     }
 
-    /// Returns a struct with information about the console device, such as the number of rows and columns.
-    pub fn info(&self) -> ConsoleInfo {
-        // Safe because config_space is a valid pointer to the device configuration space.
-        unsafe {
-            let columns = volread!(self.config_space, cols);
-            let rows = volread!(self.config_space, rows);
-            let max_ports = volread!(self.config_space, max_nr_ports);
-            ConsoleInfo {
-                rows,
-                columns,
-                max_ports,
+    /// Returns the size of the console, if the device supports reporting this.
+    pub fn size(&self) -> Option<Size> {
+        if self.negotiated_features.contains(Features::SIZE) {
+            // SAFETY: self.config_space is a valid pointer to the device configuration space.
+            unsafe {
+                Some(Size {
+                    columns: volread!(self.config_space, cols),
+                    rows: volread!(self.config_space, rows),
+                })
             }
+        } else {
+            None
         }
     }
 
@@ -232,6 +240,21 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         }
         Ok(())
     }
+
+    /// Sends a character to the console using the emergency write feature.
+    ///
+    /// Returns an error if the device doesn't support emergency write.
+    pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
+        if self.negotiated_features.contains(Features::EMERG_WRITE) {
+            // SAFETY: `self.config_space` is a valid pointer to the device configuration space.
+            unsafe {
+                volwrite!(self.config_space, emerg_wr, chr.into());
+            }
+            Ok(())
+        } else {
+            Err(Error::Unsupported)
+        }
+    }
 }
 
 impl<H: Hal, T: Transport> Write for VirtIOConsole<H, T> {
@@ -298,6 +321,85 @@ mod tests {
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;
     use std::{sync::Mutex, thread};
+
+    #[test]
+    fn config_info_no_features() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(80),
+            rows: ReadOnly::new(42),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::default(),
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        assert_eq!(console.size(), None);
+    }
+
+    #[test]
+    fn config_info() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(80),
+            rows: ReadOnly::new(42),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::default(),
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0x07,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        assert_eq!(
+            console.size(),
+            Some(Size {
+                columns: 80,
+                rows: 42
+            })
+        );
+    }
+
+    #[test]
+    fn emergency_write() {
+        let mut config_space = Config {
+            cols: ReadOnly::new(0),
+            rows: ReadOnly::new(0),
+            max_nr_ports: ReadOnly::new(0),
+            emerg_wr: WriteOnly::default(),
+        };
+        let state = Arc::new(Mutex::new(State {
+            queues: vec![QueueStatus::default(), QueueStatus::default()],
+            ..Default::default()
+        }));
+        let transport = FakeTransport {
+            device_type: DeviceType::Console,
+            max_queue_size: 2,
+            device_features: 0x07,
+            config_space: NonNull::from(&mut config_space),
+            state: state.clone(),
+        };
+        let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
+
+        console.emergency_write(42).unwrap();
+        assert_eq!(config_space.emerg_wr.0, 42);
+    }
 
     #[test]
     fn receive() {
