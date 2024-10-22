@@ -1,5 +1,8 @@
 //! Driver for VirtIO console devices.
 
+#[cfg(feature = "embedded-io")]
+mod embedded_io;
+
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
@@ -7,7 +10,11 @@ use crate::volatile::{volread, ReadOnly, WriteOnly};
 use crate::{Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
-use core::ptr::NonNull;
+use core::{
+    fmt::{self, Write},
+    ptr::NonNull,
+};
+use log::error;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -45,7 +52,9 @@ pub struct VirtIOConsole<H: Hal, T: Transport> {
     receiveq: VirtQueue<H, QUEUE_SIZE>,
     transmitq: VirtQueue<H, QUEUE_SIZE>,
     queue_buf_rx: Box<[u8; PAGE_SIZE]>,
+    /// The index of the next byte in `queue_buf_rx` which `recv` should return.
     cursor: usize,
+    /// The number of bytes read into `queue_buf_rx`.
     pending_len: usize,
     /// The token of the outstanding receive request, if there is one.
     receive_token: Option<u16>,
@@ -206,6 +215,31 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         self.transmitq
             .add_notify_wait_pop(&[&buf], &mut [], &mut self.transport)?;
         Ok(())
+    }
+
+    /// Sends one or more bytes to the console.
+    pub fn send_bytes(&mut self, buffer: &[u8]) -> Result {
+        self.transmitq
+            .add_notify_wait_pop(&[buffer], &mut [], &mut self.transport)?;
+        Ok(())
+    }
+
+    /// Blocks until at least one character is available to read.
+    fn wait_for_receive(&mut self) -> Result {
+        self.poll_retrieve()?;
+        while self.cursor == self.pending_len {
+            self.finish_receive()?;
+        }
+        Ok(())
+    }
+}
+
+impl<H: Hal, T: Transport> Write for VirtIOConsole<H, T> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.send_bytes(s.as_bytes()).map_err(|e| {
+            error!("Error writing to conosel: {}", e);
+            fmt::Error
+        })
     }
 }
 
