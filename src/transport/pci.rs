@@ -2,7 +2,9 @@
 
 pub mod bus;
 
-use self::bus::{DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR};
+use self::bus::{
+    ConfigurationAccess, DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR,
+};
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
@@ -99,11 +101,11 @@ impl PciTransport {
     /// root controller.
     ///
     /// The PCI device must already have had its BARs allocated.
-    pub fn new<H: Hal>(
-        root: &mut PciRoot,
+    pub fn new<H: Hal, C: ConfigurationAccess>(
+        root: &mut PciRoot<C>,
         device_function: DeviceFunction,
     ) -> Result<Self, VirtioPciError> {
-        let device_vendor = root.config_read_word(device_function, 0);
+        let device_vendor = root.configuration_access.read_word(device_function, 0);
         let device_id = (device_vendor >> 16) as u16;
         let vendor_id = device_vendor as u16;
         if vendor_id != VIRTIO_VENDOR_ID {
@@ -127,12 +129,16 @@ impl PciTransport {
                 continue;
             }
             let struct_info = VirtioCapabilityInfo {
-                bar: root.config_read_word(device_function, capability.offset + CAP_BAR_OFFSET)
+                bar: root
+                    .configuration_access
+                    .read_word(device_function, capability.offset + CAP_BAR_OFFSET)
                     as u8,
                 offset: root
-                    .config_read_word(device_function, capability.offset + CAP_BAR_OFFSET_OFFSET),
+                    .configuration_access
+                    .read_word(device_function, capability.offset + CAP_BAR_OFFSET_OFFSET),
                 length: root
-                    .config_read_word(device_function, capability.offset + CAP_LENGTH_OFFSET),
+                    .configuration_access
+                    .read_word(device_function, capability.offset + CAP_LENGTH_OFFSET),
             };
 
             match cfg_type {
@@ -141,7 +147,7 @@ impl PciTransport {
                 }
                 VIRTIO_PCI_CAP_NOTIFY_CFG if cap_len >= 20 && notify_cfg.is_none() => {
                     notify_cfg = Some(struct_info);
-                    notify_off_multiplier = root.config_read_word(
+                    notify_off_multiplier = root.configuration_access.read_word(
                         device_function,
                         capability.offset + CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
                     );
@@ -156,7 +162,7 @@ impl PciTransport {
             }
         }
 
-        let common_cfg = get_bar_region::<H, _>(
+        let common_cfg = get_bar_region::<H, _, _>(
             root,
             device_function,
             &common_cfg.ok_or(VirtioPciError::MissingCommonConfig)?,
@@ -168,16 +174,16 @@ impl PciTransport {
                 notify_off_multiplier,
             ));
         }
-        let notify_region = get_bar_region_slice::<H, _>(root, device_function, &notify_cfg)?;
+        let notify_region = get_bar_region_slice::<H, _, _>(root, device_function, &notify_cfg)?;
 
-        let isr_status = get_bar_region::<H, _>(
+        let isr_status = get_bar_region::<H, _, _>(
             root,
             device_function,
             &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
         )?;
 
         let config_space = if let Some(device_cfg) = device_cfg {
-            Some(get_bar_region_slice::<H, _>(
+            Some(get_bar_region_slice::<H, _, _>(
                 root,
                 device_function,
                 &device_cfg,
@@ -387,8 +393,8 @@ struct VirtioCapabilityInfo {
     length: u32,
 }
 
-fn get_bar_region<H: Hal, T>(
-    root: &mut PciRoot,
+fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
+    root: &mut PciRoot<C>,
     device_function: DeviceFunction,
     struct_info: &VirtioCapabilityInfo,
 ) -> Result<NonNull<T>, VirtioPciError> {
@@ -417,12 +423,12 @@ fn get_bar_region<H: Hal, T>(
     Ok(vaddr.cast())
 }
 
-fn get_bar_region_slice<H: Hal, T>(
-    root: &mut PciRoot,
+fn get_bar_region_slice<H: Hal, T, C: ConfigurationAccess>(
+    root: &mut PciRoot<C>,
     device_function: DeviceFunction,
     struct_info: &VirtioCapabilityInfo,
 ) -> Result<NonNull<[T]>, VirtioPciError> {
-    let ptr = get_bar_region::<H, T>(root, device_function, struct_info)?;
+    let ptr = get_bar_region::<H, T, C>(root, device_function, struct_info)?;
     Ok(nonnull_slice_from_raw_parts(
         ptr,
         struct_info.length as usize / size_of::<T>(),

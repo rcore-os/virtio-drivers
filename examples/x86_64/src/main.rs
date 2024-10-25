@@ -21,7 +21,7 @@ use virtio_drivers::{
     device::{blk::VirtIOBlk, gpu::VirtIOGpu},
     transport::{
         pci::{
-            bus::{BarInfo, Cam, Command, DeviceFunction, PciRoot},
+            bus::{BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MmioCam, PciRoot},
             virtio_device_type, PciTransport,
         },
         DeviceType, Transport,
@@ -150,7 +150,7 @@ fn virtio_net<T: Transport>(transport: T) {
 fn enumerate_pci(mmconfig_base: *mut u8) {
     info!("mmconfig_base = {:#x}", mmconfig_base as usize);
 
-    let mut pci_root = unsafe { PciRoot::new(mmconfig_base, Cam::Ecam) };
+    let mut pci_root = PciRoot::new(unsafe { MmioCam::new(mmconfig_base, Cam::Ecam) });
     for (device_function, info) in pci_root.enumerate_bus(0) {
         let (status, command) = pci_root.get_status_command(device_function);
         info!(
@@ -168,7 +168,7 @@ fn enumerate_pci(mmconfig_base: *mut u8) {
             dump_bar_contents(&mut pci_root, device_function, 4);
 
             let mut transport =
-                PciTransport::new::<HalImpl>(&mut pci_root, device_function).unwrap();
+                PciTransport::new::<HalImpl, _>(&mut pci_root, device_function).unwrap();
             info!(
                 "Detected virtio PCI device with device type {:?}, features {:#018x}",
                 transport.device_type(),
@@ -179,7 +179,11 @@ fn enumerate_pci(mmconfig_base: *mut u8) {
     }
 }
 
-fn dump_bar_contents(root: &mut PciRoot, device_function: DeviceFunction, bar_index: u8) {
+fn dump_bar_contents(
+    root: &mut PciRoot<impl ConfigurationAccess>,
+    device_function: DeviceFunction,
+    bar_index: u8,
+) {
     let bar_info = root.bar_info(device_function, bar_index).unwrap();
     trace!("Dumping bar {}: {:#x?}", bar_index, bar_info);
     if let BarInfo::Memory { address, size, .. } = bar_info {
