@@ -5,6 +5,8 @@ pub mod fake;
 pub mod mmio;
 pub mod pci;
 mod some;
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64;
 
 use crate::{PhysAddr, Result, PAGE_SIZE};
 use bitflags::{bitflags, Flags};
