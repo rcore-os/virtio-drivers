@@ -117,6 +117,26 @@ impl Cam {
             Self::Ecam => 0x10000000,
         }
     }
+
+    /// Returns the offset in bytes within the CAM region for the given device, function and
+    /// register.
+    pub fn cam_offset(self, device_function: DeviceFunction, register_offset: u8) -> u32 {
+        assert!(device_function.valid());
+
+        let bdf = (device_function.bus as u32) << 8
+            | (device_function.device as u32) << 3
+            | device_function.function as u32;
+        let address =
+            bdf << match self {
+                Cam::MmioCam => 8,
+                Cam::Ecam => 12,
+            } | register_offset as u32;
+        // Ensure that address is within range.
+        assert!(address < self.size());
+        // Ensure that address is word-aligned.
+        assert!(address & 0x3 == 0);
+        address
+    }
 }
 
 impl<C: ConfigurationAccess> PciRoot<C> {
@@ -318,29 +338,11 @@ impl MmioCam {
             cam,
         }
     }
-
-    fn cam_offset(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
-        assert!(device_function.valid());
-
-        let bdf = (device_function.bus as u32) << 8
-            | (device_function.device as u32) << 3
-            | device_function.function as u32;
-        let address =
-            bdf << match self.cam {
-                Cam::MmioCam => 8,
-                Cam::Ecam => 12,
-            } | register_offset as u32;
-        // Ensure that address is within range.
-        assert!(address < self.cam.size());
-        // Ensure that address is word-aligned.
-        assert!(address & 0x3 == 0);
-        address
-    }
 }
 
 impl ConfigurationAccess for MmioCam {
     fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
-        let address = self.cam_offset(device_function, register_offset);
+        let address = self.cam.cam_offset(device_function, register_offset);
         // Safe because both the `mmio_base` and the address offset are properly aligned, and the
         // resulting pointer is within the MMIO range of the CAM.
         unsafe {
@@ -350,7 +352,7 @@ impl ConfigurationAccess for MmioCam {
     }
 
     fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
-        let address = self.cam_offset(device_function, register_offset);
+        let address = self.cam.cam_offset(device_function, register_offset);
         // Safe because both the `mmio_base` and the address offset are properly aligned, and the
         // resulting pointer is within the MMIO range of the CAM.
         unsafe {
