@@ -8,7 +8,7 @@ use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use log::info;
-use zerocopy::{AsBytes, FromBytes, FromZeroes};
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 const QUEUE_SIZE: u16 = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RING_INDIRECT_DESC);
@@ -66,8 +66,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             negotiated_features.contains(Features::RING_EVENT_IDX),
         )?;
 
-        let queue_buf_send = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
-        let queue_buf_recv = FromZeroes::new_box_slice_zeroed(PAGE_SIZE);
+        let queue_buf_send = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
+        let queue_buf_recv = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
 
         transport.finish_init();
 
@@ -173,18 +173,18 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     }
 
     /// Send a request to the device and block for a response.
-    fn request<Req: AsBytes, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
+    fn request<Req: IntoBytes + Immutable, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut self.queue_buf_send).unwrap();
         self.control_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
             &mut [&mut self.queue_buf_recv],
             &mut self.transport,
         )?;
-        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap())
+        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap().0)
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
-    fn cursor_request<Req: AsBytes>(&mut self, req: Req) -> Result {
+    fn cursor_request<Req: IntoBytes + Immutable>(&mut self, req: Req) -> Result {
         req.write_to_prefix(&mut self.queue_buf_send).unwrap();
         self.cursor_queue.add_notify_wait_pop(
             &[&self.queue_buf_send],
@@ -338,7 +338,7 @@ bitflags! {
 }
 
 #[repr(transparent)]
-#[derive(AsBytes, Clone, Copy, Debug, Eq, PartialEq, FromBytes, FromZeroes)]
+#[derive(Clone, Copy, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 struct Command(u32);
 
 impl Command {
@@ -371,7 +371,7 @@ impl Command {
 const GPU_FLAG_FENCE: u32 = 1 << 0;
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Clone, Copy, FromBytes, FromZeroes)]
+#[derive(Debug, Clone, Copy, FromBytes, Immutable, IntoBytes, KnownLayout)]
 struct CtrlHeader {
     hdr_type: Command,
     flags: u32,
@@ -402,7 +402,7 @@ impl CtrlHeader {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Copy, Clone, Default, FromBytes, FromZeroes)]
+#[derive(Debug, Copy, Clone, Default, FromBytes, Immutable, IntoBytes, KnownLayout)]
 struct Rect {
     x: u32,
     y: u32,
@@ -411,7 +411,7 @@ struct Rect {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes, FromZeroes)]
+#[derive(Debug, FromBytes, Immutable, KnownLayout)]
 struct RespDisplayInfo {
     header: CtrlHeader,
     rect: Rect,
@@ -420,7 +420,7 @@ struct RespDisplayInfo {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct ResourceCreate2D {
     header: CtrlHeader,
     resource_id: u32,
@@ -430,13 +430,13 @@ struct ResourceCreate2D {
 }
 
 #[repr(u32)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 enum Format {
     B8G8R8A8UNORM = 1,
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct ResourceAttachBacking {
     header: CtrlHeader,
     resource_id: u32,
@@ -447,7 +447,7 @@ struct ResourceAttachBacking {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct SetScanout {
     header: CtrlHeader,
     rect: Rect,
@@ -456,7 +456,7 @@ struct SetScanout {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct TransferToHost2D {
     header: CtrlHeader,
     rect: Rect,
@@ -466,7 +466,7 @@ struct TransferToHost2D {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct ResourceFlush {
     header: CtrlHeader,
     rect: Rect,
@@ -475,7 +475,7 @@ struct ResourceFlush {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Immutable, IntoBytes, KnownLayout)]
 struct CursorPos {
     scanout_id: u32,
     x: u32,
@@ -484,7 +484,7 @@ struct CursorPos {
 }
 
 #[repr(C)]
-#[derive(AsBytes, Debug, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Immutable, IntoBytes, KnownLayout)]
 struct UpdateCursor {
     header: CtrlHeader,
     pos: CursorPos,

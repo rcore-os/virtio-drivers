@@ -6,7 +6,7 @@ use crate::transport::Transport;
 use crate::volatile::volread;
 use crate::{Error, Result};
 use log::{debug, info, warn};
-use zerocopy::AsBytes;
+use zerocopy::IntoBytes;
 
 /// Raw driver for a VirtIO network device.
 ///

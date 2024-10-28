@@ -1,7 +1,7 @@
 use super::{VirtioNetHdr, NET_HDR_SIZE};
 use alloc::{vec, vec::Vec};
 use core::{convert::TryInto, mem::size_of};
-use zerocopy::AsBytes;
+use zerocopy::IntoBytes;
 
 /// A buffer used for transmitting.
 pub struct TxBuffer(pub(crate) Vec<u8>);
@@ -63,7 +63,7 @@ impl RxBuffer {
     /// Returns all data in the buffer with the mutable reference,
     /// including both the header and the packet.
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-        self.buf.as_bytes_mut()
+        self.buf.as_mut_bytes()
     }
 
     /// Returns the reference of the header.
@@ -78,6 +78,6 @@ impl RxBuffer {
 
     /// Returns the network packet as a mutable slice.
     pub fn packet_mut(&mut self) -> &mut [u8] {
-        &mut self.buf.as_bytes_mut()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
+        &mut self.buf.as_mut_bytes()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
     }
 }

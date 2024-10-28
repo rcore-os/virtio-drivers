@@ -18,7 +18,7 @@ use core::mem::{size_of, take};
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::{fence, AtomicU16, Ordering};
-use zerocopy::{AsBytes, FromBytes, FromZeroes};
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// The mechanism for bulk data transport on virtio devices.
 ///
@@ -110,7 +110,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let avail = layout.avail_vaddr().cast();
         let used = layout.used_vaddr().cast();
 
-        let mut desc_shadow: [Descriptor; SIZE] = FromZeroes::new_zeroed();
+        let mut desc_shadow: [Descriptor; SIZE] = FromZeros::new_zeroed();
         // Link descriptors together.
         for i in 0..(size - 1) {
             desc_shadow[i as usize].next = i + 1;
@@ -251,7 +251,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let head = self.free_head;
 
         // Allocate and fill in indirect descriptor list.
-        let mut indirect_list = Descriptor::new_box_slice_zeroed(inputs.len() + outputs.len());
+        let mut indirect_list =
+            <[Descriptor]>::new_box_zeroed_with_elems(inputs.len() + outputs.len()).unwrap();
         for (i, (buffer, direction)) in InputOutputIter::new(inputs, outputs).enumerate() {
             let desc = &mut indirect_list[i];
             // Safe because our caller promises that the buffers live at least until `pop_used`
@@ -436,7 +437,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 unsafe {
                     H::unshare(
                         paddr as usize,
-                        indirect_list.as_bytes_mut().into(),
+                        indirect_list.as_mut_bytes().into(),
                         BufferDirection::DriverToDevice,
                     );
                 }
@@ -697,7 +698,7 @@ fn queue_part_sizes(queue_size: u16) -> (usize, usize, usize) {
 }
 
 #[repr(C, align(16))]
-#[derive(AsBytes, Clone, Debug, FromBytes, FromZeroes)]
+#[derive(Clone, Debug, FromBytes, Immutable, IntoBytes, KnownLayout)]
 pub(crate) struct Descriptor {
     addr: u64,
     len: u32,
@@ -752,7 +753,9 @@ impl Descriptor {
 }
 
 /// Descriptor flags
-#[derive(AsBytes, Copy, Clone, Debug, Default, Eq, FromBytes, FromZeroes, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq,
+)]
 #[repr(transparent)]
 struct DescFlags(u16);
 
@@ -877,11 +880,13 @@ pub(crate) fn fake_read_write_queue<const QUEUE_SIZE: usize>(
 
             // Loop through all input descriptors in the indirect descriptor list, reading data from
             // them.
-            let indirect_descriptor_list: &[Descriptor] = zerocopy::Ref::new_slice(
-                slice::from_raw_parts(descriptor.addr as *const u8, descriptor.len as usize),
-            )
-            .unwrap()
-            .into_slice();
+            let indirect_descriptor_list: &[Descriptor] = zerocopy::Ref::into_ref(
+                zerocopy::Ref::<_, [Descriptor]>::from_bytes(slice::from_raw_parts(
+                    descriptor.addr as *const u8,
+                    descriptor.len as usize,
+                ))
+                .unwrap(),
+            );
             let mut input = Vec::new();
             let mut indirect_descriptor_index = 0;
             while indirect_descriptor_index < indirect_descriptor_list.len() {

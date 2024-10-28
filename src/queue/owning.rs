@@ -3,7 +3,7 @@ use crate::{transport::Transport, Error, Hal, Result};
 use alloc::boxed::Box;
 use core::convert::TryInto;
 use core::ptr::{null_mut, NonNull};
-use zerocopy::FromZeroes;
+use zerocopy::FromZeros;
 
 /// A wrapper around [`Queue`] that owns all the buffers that are passed to the queue.
 #[derive(Debug)]
@@ -21,7 +21,7 @@ impl<H: Hal, const SIZE: usize, const BUFFER_SIZE: usize> OwningQueue<H, SIZE, B
     pub fn new(mut queue: VirtQueue<H, SIZE>) -> Result<Self> {
         let mut buffers = [null_mut(); SIZE];
         for (i, queue_buffer) in buffers.iter_mut().enumerate() {
-            let mut buffer: Box<[u8; BUFFER_SIZE]> = FromZeroes::new_box_zeroed();
+            let mut buffer: Box<[u8; BUFFER_SIZE]> = FromZeros::new_box_zeroed().unwrap();
             // SAFETY: The buffer lives as long as the queue, as specified in the function safety
             // requirement, and we don't access it until it is popped.
             let token = unsafe { queue.add(&[], &mut [buffer.as_mut_slice()]) }?;
