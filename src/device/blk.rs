@@ -3,9 +3,10 @@
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, Volatile};
+use crate::volatile::Volatile;
 use crate::{Error, Result};
 use bitflags::bitflags;
+use core::mem::offset_of;
 use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -55,12 +56,10 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // Read configuration space.
-        let config = transport.config_space::<BlkConfig>()?;
-        info!("config: {:?}", config);
-        // Safe because config is a valid pointer to the device configuration space.
-        let capacity = unsafe {
-            volread!(config, capacity_low) as u64 | (volread!(config, capacity_high) as u64) << 32
-        };
+        let capacity = transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_low))
+            as u64
+            | (transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_high)) as u64)
+                << 32;
         info!("found a block device of size {}KB", capacity / 2);
 
         let queue = VirtQueue::new(

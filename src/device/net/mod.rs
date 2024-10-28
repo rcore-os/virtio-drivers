@@ -81,9 +81,12 @@ bitflags! {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, KnownLayout, PartialEq)]
+#[repr(transparent)]
+struct Status(u16);
+
 bitflags! {
-    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-    struct Status: u16 {
+    impl Status: u16 {
         const LINK_UP = 1;
         const ANNOUNCE = 2;
     }

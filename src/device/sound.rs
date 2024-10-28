@@ -7,7 +7,7 @@ use super::common::Feature;
 use crate::{
     queue::{owning::OwningQueue, VirtQueue},
     transport::Transport,
-    volatile::{volread, ReadOnly},
+    volatile::ReadOnly,
     Error, Hal, Result, PAGE_SIZE,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
@@ -16,7 +16,7 @@ use core::{
     array,
     fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
-    mem::size_of,
+    mem::{offset_of, size_of},
     ops::RangeInclusive,
 };
 use enumn::N;
@@ -96,15 +96,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         )?;
 
         // read configuration space
-        let config_ptr = transport.config_space::<VirtIOSoundConfig>()?;
-        // SAFETY: config_ptr is a valid pointer to the device configuration space.
-        let (jacks, streams, chmaps) = unsafe {
-            (
-                volread!(config_ptr, jacks),
-                volread!(config_ptr, streams),
-                volread!(config_ptr, chmaps),
-            )
-        };
+        let jacks = transport.read_config_space(offset_of!(VirtIOSoundConfig, jacks));
+        let streams = transport.read_config_space(offset_of!(VirtIOSoundConfig, streams));
+        let chmaps = transport.read_config_space(offset_of!(VirtIOSoundConfig, chmaps));
         info!(
             "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
             jacks, streams, chmaps

@@ -9,9 +9,8 @@ use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::hal::Hal;
 use crate::queue::{owning::OwningQueue, VirtQueue};
 use crate::transport::Transport;
-use crate::volatile::volread;
 use crate::Result;
-use core::mem::size_of;
+use core::mem::{offset_of, size_of};
 use log::debug;
 use zerocopy::{FromBytes, IntoBytes};
 
@@ -248,12 +247,12 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
 
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
-        let config = transport.config_space::<VirtioVsockConfig>()?;
-        debug!("config: {:?}", config);
         // Safe because config is a valid pointer to the device configuration space.
-        let guest_cid = unsafe {
-            volread!(config, guest_cid_low) as u64 | (volread!(config, guest_cid_high) as u64) << 32
-        };
+        let guest_cid =
+            transport.read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_low)) as u64
+                | (transport.read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_high))
+                    as u64)
+                    << 32;
         debug!("guest cid: {guest_cid:?}");
 
         let rx = VirtQueue::new(

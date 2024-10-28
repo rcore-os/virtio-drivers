@@ -12,7 +12,6 @@ use crate::{
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
-    Error,
 };
 use core::{
     mem::{align_of, size_of},
@@ -325,23 +324,41 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
-        if let Some(config_space) = self.config_space {
-            if size_of::<T>() > config_space.len() * size_of::<u32>() {
-                Err(Error::ConfigSpaceTooSmall)
-            } else if align_of::<T>() > 4 {
-                // Panic as this should only happen if the driver is written incorrectly.
-                panic!(
-                    "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-                    align_of::<T>()
-                );
-            } else {
-                // TODO: Use NonNull::as_non_null_ptr once it is stable.
-                let config_space_ptr = NonNull::new(config_space.as_ptr() as *mut u32).unwrap();
-                Ok(config_space_ptr.cast())
-            }
-        } else {
-            Err(Error::ConfigSpaceMissing)
+    fn read_config_space<T>(&self, offset: usize) -> T {
+        assert!(align_of::<T>() <= 4,
+            "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+            align_of::<T>());
+        assert_eq!(offset % align_of::<T>(), 0);
+
+        let config_space: NonNull<[u32]> = self.config_space.unwrap();
+        assert!(offset + size_of::<T>() <= config_space.len() * size_of::<u32>());
+
+        // SAFETY: If we have a config space pointer it must be valid for its length, and we just
+        // checked that the offset and size of the access was within the length.
+        unsafe {
+            // TODO: Use NonNull::as_non_null_ptr once it is stable.
+            (config_space.as_ptr() as *mut T)
+                .byte_add(offset)
+                .read_volatile()
+        }
+    }
+
+    fn write_config_space<T>(&mut self, offset: usize, value: T) {
+        assert!(align_of::<T>() <= 4,
+            "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+            align_of::<T>());
+        assert_eq!(offset % align_of::<T>(), 0);
+
+        let config_space = self.config_space.unwrap();
+        assert!(offset + size_of::<T>() <= config_space.len() * size_of::<u32>());
+
+        // SAFETY: If we have a config space pointer it must be valid for its length, and we just
+        // checked that the offset and size of the access was within the length.
+        unsafe {
+            // TODO: Use NonNull::as_non_null_ptr once it is stable.
+            (config_space.as_ptr() as *mut T)
+                .byte_add(offset)
+                .write_volatile(value);
         }
     }
 }

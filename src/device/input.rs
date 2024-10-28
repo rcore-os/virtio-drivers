@@ -4,12 +4,11 @@ use super::common::Feature;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, volwrite, ReadOnly, VolatileReadable, WriteOnly};
+use crate::volatile::{ReadOnly, WriteOnly};
 use crate::Error;
 use alloc::{boxed::Box, string::String};
 use core::cmp::min;
-use core::mem::size_of;
-use core::ptr::{addr_of, NonNull};
+use core::mem::{offset_of, size_of};
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
@@ -22,7 +21,6 @@ pub struct VirtIOInput<H: Hal, T: Transport> {
     event_queue: VirtQueue<H, QUEUE_SIZE>,
     status_queue: VirtQueue<H, QUEUE_SIZE>,
     event_buf: Box<[InputEvent; 32]>,
-    config: NonNull<Config>,
 }
 
 impl<H: Hal, T: Transport> VirtIOInput<H, T> {
@@ -31,8 +29,6 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
 
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
-
-        let config = transport.config_space::<Config>()?;
 
         let mut event_queue = VirtQueue::new(
             &mut transport,
@@ -62,7 +58,6 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             event_queue,
             status_queue,
             event_buf,
-            config,
         })
     }
 
@@ -108,17 +103,19 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> u8 {
-        let size;
+        self.transport
+            .write_config_space(offset_of!(Config, select), select as u8);
+        self.transport
+            .write_config_space(offset_of!(Config, subsel), subsel);
+        let size: u8 = self.transport.read_config_space(offset_of!(Config, size));
         // Safe because config points to a valid MMIO region for the config space.
-        unsafe {
-            volwrite!(self.config, select, select as u8);
-            volwrite!(self.config, subsel, subsel);
-            size = volread!(self.config, size);
-            let size_to_copy = min(usize::from(size), out.len());
-            for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
-                *out_item = addr_of!((*self.config.as_ptr()).data[i]).vread();
-            }
+        let size_to_copy = min(usize::from(size), out.len());
+        for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
+            *out_item = self
+                .transport
+                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>());
         }
+
         size
     }
 
@@ -129,20 +126,24 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         select: InputConfigSelect,
         subsel: u8,
     ) -> Result<Box<[u8]>, Error> {
-        // Safe because config points to a valid MMIO region for the config space.
-        unsafe {
-            volwrite!(self.config, select, select as u8);
-            volwrite!(self.config, subsel, subsel);
-            let size = usize::from(volread!(self.config, size));
-            if size > CONFIG_DATA_MAX_LENGTH {
-                return Err(Error::IoError);
-            }
-            let mut buf = <[u8]>::new_box_zeroed_with_elems(size).unwrap();
-            for i in 0..size {
-                buf[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
-            }
-            Ok(buf)
+        self.transport
+            .write_config_space(offset_of!(Config, select), select as u8);
+        self.transport
+            .write_config_space(offset_of!(Config, subsel), subsel);
+        let size = usize::from(
+            self.transport
+                .read_config_space::<u8>(offset_of!(Config, size)),
+        );
+        if size > CONFIG_DATA_MAX_LENGTH {
+            return Err(Error::IoError);
         }
+        let mut buf = <[u8]>::new_box_zeroed_with_elems(size).unwrap();
+        for i in 0..size {
+            buf[i] = self
+                .transport
+                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>());
+        }
+        Ok(buf)
     }
 
     /// Queries a specific piece of information by `select` and `subsel` into a newly-allocated
@@ -322,7 +323,7 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::convert::TryInto;
+    use core::{convert::TryInto, ptr::NonNull};
     use std::sync::Mutex;
 
     #[test]

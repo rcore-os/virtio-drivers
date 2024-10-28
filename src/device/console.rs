@@ -6,14 +6,12 @@ mod embedded_io;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{volread, volwrite, ReadOnly, WriteOnly};
+use crate::volatile::{ReadOnly, WriteOnly};
 use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
-use core::{
-    fmt::{self, Display, Formatter, Write},
-    ptr::NonNull,
-};
+use core::fmt::{self, Display, Formatter, Write};
+use core::mem::offset_of;
 use log::error;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
@@ -51,7 +49,6 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
 pub struct VirtIOConsole<H: Hal, T: Transport> {
     transport: T,
     negotiated_features: Features,
-    config_space: NonNull<Config>,
     receiveq: VirtQueue<H, QUEUE_SIZE>,
     transmitq: VirtQueue<H, QUEUE_SIZE>,
     queue_buf_rx: Box<[u8; PAGE_SIZE]>,
@@ -94,7 +91,6 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Creates a new VirtIO console driver.
     pub fn new(mut transport: T) -> Result<Self> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
-        let config_space = transport.config_space::<Config>()?;
         let receiveq = VirtQueue::new(
             &mut transport,
             QUEUE_RECEIVEQ_PORT_0,
@@ -117,7 +113,6 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         let mut console = VirtIOConsole {
             transport,
             negotiated_features,
-            config_space,
             receiveq,
             transmitq,
             queue_buf_rx,
@@ -132,13 +127,10 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns the size of the console, if the device supports reporting this.
     pub fn size(&self) -> Option<Size> {
         if self.negotiated_features.contains(Features::SIZE) {
-            // SAFETY: self.config_space is a valid pointer to the device configuration space.
-            unsafe {
-                Some(Size {
-                    columns: volread!(self.config_space, cols),
-                    rows: volread!(self.config_space, rows),
-                })
-            }
+            Some(Size {
+                columns: self.transport.read_config_space(offset_of!(Config, cols)),
+                rows: self.transport.read_config_space(offset_of!(Config, rows)),
+            })
         } else {
             None
         }
@@ -246,10 +238,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns an error if the device doesn't support emergency write.
     pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
         if self.negotiated_features.contains(Features::EMERG_WRITE) {
-            // SAFETY: `self.config_space` is a valid pointer to the device configuration space.
-            unsafe {
-                volwrite!(self.config_space, emerg_wr, chr.into());
-            }
+            self.transport
+                .write_config_space::<u32>(offset_of!(Config, emerg_wr), chr.into());
             Ok(())
         } else {
             Err(Error::Unsupported)
