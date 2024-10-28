@@ -31,8 +31,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         info!("negotiated_features {:?}", negotiated_features);
 
         // Read configuration space.
-        let mac = transport.read_config_space(offset_of!(Config, mac));
-        let status = transport.read_config_space::<Status>(offset_of!(Config, status));
+        let mac = transport.read_config_space(offset_of!(Config, mac))?;
+        let status = transport.read_config_space::<Status>(offset_of!(Config, status))?;
         debug!("Got MAC={:02x?}, status={:?}", mac, status);
 
         let send_queue = VirtQueue::new(

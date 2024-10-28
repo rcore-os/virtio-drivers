@@ -56,9 +56,9 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // Read configuration space.
-        let capacity = transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_low))
+        let capacity = transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_low))?
             as u64
-            | (transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_high)) as u64)
+            | (transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_high))? as u64)
                 << 32;
         info!("found a block device of size {}KB", capacity / 2);
 

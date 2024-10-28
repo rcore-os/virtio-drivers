@@ -5,7 +5,7 @@ use crate::{
     align_up,
     queue::Descriptor,
     volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
-    PhysAddr, PAGE_SIZE,
+    Error, PhysAddr, PAGE_SIZE,
 };
 use core::{
     convert::{TryFrom, TryInto},
@@ -484,27 +484,30 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn read_config_space<T>(&self, offset: usize) -> T {
+    fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
+
         // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
         // which includes the config space.
         unsafe {
-            self.header
+            Ok(self
+                .header
                 .cast::<T>()
                 .byte_add(CONFIG_SPACE_OFFSET)
                 .byte_add(offset)
-                .read_volatile()
+                .read_volatile())
         }
     }
 
-    fn write_config_space<T>(&mut self, offset: usize, value: T) {
+    fn write_config_space<T>(&mut self, offset: usize, value: T) -> Result<(), Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
+
         // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
         // which includes the config space.
         unsafe {
@@ -514,6 +517,7 @@ impl Transport for MmioTransport {
                 .byte_add(offset)
                 .write_volatile(value);
         }
+        Ok(())
     }
 }
 

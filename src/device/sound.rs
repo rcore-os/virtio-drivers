@@ -96,9 +96,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         )?;
 
         // read configuration space
-        let jacks = transport.read_config_space(offset_of!(VirtIOSoundConfig, jacks));
-        let streams = transport.read_config_space(offset_of!(VirtIOSoundConfig, streams));
-        let chmaps = transport.read_config_space(offset_of!(VirtIOSoundConfig, chmaps));
+        let jacks = transport.read_config_space(offset_of!(VirtIOSoundConfig, jacks))?;
+        let streams = transport.read_config_space(offset_of!(VirtIOSoundConfig, streams))?;
+        let chmaps = transport.read_config_space(offset_of!(VirtIOSoundConfig, chmaps))?;
         info!(
             "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
             jacks, streams, chmaps

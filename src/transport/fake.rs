@@ -1,7 +1,7 @@
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     queue::{fake_read_write_queue, Descriptor},
-    PhysAddr,
+    Error, PhysAddr,
 };
 use alloc::{sync::Arc, vec::Vec};
 use core::{
@@ -96,23 +96,32 @@ impl<C> Transport for FakeTransport<C> {
         pending
     }
 
-    fn read_config_space<T>(&self, offset: usize) -> T {
+    fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
-        assert!(offset + size_of::<T>() <= size_of::<C>());
-        unsafe { self.config_space.cast::<T>().byte_add(offset).read() }
+
+        if size_of::<C>() < offset + size_of::<T>() {
+            Err(Error::ConfigSpaceTooSmall)
+        } else {
+            unsafe { Ok(self.config_space.cast::<T>().byte_add(offset).read()) }
+        }
     }
 
-    fn write_config_space<T>(&mut self, offset: usize, value: T) {
+    fn write_config_space<T>(&mut self, offset: usize, value: T) -> Result<(), Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
-        assert!(offset + size_of::<T>() <= size_of::<C>());
-        unsafe {
-            self.config_space.cast::<T>().byte_add(offset).write(value);
+
+        if size_of::<C>() < offset + size_of::<T>() {
+            Err(Error::ConfigSpaceTooSmall)
+        } else {
+            unsafe {
+                self.config_space.cast::<T>().byte_add(offset).write(value);
+            }
+            Ok(())
         }
     }
 }

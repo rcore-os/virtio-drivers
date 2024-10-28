@@ -102,21 +102,21 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         select: InputConfigSelect,
         subsel: u8,
         out: &mut [u8],
-    ) -> u8 {
+    ) -> Result<u8, Error> {
         self.transport
-            .write_config_space(offset_of!(Config, select), select as u8);
+            .write_config_space(offset_of!(Config, select), select as u8)?;
         self.transport
-            .write_config_space(offset_of!(Config, subsel), subsel);
-        let size: u8 = self.transport.read_config_space(offset_of!(Config, size));
+            .write_config_space(offset_of!(Config, subsel), subsel)?;
+        let size: u8 = self.transport.read_config_space(offset_of!(Config, size))?;
         // Safe because config points to a valid MMIO region for the config space.
         let size_to_copy = min(usize::from(size), out.len());
         for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
             *out_item = self
                 .transport
-                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>());
+                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>())?;
         }
 
-        size
+        Ok(size)
     }
 
     /// Queries a specific piece of information by `select` and `subsel`, allocates a sufficiently
@@ -127,12 +127,12 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         subsel: u8,
     ) -> Result<Box<[u8]>, Error> {
         self.transport
-            .write_config_space(offset_of!(Config, select), select as u8);
+            .write_config_space(offset_of!(Config, select), select as u8)?;
         self.transport
-            .write_config_space(offset_of!(Config, subsel), subsel);
+            .write_config_space(offset_of!(Config, subsel), subsel)?;
         let size = usize::from(
             self.transport
-                .read_config_space::<u8>(offset_of!(Config, size)),
+                .read_config_space::<u8>(offset_of!(Config, size))?,
         );
         if size > CONFIG_DATA_MAX_LENGTH {
             return Err(Error::IoError);
@@ -141,7 +141,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         for i in 0..size {
             buf[i] = self
                 .transport
-                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>());
+                .read_config_space(offset_of!(Config, data) + i * size_of::<u8>())?;
         }
         Ok(buf)
     }
@@ -173,7 +173,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Queries and returns the ID information of the device.
     pub fn ids(&mut self) -> Result<DevIDs, Error> {
         let mut ids = DevIDs::default();
-        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_mut_bytes());
+        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_mut_bytes())?;
         if usize::from(size) == size_of::<DevIDs>() {
             Ok(ids)
         } else {
@@ -196,7 +196,8 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Queries and returns information about the given axis of the device.
     pub fn abs_info(&mut self, axis: u8) -> Result<AbsInfo, Error> {
         let mut info = AbsInfo::default();
-        let size = self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_mut_bytes());
+        let size =
+            self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_mut_bytes())?;
         if usize::from(size) == size_of::<AbsInfo>() {
             Ok(info)
         } else {

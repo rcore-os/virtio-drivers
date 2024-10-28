@@ -34,7 +34,7 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
 ///
-/// let size = console.size().unwrap();
+/// let size = console.size().unwrap().unwrap();
 /// println!("VirtIO console {}x{}", size.rows, size.columns);
 ///
 /// for &c in b"Hello console!\n" {
@@ -125,14 +125,14 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     }
 
     /// Returns the size of the console, if the device supports reporting this.
-    pub fn size(&self) -> Option<Size> {
+    pub fn size(&self) -> Result<Option<Size>> {
         if self.negotiated_features.contains(Features::SIZE) {
-            Some(Size {
-                columns: self.transport.read_config_space(offset_of!(Config, cols)),
-                rows: self.transport.read_config_space(offset_of!(Config, rows)),
-            })
+            Ok(Some(Size {
+                columns: self.transport.read_config_space(offset_of!(Config, cols))?,
+                rows: self.transport.read_config_space(offset_of!(Config, rows))?,
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -239,7 +239,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
         if self.negotiated_features.contains(Features::EMERG_WRITE) {
             self.transport
-                .write_config_space::<u32>(offset_of!(Config, emerg_wr), chr.into());
+                .write_config_space::<u32>(offset_of!(Config, emerg_wr), chr.into())?;
             Ok(())
         } else {
             Err(Error::Unsupported)
@@ -333,7 +333,7 @@ mod tests {
         };
         let console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
 
-        assert_eq!(console.size(), None);
+        assert_eq!(console.size(), Ok(None));
     }
 
     #[test]
@@ -359,10 +359,10 @@ mod tests {
 
         assert_eq!(
             console.size(),
-            Some(Size {
+            Ok(Some(Size {
                 columns: 80,
                 rows: 42
-            })
+            }))
         );
     }
 

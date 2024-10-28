@@ -5,7 +5,7 @@ pub mod fake;
 pub mod mmio;
 pub mod pci;
 
-use crate::{PhysAddr, PAGE_SIZE};
+use crate::{PhysAddr, Result, PAGE_SIZE};
 use bitflags::{bitflags, Flags};
 use core::{fmt::Debug, ops::BitAnd};
 use log::debug;
@@ -100,10 +100,10 @@ pub trait Transport {
     }
 
     /// Reads a value from the device config space.
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> T;
+    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T>;
 
     /// Writes a value to the device config space.
-    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T);
+    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T) -> Result<()>;
 }
 
 bitflags! {
