@@ -10,7 +10,7 @@ use alloc::{boxed::Box, string::String};
 use core::cmp::min;
 use core::mem::size_of;
 use core::ptr::{addr_of, NonNull};
-use zerocopy::{AsBytes, FromBytes, FromZeroes};
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
@@ -48,7 +48,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         )?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // Safe because the buffer lasts as long as the queue.
-            let token = unsafe { event_queue.add(&[], &mut [event.as_bytes_mut()])? };
+            let token = unsafe { event_queue.add(&[], &mut [event.as_mut_bytes()])? };
             assert_eq!(token, i as u16);
         }
         if event_queue.should_notify() {
@@ -79,13 +79,13 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             // is still valid.
             unsafe {
                 self.event_queue
-                    .pop_used(token, &[], &mut [event.as_bytes_mut()])
+                    .pop_used(token, &[], &mut [event.as_mut_bytes()])
                     .ok()?;
             }
             let event_saved = *event;
             // requeue
             // Safe because buffer lasts as long as the queue.
-            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &mut [event.as_bytes_mut()]) }
+            if let Ok(new_token) = unsafe { self.event_queue.add(&[], &mut [event.as_mut_bytes()]) }
             {
                 // This only works because nothing happen between `pop_used` and `add` that affects
                 // the list of free descriptors in the queue, so `add` reuses the descriptor which
@@ -137,7 +137,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             if size > CONFIG_DATA_MAX_LENGTH {
                 return Err(Error::IoError);
             }
-            let mut buf = u8::new_box_slice_zeroed(size);
+            let mut buf = <[u8]>::new_box_zeroed_with_elems(size).unwrap();
             for i in 0..size {
                 buf[i] = addr_of!((*self.config.as_ptr()).data[i]).vread();
             }
@@ -172,7 +172,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Queries and returns the ID information of the device.
     pub fn ids(&mut self) -> Result<DevIDs, Error> {
         let mut ids = DevIDs::default();
-        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_bytes_mut());
+        let size = self.query_config_select(InputConfigSelect::IdDevids, 0, ids.as_mut_bytes());
         if usize::from(size) == size_of::<DevIDs>() {
             Ok(ids)
         } else {
@@ -195,7 +195,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     /// Queries and returns information about the given axis of the device.
     pub fn abs_info(&mut self, axis: u8) -> Result<AbsInfo, Error> {
         let mut info = AbsInfo::default();
-        let size = self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_bytes_mut());
+        let size = self.query_config_select(InputConfigSelect::AbsInfo, axis, info.as_mut_bytes());
         if usize::from(size) == size_of::<AbsInfo>() {
             Ok(info)
         } else {
@@ -263,7 +263,7 @@ struct Config {
 
 /// Information about an axis of an input device, typically a joystick.
 #[repr(C)]
-#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+#[derive(Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 pub struct AbsInfo {
     /// The minimum value for the axis.
     pub min: u32,
@@ -279,7 +279,7 @@ pub struct AbsInfo {
 
 /// The identifiers of a VirtIO input device.
 #[repr(C)]
-#[derive(AsBytes, Clone, Debug, Default, Eq, PartialEq, FromBytes, FromZeroes)]
+#[derive(Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 pub struct DevIDs {
     /// The bustype identifier.
     pub bustype: u16,
@@ -294,7 +294,7 @@ pub struct DevIDs {
 /// Both queues use the same `virtio_input_event` struct. `type`, `code` and `value`
 /// are filled according to the Linux input layer (evdev) interface.
 #[repr(C)]
-#[derive(AsBytes, Clone, Copy, Debug, Default, FromBytes, FromZeroes)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, Immutable, IntoBytes, KnownLayout)]
 pub struct InputEvent {
     /// Event type.
     pub event_type: u16,

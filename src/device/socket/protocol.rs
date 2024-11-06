@@ -9,7 +9,7 @@ use core::{
 };
 use zerocopy::{
     byteorder::{LittleEndian, U16, U32, U64},
-    AsBytes, FromBytes, FromZeroes,
+    FromBytes, Immutable, IntoBytes, KnownLayout,
 };
 
 /// Well-known CID for the host.
@@ -46,7 +46,7 @@ pub struct VirtioVsockConfig {
 
 /// The message header for data packets sent on the tx/rx queues
 #[repr(C, packed)]
-#[derive(AsBytes, Clone, Copy, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 pub struct VirtioVsockHdr {
     pub src_cid: U64<LittleEndian>,
     pub dst_cid: U64<LittleEndian>,
@@ -122,7 +122,7 @@ pub struct VsockAddr {
 }
 
 /// An event sent to the event queue
-#[derive(Copy, Clone, Debug, Default, AsBytes, FromBytes, FromZeroes)]
+#[derive(Copy, Clone, Debug, Default, IntoBytes, FromBytes, Immutable, KnownLayout)]
 #[repr(C)]
 pub struct VirtioVsockEvent {
     // ID from the virtio_vsock_event_id struct in the virtio spec

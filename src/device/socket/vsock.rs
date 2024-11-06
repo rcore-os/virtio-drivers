@@ -13,7 +13,7 @@ use crate::volatile::volread;
 use crate::Result;
 use core::mem::size_of;
 use log::debug;
-use zerocopy::{AsBytes, FromBytes};
+use zerocopy::{FromBytes, IntoBytes};
 
 pub(crate) const RX_QUEUE_IDX: u16 = 0;
 pub(crate) const TX_QUEUE_IDX: u16 = 1;
@@ -441,7 +441,9 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
 
 fn read_header_and_body(buffer: &[u8]) -> Result<(VirtioVsockHdr, &[u8])> {
     // This could fail if the device returns a buffer used length shorter than the header size.
-    let header = VirtioVsockHdr::read_from_prefix(buffer).ok_or(SocketError::BufferTooShort)?;
+    let header = VirtioVsockHdr::read_from_prefix(buffer)
+        .map_err(|_| SocketError::BufferTooShort)?
+        .0;
     let body_length = header.len() as usize;
 
     // This could fail if the device returns an unreasonably long body length.

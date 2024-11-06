@@ -8,7 +8,7 @@ use core::{
     alloc::Layout,
     ptr::{self, NonNull},
 };
-use zerocopy::FromZeroes;
+use zerocopy::FromZeros;
 
 #[derive(Debug)]
 pub struct FakeHal;
@@ -46,7 +46,7 @@ unsafe impl Hal for FakeHal {
         assert_ne!(buffer.len(), 0);
         // To ensure that the driver is handling and unsharing buffers properly, allocate a new
         // buffer and copy to it if appropriate.
-        let mut shared_buffer = u8::new_box_slice_zeroed(buffer.len());
+        let mut shared_buffer = <[u8]>::new_box_zeroed_with_elems(buffer.len()).unwrap();
         if let BufferDirection::DriverToDevice | BufferDirection::Both = direction {
             unsafe {
                 buffer
