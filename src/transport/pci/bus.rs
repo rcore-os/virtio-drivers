@@ -7,6 +7,7 @@ use core::{
     fmt::{self, Display, Formatter},
 };
 use log::warn;
+use thiserror::Error;
 
 const INVALID_READ: u32 = 0xffffffff;
 
@@ -82,18 +83,11 @@ bitflags! {
 }
 
 /// Errors accessing a PCI device.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum PciError {
     /// The device reported an invalid BAR type.
+    #[error("Invalid PCI BAR type")]
     InvalidBarType,
-}
-
-impl Display for PciError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::InvalidBarType => write!(f, "Invalid PCI BAR type."),
-        }
-    }
 }
 
 /// The root complex of a PCI bus.
