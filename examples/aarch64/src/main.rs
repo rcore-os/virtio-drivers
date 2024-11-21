@@ -38,7 +38,10 @@ use virtio_drivers::{
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
         pci::{
-            bus::{BarInfo, Cam, Command, DeviceFunction, MemoryBarType, PciRoot},
+            bus::{
+                BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MemoryBarType, MmioCam,
+                PciRoot,
+            },
             virtio_device_type, PciTransport,
         },
         DeviceType, Transport,
@@ -291,8 +294,9 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
             region.starting_address as usize + region.size.unwrap()
         );
         assert_eq!(region.size.unwrap(), cam.size() as usize);
-        // Safe because we know the pointer is to a valid MMIO region.
-        let mut pci_root = unsafe { PciRoot::new(region.starting_address as *mut u8, cam) };
+        // SAFETY: We know the pointer is to a valid MMIO region.
+        let mut pci_root =
+            PciRoot::new(unsafe { MmioCam::new(region.starting_address as *mut u8, cam) });
         for (device_function, info) in pci_root.enumerate_bus(0) {
             let (status, command) = pci_root.get_status_command(device_function);
             info!(
@@ -304,7 +308,7 @@ fn enumerate_pci(pci_node: FdtNode, cam: Cam) {
                 allocate_bars(&mut pci_root, device_function, &mut allocator);
                 dump_bar_contents(&mut pci_root, device_function, 4);
                 let mut transport =
-                    PciTransport::new::<HalImpl>(&mut pci_root, device_function).unwrap();
+                    PciTransport::new::<HalImpl, _>(&mut pci_root, device_function).unwrap();
                 info!(
                     "Detected virtio PCI device with device type {:?}, features {:#018x}",
                     transport.device_type(),
@@ -379,7 +383,11 @@ const fn align_up(value: u32, alignment: u32) -> u32 {
     ((value - 1) | (alignment - 1)) + 1
 }
 
-fn dump_bar_contents(root: &mut PciRoot, device_function: DeviceFunction, bar_index: u8) {
+fn dump_bar_contents(
+    root: &mut PciRoot<impl ConfigurationAccess>,
+    device_function: DeviceFunction,
+    bar_index: u8,
+) {
     let bar_info = root.bar_info(device_function, bar_index).unwrap();
     trace!("Dumping bar {}: {:#x?}", bar_index, bar_info);
     if let BarInfo::Memory { address, size, .. } = bar_info {
@@ -400,7 +408,7 @@ fn dump_bar_contents(root: &mut PciRoot, device_function: DeviceFunction, bar_in
 
 /// Allocates appropriately-sized memory regions and assigns them to the device's BARs.
 fn allocate_bars(
-    root: &mut PciRoot,
+    root: &mut PciRoot<impl ConfigurationAccess>,
     device_function: DeviceFunction,
     allocator: &mut PciMemory32Allocator,
 ) {
