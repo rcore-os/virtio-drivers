@@ -13,7 +13,6 @@ use crate::{
     Error,
 };
 use core::{
-    fmt::{self, Display, Formatter},
     mem::{align_of, size_of},
     ptr::{addr_of_mut, NonNull},
 };
@@ -431,26 +430,37 @@ fn get_bar_region_slice<H: Hal, T>(
 }
 
 /// An error encountered initialising a VirtIO PCI transport.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum VirtioPciError {
     /// PCI device vender ID was not the VirtIO vendor ID.
+    #[error("PCI device vender ID {0:#06x} was not the VirtIO vendor ID {VIRTIO_VENDOR_ID:#06x}.")]
     InvalidVendorId(u16),
     /// No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found.
+    #[error("No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found.")]
     MissingCommonConfig,
     /// No valid `VIRTIO_PCI_CAP_NOTIFY_CFG` capability was found.
+    #[error("No valid `VIRTIO_PCI_CAP_NOTIFY_CFG` capability was found.")]
     MissingNotifyConfig,
     /// `VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple
     /// of 2.
+    #[error("`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {0}")]
     InvalidNotifyOffMultiplier(u32),
     /// No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.
+    #[error("No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.")]
     MissingIsrConfig,
     /// An IO BAR was provided rather than a memory BAR.
+    #[error("Unexpected IO BAR (expected memory BAR).")]
     UnexpectedIoBar,
     /// A BAR which we need was not allocated an address.
+    #[error("Bar {0} not allocated.")]
     BarNotAllocated(u8),
     /// The offset for some capability was greater than the length of the BAR.
+    #[error("Capability offset greater than BAR length.")]
     BarOffsetOutOfRange,
     /// The virtual address was not aligned as expected.
+    #[error(
+        "Virtual address {vaddr:#018?} was not aligned to a {alignment} byte boundary as expected."
+    )]
     Misaligned {
         /// The virtual address in question.
         vaddr: NonNull<u8>,
@@ -458,46 +468,8 @@ pub enum VirtioPciError {
         alignment: usize,
     },
     /// A generic PCI error,
+    #[error(transparent)]
     Pci(PciError),
-}
-
-impl Display for VirtioPciError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::InvalidVendorId(vendor_id) => write!(
-                f,
-                "PCI device vender ID {:#06x} was not the VirtIO vendor ID {:#06x}.",
-                vendor_id, VIRTIO_VENDOR_ID
-            ),
-            Self::MissingCommonConfig => write!(
-                f,
-                "No valid `VIRTIO_PCI_CAP_COMMON_CFG` capability was found."
-            ),
-            Self::MissingNotifyConfig => write!(
-                f,
-                "No valid `VIRTIO_PCI_CAP_NOTIFY_CFG` capability was found."
-            ),
-            Self::InvalidNotifyOffMultiplier(notify_off_multiplier) => {
-                write!(
-                    f,
-                    "`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {}",
-                    notify_off_multiplier
-                )
-            }
-            Self::MissingIsrConfig => {
-                write!(f, "No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.")
-            }
-            Self::UnexpectedIoBar => write!(f, "Unexpected IO BAR (expected memory BAR)."),
-            Self::BarNotAllocated(bar_index) => write!(f, "Bar {} not allocated.", bar_index),
-            Self::BarOffsetOutOfRange => write!(f, "Capability offset greater than BAR length."),
-            Self::Misaligned { vaddr, alignment } => write!(
-                f,
-                "Virtual address {:#018?} was not aligned to a {} byte boundary as expected.",
-                vaddr, alignment
-            ),
-            Self::Pci(pci_error) => pci_error.fmt(f),
-        }
-    }
 }
 
 impl From<PciError> for VirtioPciError {
