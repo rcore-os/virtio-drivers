@@ -484,15 +484,40 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn config_space<T>(&self) -> Result<NonNull<T>, Error> {
-        if align_of::<T>() > 4 {
-            // Panic as this should only happen if the driver is written incorrectly.
-            panic!(
-                "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-                align_of::<T>()
-            );
+    fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
+        assert!(align_of::<T>() <= 4,
+            "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+            align_of::<T>());
+        assert!(offset % align_of::<T>() == 0);
+
+        // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
+        // which includes the config space.
+        unsafe {
+            Ok(self
+                .header
+                .cast::<T>()
+                .byte_add(CONFIG_SPACE_OFFSET)
+                .byte_add(offset)
+                .read_volatile())
         }
-        Ok(NonNull::new((self.header.as_ptr() as usize + CONFIG_SPACE_OFFSET) as _).unwrap())
+    }
+
+    fn write_config_space<T>(&mut self, offset: usize, value: T) -> Result<(), Error> {
+        assert!(align_of::<T>() <= 4,
+            "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
+            align_of::<T>());
+        assert!(offset % align_of::<T>() == 0);
+
+        // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
+        // which includes the config space.
+        unsafe {
+            self.header
+                .cast::<T>()
+                .byte_add(CONFIG_SPACE_OFFSET)
+                .byte_add(offset)
+                .write_volatile(value);
+        }
+        Ok(())
     }
 }
 
