@@ -4,11 +4,13 @@
 pub mod fake;
 pub mod mmio;
 pub mod pci;
+mod some;
 
 use crate::{PhysAddr, Result, PAGE_SIZE};
 use bitflags::{bitflags, Flags};
 use core::{fmt::Debug, ops::BitAnd};
 use log::debug;
+pub use some::SomeTransport;
 use zerocopy::{FromBytes, IntoBytes};
 
 /// A VirtIO transport layer.
