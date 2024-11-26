@@ -62,6 +62,9 @@ pub enum MmioError {
     /// The header reports a device ID of 0.
     #[error("Device ID was zero")]
     ZeroDeviceId,
+    /// The MMIO region size was smaller than the header size we expect.
+    #[error("MMIO region too small")]
+    MmioRegionTooSmall,
 }
 
 /// MMIO Device Register Interface, both legacy and modern.
@@ -264,6 +267,8 @@ impl VirtIOHeader {
 pub struct MmioTransport {
     header: NonNull<VirtIOHeader>,
     version: MmioVersion,
+    /// The size in bytes of the config space.
+    config_space_size: usize,
 }
 
 impl MmioTransport {
@@ -273,7 +278,7 @@ impl MmioTransport {
     /// # Safety
     /// `header` must point to a properly aligned valid VirtIO MMIO region, which must remain valid
     /// for the lifetime of the transport that is returned.
-    pub unsafe fn new(header: NonNull<VirtIOHeader>) -> Result<Self, MmioError> {
+    pub unsafe fn new(header: NonNull<VirtIOHeader>, mmio_size: usize) -> Result<Self, MmioError> {
         let magic = volread!(header, magic);
         if magic != MAGIC_VALUE {
             return Err(MmioError::BadMagic(magic));
@@ -281,8 +286,15 @@ impl MmioTransport {
         if volread!(header, device_id) == 0 {
             return Err(MmioError::ZeroDeviceId);
         }
+        let Some(config_space_size) = mmio_size.checked_sub(CONFIG_SPACE_OFFSET) else {
+            return Err(MmioError::MmioRegionTooSmall);
+        };
         let version = volread!(header, version).try_into()?;
-        Ok(Self { header, version })
+        Ok(Self {
+            header,
+            version,
+            config_space_size,
+        })
     }
 
     /// Gets the version of the VirtIO MMIO transport.
@@ -491,15 +503,19 @@ impl Transport for MmioTransport {
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
 
-        // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
-        // which includes the config space.
-        unsafe {
-            Ok(self
-                .header
-                .cast::<T>()
-                .byte_add(CONFIG_SPACE_OFFSET)
-                .byte_add(offset)
-                .read_volatile())
+        if self.config_space_size < offset + size_of::<T>() {
+            Err(Error::ConfigSpaceTooSmall)
+        } else {
+            // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
+            // which includes the config space.
+            unsafe {
+                Ok(self
+                    .header
+                    .cast::<T>()
+                    .byte_add(CONFIG_SPACE_OFFSET)
+                    .byte_add(offset)
+                    .read_volatile())
+            }
         }
     }
 
@@ -509,16 +525,20 @@ impl Transport for MmioTransport {
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
 
-        // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
-        // which includes the config space.
-        unsafe {
-            self.header
-                .cast::<T>()
-                .byte_add(CONFIG_SPACE_OFFSET)
-                .byte_add(offset)
-                .write_volatile(value);
+        if self.config_space_size < offset + size_of::<T>() {
+            Err(Error::ConfigSpaceTooSmall)
+        } else {
+            // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was valid,
+            // which includes the config space.
+            unsafe {
+                self.header
+                    .cast::<T>()
+                    .byte_add(CONFIG_SPACE_OFFSET)
+                    .byte_add(offset)
+                    .write_volatile(value);
+            }
+            Ok(())
         }
-        Ok(())
     }
 }
 
