@@ -11,7 +11,7 @@ use bitflags::{bitflags, Flags};
 use core::{fmt::Debug, ops::BitAnd};
 use log::debug;
 pub use some::SomeTransport;
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A VirtIO transport layer.
 pub trait Transport {
@@ -105,7 +105,11 @@ pub trait Transport {
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T>;
 
     /// Writes a value to the device config space.
-    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T) -> Result<()>;
+    fn write_config_space<T: IntoBytes + Immutable>(
+        &mut self,
+        offset: usize,
+        value: T,
+    ) -> Result<()>;
 }
 
 bitflags! {

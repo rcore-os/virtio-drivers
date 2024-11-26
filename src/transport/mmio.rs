@@ -12,7 +12,7 @@ use core::{
     mem::{align_of, size_of},
     ptr::NonNull,
 };
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 const MAGIC_VALUE: u32 = 0x7472_6976;
 pub(crate) const LEGACY_VERSION: u32 = 1;
@@ -519,7 +519,11 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_config_space<T: IntoBytes + Immutable>(
+        &mut self,
+        offset: usize,
+        value: T,
+    ) -> Result<(), Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
