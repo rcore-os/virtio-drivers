@@ -339,8 +339,7 @@ impl Transport for PciTransport {
             // SAFETY: If we have a config space pointer it must be valid for its length, and we just
             // checked that the offset and size of the access was within the length.
             unsafe {
-                // TODO: Use NonNull::as_non_null_ptr once it is stable.
-                Ok((config_space.as_ptr() as *mut T)
+                Ok((config_space.as_ptr().cast::<T>())
                     .byte_add(offset)
                     .read_volatile())
             }
@@ -360,8 +359,7 @@ impl Transport for PciTransport {
             // SAFETY: If we have a config space pointer it must be valid for its length, and we just
             // checked that the offset and size of the access was within the length.
             unsafe {
-                // TODO: Use NonNull::as_non_null_ptr once it is stable.
-                (config_space.as_ptr() as *mut T)
+                (config_space.as_ptr().cast::<T>())
                     .byte_add(offset)
                     .write_volatile(value);
             }
