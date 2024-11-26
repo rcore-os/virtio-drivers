@@ -10,6 +10,9 @@ pub enum SomeTransport {
     Mmio(MmioTransport),
     /// A PCI transport.
     Pci(PciTransport),
+    /// An x86-64 pKVM PCI transport.
+    #[cfg(target_arch = "x86_64")]
+    HypPci(super::x86_64::HypPciTransport),
 }
 
 impl From<MmioTransport> for SomeTransport {
@@ -29,6 +32,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.device_type(),
             Self::Pci(pci) => pci.device_type(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.device_type(),
         }
     }
 
@@ -36,6 +41,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.read_device_features(),
             Self::Pci(pci) => pci.read_device_features(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.read_device_features(),
         }
     }
 
@@ -43,6 +50,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.write_driver_features(driver_features),
             Self::Pci(pci) => pci.write_driver_features(driver_features),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.write_driver_features(driver_features),
         }
     }
 
@@ -50,6 +59,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.max_queue_size(queue),
             Self::Pci(pci) => pci.max_queue_size(queue),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.max_queue_size(queue),
         }
     }
 
@@ -57,6 +68,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.notify(queue),
             Self::Pci(pci) => pci.notify(queue),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.notify(queue),
         }
     }
 
@@ -64,6 +77,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.get_status(),
             Self::Pci(pci) => pci.get_status(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.get_status(),
         }
     }
 
@@ -71,6 +86,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.set_status(status),
             Self::Pci(pci) => pci.set_status(status),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.set_status(status),
         }
     }
 
@@ -78,6 +95,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.set_guest_page_size(guest_page_size),
             Self::Pci(pci) => pci.set_guest_page_size(guest_page_size),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.set_guest_page_size(guest_page_size),
         }
     }
 
@@ -85,6 +104,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.requires_legacy_layout(),
             Self::Pci(pci) => pci.requires_legacy_layout(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.requires_legacy_layout(),
         }
     }
 
@@ -99,6 +120,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.queue_set(queue, size, descriptors, driver_area, device_area),
             Self::Pci(pci) => pci.queue_set(queue, size, descriptors, driver_area, device_area),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.queue_set(queue, size, descriptors, driver_area, device_area),
         }
     }
 
@@ -106,6 +129,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.queue_unset(queue),
             Self::Pci(pci) => pci.queue_unset(queue),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.queue_unset(queue),
         }
     }
 
@@ -113,6 +138,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.queue_used(queue),
             Self::Pci(pci) => pci.queue_used(queue),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.queue_used(queue),
         }
     }
 
@@ -120,6 +147,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.ack_interrupt(),
             Self::Pci(pci) => pci.ack_interrupt(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.ack_interrupt(),
         }
     }
 
@@ -127,6 +156,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.read_config_generation(),
             Self::Pci(pci) => pci.read_config_generation(),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.read_config_generation(),
         }
     }
 
@@ -134,6 +165,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.read_config_space(offset),
             Self::Pci(pci) => pci.read_config_space(offset),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.read_config_space(offset),
         }
     }
 
@@ -145,6 +178,8 @@ impl Transport for SomeTransport {
         match self {
             Self::Mmio(mmio) => mmio.write_config_space(offset, value),
             Self::Pci(pci) => pci.write_config_space(offset, value),
+            #[cfg(target_arch = "x86_64")]
+            Self::HypPci(pci) => pci.write_config_space(offset, value),
         }
     }
 }
