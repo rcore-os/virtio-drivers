@@ -18,6 +18,7 @@ use core::{
     mem::{align_of, size_of},
     ptr::{addr_of_mut, NonNull},
 };
+use zerocopy::{FromBytes, IntoBytes};
 
 /// The PCI vendor ID for VirtIO devices.
 const VIRTIO_VENDOR_ID: u16 = 0x1af4;
@@ -325,7 +326,7 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
-    fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
+    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
@@ -346,7 +347,7 @@ impl Transport for PciTransport {
         }
     }
 
-    fn write_config_space<T>(&mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T) -> Result<(), Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
