@@ -37,12 +37,12 @@ impl HypCam {
 impl ConfigurationAccess for HypCam {
     fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
         let address = self.cam.cam_offset(device_function, register_offset);
-        hyp_io_read(self.phys_base + (address as usize), 4)
+        hyp_io_read(self.phys_base + (address as usize), 4) as u32
     }
 
     fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
         let address = self.cam.cam_offset(device_function, register_offset);
-        hyp_io_write(self.phys_base + (address as usize), 4, data);
+        hyp_io_write(self.phys_base + (address as usize), 4, data.into());
     }
 
     unsafe fn unsafe_clone(&self) -> Self {
@@ -79,7 +79,7 @@ fn cpuid_signature() -> [u8; 4] {
 }
 
 /// Asks the hypervisor to perform an IO read at the given physical address.
-fn hyp_io_read(address: usize, size: usize) -> u32 {
+fn hyp_io_read(address: usize, size: usize) -> u64 {
     // Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally using a named argument in
     // the inline asm for rbx would be more straightforward, but when "rbx" is used directly LLVM
     // complains that it is used internally.
@@ -93,7 +93,7 @@ fn hyp_io_read(address: usize, size: usize) -> u32 {
             "mov rbx, r8",
             "vmcall",
             "pop rbx",
-            inout("rax") PKVM_GHC_IOREAD => data,
+            inout("rax") u64::from(PKVM_GHC_IOREAD) => data,
             in("r8") address,
             in("rcx") size,
         );
@@ -102,7 +102,7 @@ fn hyp_io_read(address: usize, size: usize) -> u32 {
 }
 
 /// Asks the hypervisor to perform an IO write at the given physical address.
-fn hyp_io_write(address: usize, size: usize, data: u32) {
+fn hyp_io_write(address: usize, size: usize, data: u64) {
     unsafe {
         // Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally using a named argument
         // in the inline asm for rbx would be more straightforward but when "rbx" is used directly
