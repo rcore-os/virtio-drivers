@@ -1,4 +1,4 @@
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::{mmio::MmioTransport, pci::PciTransport, DeviceStatus, DeviceType, Transport};
 use crate::{PhysAddr, Result};
@@ -130,7 +130,11 @@ impl Transport for SomeTransport {
         }
     }
 
-    fn write_config_space<T: IntoBytes>(&mut self, offset: usize, value: T) -> Result<()> {
+    fn write_config_space<T: IntoBytes + Immutable>(
+        &mut self,
+        offset: usize,
+        value: T,
+    ) -> Result<()> {
         match self {
             Self::Mmio(mmio) => mmio.write_config_space(offset, value),
             Self::Pci(pci) => pci.write_config_space(offset, value),

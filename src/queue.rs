@@ -995,7 +995,9 @@ mod tests {
     #[test]
     fn queue_too_big() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         assert_eq!(
             VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false).unwrap_err(),
             Error::InvalidParam
@@ -1005,7 +1007,9 @@ mod tests {
     #[test]
     fn queue_already_used() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(
             VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap_err(),
@@ -1016,7 +1020,9 @@ mod tests {
     #[test]
     fn add_empty() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(
             unsafe { queue.add(&[], &mut []) }.unwrap_err(),
@@ -1027,7 +1033,9 @@ mod tests {
     #[test]
     fn add_too_many() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
@@ -1039,7 +1047,9 @@ mod tests {
     #[test]
     fn add_buffers() {
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
@@ -1102,7 +1112,9 @@ mod tests {
         use core::ptr::slice_from_raw_parts;
 
         let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = unsafe { MmioTransport::new(NonNull::from(&mut header)) }.unwrap();
+        let mut transport =
+            unsafe { MmioTransport::new(NonNull::from(&mut header), size_of::<VirtIOHeader>()) }
+                .unwrap();
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
