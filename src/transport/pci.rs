@@ -447,7 +447,7 @@ fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
     let vaddr = unsafe { H::mmio_phys_to_virt(paddr, struct_info.length as usize) };
     if vaddr.as_ptr() as usize % align_of::<T>() != 0 {
         return Err(VirtioPciError::Misaligned {
-            vaddr,
+            address: vaddr.as_ptr() as usize,
             alignment: align_of::<T>(),
         });
     }
@@ -494,13 +494,11 @@ pub enum VirtioPciError {
     /// The offset for some capability was greater than the length of the BAR.
     #[error("Capability offset greater than BAR length.")]
     BarOffsetOutOfRange,
-    /// The virtual address was not aligned as expected.
-    #[error(
-        "Virtual address {vaddr:#018?} was not aligned to a {alignment} byte boundary as expected."
-    )]
+    /// The address was not aligned as expected.
+    #[error("Address {address:#018} was not aligned to a {alignment} byte boundary as expected.")]
     Misaligned {
-        /// The virtual address in question.
-        vaddr: NonNull<u8>,
+        /// The address in question.
+        address: usize,
         /// The expected alignment in bytes.
         alignment: usize,
     },
