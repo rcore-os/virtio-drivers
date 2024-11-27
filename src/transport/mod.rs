@@ -232,6 +232,8 @@ impl From<u8> for DeviceType {
     }
 }
 
+/// Wrapper for Transport::read_config_space with an extra dummy parameter to force the correct type
+/// to be inferred.
 #[inline(always)]
 pub(crate) fn read_help<T: Transport, V: FromBytes>(
     transport: &T,
@@ -241,6 +243,8 @@ pub(crate) fn read_help<T: Transport, V: FromBytes>(
     transport.read_config_space(offset)
 }
 
+/// Wrapper for Transport::write_config_space with an extra dummy parameter to force the correct
+/// type to be inferred.
 #[inline(always)]
 pub(crate) fn write_help<T: Transport, V: Immutable + IntoBytes>(
     transport: &mut T,
@@ -251,6 +255,7 @@ pub(crate) fn write_help<T: Transport, V: Immutable + IntoBytes>(
     transport.write_config_space(offset, value)
 }
 
+/// Reads the given field of the given struct from the device config space via the given transport.
 macro_rules! read_config {
     ($transport:expr, $struct:ty, $field:ident) => {{
         let dummy_struct: Option<$struct> = None;
@@ -259,6 +264,7 @@ macro_rules! read_config {
     }};
 }
 
+/// Writes the given field of the given struct from the device config space via the given transport.
 macro_rules! write_config {
     ($transport:expr, $struct:ty, $field:ident, $value:expr) => {{
         let dummy_struct: Option<$struct> = None;
