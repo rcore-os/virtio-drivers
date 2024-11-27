@@ -5,23 +5,23 @@ use crate::{
 };
 use alloc::{sync::Arc, vec::Vec};
 use core::{
-    ptr::NonNull,
+    fmt::{self, Debug, Formatter},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 use std::{sync::Mutex, thread};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A fake implementation of [`Transport`] for unit tests.
 #[derive(Debug)]
-pub struct FakeTransport<C: 'static> {
+pub struct FakeTransport<C> {
     pub device_type: DeviceType,
     pub max_queue_size: u32,
     pub device_features: u64,
-    pub config_space: NonNull<C>,
-    pub state: Arc<Mutex<State>>,
+    pub state: Arc<Mutex<State<C>>>,
 }
 
-impl<C> Transport for FakeTransport<C> {
+impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
     fn device_type(&self) -> DeviceType {
         self.device_type
     }
@@ -100,7 +100,7 @@ impl<C> Transport for FakeTransport<C> {
         self.state.lock().unwrap().config_generation
     }
 
-    fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
+    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
@@ -109,11 +109,17 @@ impl<C> Transport for FakeTransport<C> {
         if size_of::<C>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
-            unsafe { Ok(self.config_space.cast::<T>().byte_add(offset).read()) }
+            let state = self.state.lock().unwrap();
+            let bytes = &state.config_space.as_bytes()[offset..offset + size_of::<T>()];
+            Ok(T::read_from_bytes(bytes).unwrap())
         }
     }
 
-    fn write_config_space<T>(&mut self, offset: usize, value: T) -> Result<(), Error> {
+    fn write_config_space<T: Immutable + IntoBytes>(
+        &mut self,
+        offset: usize,
+        value: T,
+    ) -> Result<(), Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
@@ -122,25 +128,51 @@ impl<C> Transport for FakeTransport<C> {
         if size_of::<C>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
-            unsafe {
-                self.config_space.cast::<T>().byte_add(offset).write(value);
-            }
+            let mut state = self.state.lock().unwrap();
+            let bytes = &mut state.config_space.as_mut_bytes()[offset..offset + size_of::<T>()];
+            value.write_to(bytes).unwrap();
             Ok(())
         }
     }
 }
 
-#[derive(Debug, Default)]
-pub struct State {
+pub struct State<C> {
     pub status: DeviceStatus,
     pub driver_features: u64,
     pub guest_page_size: u32,
     pub interrupt_pending: bool,
     pub queues: Vec<QueueStatus>,
     pub config_generation: u32,
+    pub config_space: C,
 }
 
-impl State {
+impl<C> Debug for State<C> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("State")
+            .field("status", &self.status)
+            .field("driver_features", &self.driver_features)
+            .field("guest_page_size", &self.guest_page_size)
+            .field("interrupt_pending", &self.interrupt_pending)
+            .field("queues", &self.queues)
+            .field("config_generation", &self.config_generation)
+            .field("config_space", &"...")
+            .finish()
+    }
+}
+
+impl<C> State<C> {
+    pub const fn new(queues: Vec<QueueStatus>, config_space: C) -> Self {
+        Self {
+            status: DeviceStatus::empty(),
+            driver_features: 0,
+            guest_page_size: 0,
+            interrupt_pending: false,
+            queues,
+            config_generation: 0,
+            config_space,
+        }
+    }
+
     /// Simulates the device writing to the given queue.
     ///
     /// The fake device always uses descriptors in order.

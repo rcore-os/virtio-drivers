@@ -1012,6 +1012,7 @@ impl From<PcmRate> for u8 {
     }
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct VirtIOSoundConfig {
     jacks: ReadOnly<u32>,
@@ -1566,31 +1567,29 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::ptr::NonNull;
     use fake::FakeSoundDevice;
     use std::sync::Mutex;
 
     #[test]
     fn config() {
-        let mut config_space = VirtIOSoundConfig {
+        let config_space = VirtIOSoundConfig {
             jacks: ReadOnly::new(3),
             streams: ReadOnly::new(4),
             chmaps: ReadOnly::new(2),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
             ],
-            ..Default::default()
-        }));
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Sound,
             max_queue_size: 32,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let sound =

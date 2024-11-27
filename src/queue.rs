@@ -1164,16 +1164,11 @@ mod tests {
     /// Tests that the queue advises the device that notifications are needed.
     #[test]
     fn set_dev_notify() {
-        let mut config_space = ();
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(vec![QueueStatus::default()], ())));
         let mut transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: 4,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
@@ -1205,16 +1200,11 @@ mod tests {
     /// notifications.
     #[test]
     fn add_notify() {
-        let mut config_space = ();
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(vec![QueueStatus::default()], ())));
         let mut transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: 4,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
@@ -1240,16 +1230,11 @@ mod tests {
     /// notifications with the `avail_event` index.
     #[test]
     fn add_notify_event_idx() {
-        let mut config_space = ();
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(vec![QueueStatus::default()], ())));
         let mut transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: 4,
             device_features: Feature::RING_EVENT_IDX.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, true).unwrap();

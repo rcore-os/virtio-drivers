@@ -247,6 +247,7 @@ pub enum InputConfigSelect {
     AbsInfo = 0x12,
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct Config {
     select: WriteOnly<u8>,
@@ -317,41 +318,52 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::{convert::TryInto, ptr::NonNull};
+    use core::convert::TryInto;
     use std::sync::Mutex;
 
     #[test]
     fn config() {
         const DEFAULT_DATA: ReadOnly<u8> = ReadOnly::new(0);
-        let mut config_space = Config {
+        let config_space = Config {
             select: WriteOnly::default(),
             subsel: WriteOnly::default(),
             size: ReadOnly::new(0),
             _reserved: Default::default(),
             data: [DEFAULT_DATA; 128],
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.try_into().unwrap(),
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut input = VirtIOInput::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
 
-        set_data(&mut config_space, "Test input device".as_bytes());
+        set_data(
+            &mut state.lock().unwrap().config_space,
+            "Test input device".as_bytes(),
+        );
         assert_eq!(input.name().unwrap(), "Test input device");
-        assert_eq!(config_space.select.0, InputConfigSelect::IdName as u8);
-        assert_eq!(config_space.subsel.0, 0);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::IdName as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 0);
 
-        set_data(&mut config_space, "Serial number".as_bytes());
+        set_data(
+            &mut state.lock().unwrap().config_space,
+            "Serial number".as_bytes(),
+        );
         assert_eq!(input.serial_number().unwrap(), "Serial number");
-        assert_eq!(config_space.select.0, InputConfigSelect::IdSerial as u8);
-        assert_eq!(config_space.subsel.0, 0);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::IdSerial as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 0);
 
         let ids = DevIDs {
             bustype: 0x4242,
@@ -359,20 +371,29 @@ mod tests {
             vendor: 0x1234,
             version: 0x4321,
         };
-        set_data(&mut config_space, ids.as_bytes());
+        set_data(&mut state.lock().unwrap().config_space, ids.as_bytes());
         assert_eq!(input.ids().unwrap(), ids);
-        assert_eq!(config_space.select.0, InputConfigSelect::IdDevids as u8);
-        assert_eq!(config_space.subsel.0, 0);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::IdDevids as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 0);
 
-        set_data(&mut config_space, &[0x12, 0x34, 0x56]);
+        set_data(&mut state.lock().unwrap().config_space, &[0x12, 0x34, 0x56]);
         assert_eq!(input.prop_bits().unwrap().as_ref(), &[0x12, 0x34, 0x56]);
-        assert_eq!(config_space.select.0, InputConfigSelect::PropBits as u8);
-        assert_eq!(config_space.subsel.0, 0);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::PropBits as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 0);
 
-        set_data(&mut config_space, &[0x42, 0x66]);
+        set_data(&mut state.lock().unwrap().config_space, &[0x42, 0x66]);
         assert_eq!(input.ev_bits(3).unwrap().as_ref(), &[0x42, 0x66]);
-        assert_eq!(config_space.select.0, InputConfigSelect::EvBits as u8);
-        assert_eq!(config_space.subsel.0, 3);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::EvBits as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 3);
 
         let abs_info = AbsInfo {
             min: 12,
@@ -381,10 +402,13 @@ mod tests {
             flat: 10,
             res: 2,
         };
-        set_data(&mut config_space, abs_info.as_bytes());
+        set_data(&mut state.lock().unwrap().config_space, abs_info.as_bytes());
         assert_eq!(input.abs_info(5).unwrap(), abs_info);
-        assert_eq!(config_space.select.0, InputConfigSelect::AbsInfo as u8);
-        assert_eq!(config_space.subsel.0, 5);
+        assert_eq!(
+            state.lock().unwrap().config_space.select.0,
+            InputConfigSelect::AbsInfo as u8
+        );
+        assert_eq!(state.lock().unwrap().config_space.subsel.0, 5);
     }
 
     fn set_data(config_space: &mut Config, value: &[u8]) {

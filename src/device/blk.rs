@@ -388,6 +388,7 @@ impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
     }
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors
@@ -559,12 +560,12 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::{mem::size_of, ptr::NonNull};
+    use core::mem::size_of;
     use std::{sync::Mutex, thread};
 
     #[test]
     fn config() {
-        let mut config_space = BlkConfig {
+        let config_space = BlkConfig {
             capacity_low: ReadOnly::new(0x42),
             capacity_high: ReadOnly::new(0x02),
             size_max: ReadOnly::new(0),
@@ -578,15 +579,14 @@ mod tests {
             min_io_size: ReadOnly::new(0),
             opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RO.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn read() {
-        let mut config_space = BlkConfig {
+        let config_space = BlkConfig {
             capacity_low: ReadOnly::new(66),
             capacity_high: ReadOnly::new(0),
             size_max: ReadOnly::new(0),
@@ -611,15 +611,14 @@ mod tests {
             min_io_size: ReadOnly::new(0),
             opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -667,7 +666,7 @@ mod tests {
 
     #[test]
     fn write() {
-        let mut config_space = BlkConfig {
+        let config_space = BlkConfig {
             capacity_low: ReadOnly::new(66),
             capacity_high: ReadOnly::new(0),
             size_max: ReadOnly::new(0),
@@ -681,15 +680,14 @@ mod tests {
             min_io_size: ReadOnly::new(0),
             opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -742,7 +740,7 @@ mod tests {
 
     #[test]
     fn flush() {
-        let mut config_space = BlkConfig {
+        let config_space = BlkConfig {
             capacity_low: ReadOnly::new(66),
             capacity_high: ReadOnly::new(0),
             size_max: ReadOnly::new(0),
@@ -756,15 +754,14 @@ mod tests {
             min_io_size: ReadOnly::new(0),
             opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: (BlkFeature::RING_INDIRECT_DESC | BlkFeature::FLUSH).bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -809,7 +806,7 @@ mod tests {
 
     #[test]
     fn device_id() {
-        let mut config_space = BlkConfig {
+        let config_space = BlkConfig {
             capacity_low: ReadOnly::new(66),
             capacity_high: ReadOnly::new(0),
             size_max: ReadOnly::new(0),
@@ -823,15 +820,14 @@ mod tests {
             min_io_size: ReadOnly::new(0),
             opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
