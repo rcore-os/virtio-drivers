@@ -7,9 +7,7 @@ mod exceptions;
 mod hal;
 mod logger;
 #[cfg(platform = "qemu")]
-mod pl011;
-#[cfg(platform = "qemu")]
-use pl011 as uart;
+use pl011_uart as uart;
 #[cfg(platform = "crosvm")]
 mod uart8250;
 #[cfg(platform = "crosvm")]
@@ -50,11 +48,11 @@ use virtio_drivers::{
 
 /// Base memory-mapped address of the primary PL011 UART device.
 #[cfg(platform = "qemu")]
-pub const UART_BASE_ADDRESS: usize = 0x900_0000;
+pub const UART_BASE_ADDRESS: *mut u32 = 0x900_0000 as _;
 
 /// The base address of the first 8250 UART.
 #[cfg(platform = "crosvm")]
-pub const UART_BASE_ADDRESS: usize = 0x3f8;
+pub const UART_BASE_ADDRESS: *mut u32 = 0x3f8 as _;
 
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();

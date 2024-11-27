@@ -18,9 +18,9 @@ impl Uart {
     /// The given base address must point to the 8 MMIO control registers of an appropriate UART
     /// device, which must be mapped into the address space of the process as device memory and not
     /// have any other aliases.
-    pub unsafe fn new(base_address: usize) -> Self {
+    pub unsafe fn new(base_address: *mut u32) -> Self {
         Self {
-            base_address: base_address as *mut u8,
+            base_address: base_address.cast(),
         }
     }
 
