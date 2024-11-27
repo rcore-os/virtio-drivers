@@ -6,7 +6,10 @@ pub mod mmio;
 pub mod pci;
 mod some;
 
-use crate::{PhysAddr, Result, PAGE_SIZE};
+use crate::{
+    volatile::{VolatileReadable, VolatileWritable},
+    PhysAddr, Result, PAGE_SIZE,
+};
 use bitflags::{bitflags, Flags};
 use core::{fmt::Debug, ops::BitAnd};
 use log::debug;
@@ -235,23 +238,29 @@ impl From<u8> for DeviceType {
 /// Wrapper for Transport::read_config_space with an extra dummy parameter to force the correct type
 /// to be inferred.
 #[inline(always)]
-pub(crate) fn read_help<T: Transport, V: FromBytes>(
-    transport: &T,
-    offset: usize,
-    _dummy_v: Option<V>,
-) -> Result<V> {
+pub(crate) fn read_help<T, V, R>(transport: &T, offset: usize, _dummy_r: Option<R>) -> Result<V>
+where
+    T: Transport,
+    V: FromBytes,
+    *const R: VolatileReadable<V>,
+{
     transport.read_config_space(offset)
 }
 
 /// Wrapper for Transport::write_config_space with an extra dummy parameter to force the correct
 /// type to be inferred.
 #[inline(always)]
-pub(crate) fn write_help<T: Transport, V: Immutable + IntoBytes>(
+pub(crate) fn write_help<T, V, W>(
     transport: &mut T,
     offset: usize,
     value: V,
-    _dummy_v: Option<V>,
-) -> Result<()> {
+    _dummy_w: Option<W>,
+) -> Result<()>
+where
+    T: Transport,
+    V: Immutable + IntoBytes,
+    *mut W: VolatileWritable<V>,
+{
     transport.write_config_space(offset, value)
 }
 
@@ -259,8 +268,12 @@ pub(crate) fn write_help<T: Transport, V: Immutable + IntoBytes>(
 macro_rules! read_config {
     ($transport:expr, $struct:ty, $field:ident) => {{
         let dummy_struct: Option<$struct> = None;
-        let dummy_v = dummy_struct.map(|s| s.$field.0);
-        crate::transport::read_help(&$transport, core::mem::offset_of!($struct, $field), dummy_v)
+        let dummy_field = dummy_struct.map(|s| s.$field);
+        crate::transport::read_help(
+            &$transport,
+            core::mem::offset_of!($struct, $field),
+            dummy_field,
+        )
     }};
 }
 
@@ -268,12 +281,12 @@ macro_rules! read_config {
 macro_rules! write_config {
     ($transport:expr, $struct:ty, $field:ident, $value:expr) => {{
         let dummy_struct: Option<$struct> = None;
-        let dummy_v = dummy_struct.map(|s| s.$field.0);
+        let dummy_field = dummy_struct.map(|s| s.$field);
         crate::transport::write_help(
             &mut $transport,
             core::mem::offset_of!($struct, $field),
             $value,
-            dummy_v,
+            dummy_field,
         )
     }};
 }

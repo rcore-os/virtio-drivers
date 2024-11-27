@@ -18,7 +18,7 @@ pub struct WriteOnly<T: Copy>(pub(crate) T);
 /// An MMIO register which may be both read and written.
 #[derive(Default)]
 #[repr(transparent)]
-pub struct Volatile<T: Copy>(pub(crate) T);
+pub struct Volatile<T: Copy>(T);
 
 impl<T: Copy> Volatile<T> {
     /// Construct a new instance for testing.
