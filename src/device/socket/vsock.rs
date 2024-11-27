@@ -6,9 +6,10 @@ use super::protocol::{
     Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
 };
 use super::DEFAULT_RX_BUFFER_SIZE;
+use crate::config::read_config;
 use crate::hal::Hal;
 use crate::queue::{owning::OwningQueue, VirtQueue};
-use crate::transport::{read_config, Transport};
+use crate::transport::Transport;
 use crate::Result;
 use core::mem::size_of;
 use log::debug;
@@ -461,12 +462,12 @@ fn read_header_and_body(buffer: &[u8]) -> Result<(VirtioVsockHdr, &[u8])> {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;

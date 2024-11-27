@@ -1,9 +1,9 @@
 //! Driver for VirtIO GPU devices.
 
+use crate::config::{read_config, ReadOnly, WriteOnly};
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
-use crate::transport::{read_config, Transport};
-use crate::volatile::{ReadOnly, WriteOnly};
+use crate::transport::Transport;
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;

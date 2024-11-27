@@ -3,10 +3,10 @@
 #[cfg(feature = "embedded-io")]
 mod embedded_io;
 
+use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::{read_config, write_config, Transport};
-use crate::volatile::{ReadOnly, WriteOnly};
+use crate::transport::Transport;
 use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;

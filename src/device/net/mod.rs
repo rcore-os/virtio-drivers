@@ -10,7 +10,7 @@ pub use self::dev_raw::VirtIONetRaw;
 #[cfg(feature = "alloc")]
 pub use self::{dev::VirtIONet, net_buf::RxBuffer, net_buf::TxBuffer};
 
-use crate::volatile::ReadOnly;
+use crate::config::ReadOnly;
 use bitflags::bitflags;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 

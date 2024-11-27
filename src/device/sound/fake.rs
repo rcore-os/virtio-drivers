@@ -6,12 +6,12 @@ use super::{
     QUEUE_SIZE, TX_QUEUE_IDX,
 };
 use crate::{
+    config::ReadOnly,
     device::sound::{VirtIOSndPcmHdr, VirtIOSndPcmSetParams},
     transport::{
         fake::{FakeTransport, QueueStatus, State},
         DeviceType,
     },
-    volatile::ReadOnly,
 };
 use alloc::{sync::Arc, vec};
 use core::{

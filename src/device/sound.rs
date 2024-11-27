@@ -5,9 +5,9 @@ mod fake;
 
 use super::common::Feature;
 use crate::{
+    config::{read_config, ReadOnly},
     queue::{owning::OwningQueue, VirtQueue},
-    transport::{read_config, Transport},
-    volatile::ReadOnly,
+    transport::Transport,
     Error, Hal, Result, PAGE_SIZE,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
@@ -1558,12 +1558,12 @@ impl Display for VirtIOSndChmapInfo {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
     use core::ptr::NonNull;

@@ -1,10 +1,10 @@
 //! Driver for VirtIO input devices.
 
 use super::common::Feature;
+use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::{read_config, write_config, Transport};
-use crate::volatile::{ReadOnly, WriteOnly};
+use crate::transport::Transport;
 use crate::Error;
 use alloc::{boxed::Box, string::String};
 use core::cmp::min;

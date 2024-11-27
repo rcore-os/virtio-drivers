@@ -1,9 +1,9 @@
 //! Driver for VirtIO block devices.
 
+use crate::config::{read_config, ReadOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::{read_config, Transport};
-use crate::volatile::ReadOnly;
+use crate::transport::Transport;
 use crate::{Error, Result};
 use bitflags::bitflags;
 use log::info;

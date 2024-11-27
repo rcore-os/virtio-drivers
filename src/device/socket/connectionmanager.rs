@@ -415,6 +415,7 @@ impl RingBuffer {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         device::socket::{
             protocol::{
                 SocketType, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp,
@@ -426,7 +427,6 @@ mod tests {
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
     use core::{mem::size_of, ptr::NonNull};
