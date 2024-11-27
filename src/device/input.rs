@@ -3,7 +3,7 @@
 use super::common::Feature;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{read_config, write_config, Transport};
 use crate::volatile::{ReadOnly, WriteOnly};
 use crate::Error;
 use alloc::{boxed::Box, string::String};
@@ -103,11 +103,9 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         subsel: u8,
         out: &mut [u8],
     ) -> Result<u8, Error> {
-        self.transport
-            .write_config_space(offset_of!(Config, select), select as u8)?;
-        self.transport
-            .write_config_space(offset_of!(Config, subsel), subsel)?;
-        let size: u8 = self.transport.read_config_space(offset_of!(Config, size))?;
+        write_config!(self.transport, Config, select, select as u8)?;
+        write_config!(self.transport, Config, subsel, subsel)?;
+        let size: u8 = read_config!(self.transport, Config, size)?;
         // Safe because config points to a valid MMIO region for the config space.
         let size_to_copy = min(usize::from(size), out.len());
         for (i, out_item) in out.iter_mut().take(size_to_copy).enumerate() {
@@ -126,14 +124,9 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
         select: InputConfigSelect,
         subsel: u8,
     ) -> Result<Box<[u8]>, Error> {
-        self.transport
-            .write_config_space(offset_of!(Config, select), select as u8)?;
-        self.transport
-            .write_config_space(offset_of!(Config, subsel), subsel)?;
-        let size = usize::from(
-            self.transport
-                .read_config_space::<u8>(offset_of!(Config, size))?,
-        );
+        write_config!(self.transport, Config, select, select as u8)?;
+        write_config!(self.transport, Config, subsel, subsel)?;
+        let size = usize::from(read_config!(self.transport, Config, size)?);
         if size > CONFIG_DATA_MAX_LENGTH {
             return Err(Error::IoError);
         }

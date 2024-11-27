@@ -2,11 +2,10 @@
 
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{read_config, Transport};
 use crate::volatile::Volatile;
 use crate::{Error, Result};
 use bitflags::bitflags;
-use core::mem::offset_of;
 use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -57,12 +56,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
         // Read configuration space.
         let capacity = transport.read_consistent(|| {
-            Ok(
-                transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_low))? as u64
-                    | (transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_high))?
-                        as u64)
-                        << 32,
-            )
+            Ok(read_config!(transport, BlkConfig, capacity_low)? as u64
+                | (read_config!(transport, BlkConfig, capacity_high)? as u64) << 32)
         })?;
         info!("found a block device of size {}KB", capacity / 2);
 

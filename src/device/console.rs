@@ -5,13 +5,12 @@ mod embedded_io;
 
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{read_config, write_config, Transport};
 use crate::volatile::{ReadOnly, WriteOnly};
 use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::fmt::{self, Display, Formatter, Write};
-use core::mem::offset_of;
 use log::error;
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
@@ -129,8 +128,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         if self.negotiated_features.contains(Features::SIZE) {
             self.transport.read_consistent(|| {
                 Ok(Some(Size {
-                    columns: self.transport.read_config_space(offset_of!(Config, cols))?,
-                    rows: self.transport.read_config_space(offset_of!(Config, rows))?,
+                    columns: read_config!(self.transport, Config, cols)?,
+                    rows: read_config!(self.transport, Config, rows)?,
                 }))
             })
         } else {
@@ -240,8 +239,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns an error if the device doesn't support emergency write.
     pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
         if self.negotiated_features.contains(Features::EMERG_WRITE) {
-            self.transport
-                .write_config_space::<u32>(offset_of!(Config, emerg_wr), chr.into())?;
+            write_config!(self.transport, Config, emerg_wr, chr.into())?;
             Ok(())
         } else {
             Err(Error::Unsupported)

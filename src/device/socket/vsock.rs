@@ -8,9 +8,9 @@ use super::protocol::{
 use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::hal::Hal;
 use crate::queue::{owning::OwningQueue, VirtQueue};
-use crate::transport::Transport;
+use crate::transport::{read_config, Transport};
 use crate::Result;
-use core::mem::{offset_of, size_of};
+use core::mem::size_of;
 use log::debug;
 use zerocopy::{FromBytes, IntoBytes};
 
@@ -249,12 +249,8 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
 
         let guest_cid = transport.read_consistent(|| {
             Ok(
-                transport.read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_low))?
-                    as u64
-                    | (transport
-                        .read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_high))?
-                        as u64)
-                        << 32,
+                read_config!(transport, VirtioVsockConfig, guest_cid_low)? as u64
+                    | (read_config!(transport, VirtioVsockConfig, guest_cid_high)? as u64) << 32,
             )
         })?;
         debug!("guest cid: {guest_cid:?}");

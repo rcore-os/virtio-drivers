@@ -6,7 +6,7 @@ mod fake;
 use super::common::Feature;
 use crate::{
     queue::{owning::OwningQueue, VirtQueue},
-    transport::Transport,
+    transport::{read_config, Transport},
     volatile::ReadOnly,
     Error, Hal, Result, PAGE_SIZE,
 };
@@ -16,7 +16,7 @@ use core::{
     array,
     fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
-    mem::{offset_of, size_of},
+    mem::size_of,
     ops::RangeInclusive,
 };
 use enumn::N;
@@ -96,9 +96,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         )?;
 
         // read configuration space
-        let jacks = transport.read_config_space(offset_of!(VirtIOSoundConfig, jacks))?;
-        let streams = transport.read_config_space(offset_of!(VirtIOSoundConfig, streams))?;
-        let chmaps = transport.read_config_space(offset_of!(VirtIOSoundConfig, chmaps))?;
+        let jacks = read_config!(transport, VirtIOSoundConfig, jacks)?;
+        let streams = read_config!(transport, VirtIOSoundConfig, streams)?;
+        let chmaps = read_config!(transport, VirtIOSoundConfig, chmaps)?;
         info!(
             "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
             jacks, streams, chmaps

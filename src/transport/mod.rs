@@ -231,3 +231,46 @@ impl From<u8> for DeviceType {
         u32::from(virtio_device_id).into()
     }
 }
+
+#[inline(always)]
+pub(crate) fn read_help<T: Transport, V: FromBytes>(
+    transport: &T,
+    offset: usize,
+    _dummy_v: Option<V>,
+) -> Result<V> {
+    transport.read_config_space(offset)
+}
+
+#[inline(always)]
+pub(crate) fn write_help<T: Transport, V: Immutable + IntoBytes>(
+    transport: &mut T,
+    offset: usize,
+    value: V,
+    _dummy_v: Option<V>,
+) -> Result<()> {
+    transport.write_config_space(offset, value)
+}
+
+macro_rules! read_config {
+    ($transport:expr, $struct:ty, $field:ident) => {{
+        let dummy_struct: Option<$struct> = None;
+        let dummy_v = dummy_struct.map(|s| s.$field.0);
+        crate::transport::read_help(&$transport, core::mem::offset_of!($struct, $field), dummy_v)
+    }};
+}
+
+macro_rules! write_config {
+    ($transport:expr, $struct:ty, $field:ident, $value:expr) => {{
+        let dummy_struct: Option<$struct> = None;
+        let dummy_v = dummy_struct.map(|s| s.$field.0);
+        crate::transport::write_help(
+            &mut $transport,
+            core::mem::offset_of!($struct, $field),
+            $value,
+            dummy_v,
+        )
+    }};
+}
+
+pub(crate) use read_config;
+pub(crate) use write_config;

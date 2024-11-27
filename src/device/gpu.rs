@@ -2,12 +2,11 @@
 
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{read_config, Transport};
 use crate::volatile::{ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
-use core::mem::offset_of;
 use log::info;
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
@@ -44,8 +43,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // read configuration space
-        let events_read = transport.read_config_space::<u32>(offset_of!(Config, events_read))?;
-        let num_scanouts = transport.read_config_space::<u32>(offset_of!(Config, num_scanouts))?;
+        let events_read = read_config!(transport, Config, events_read)?;
+        let num_scanouts = read_config!(transport, Config, num_scanouts)?;
         info!(
             "events_read: {:#x}, num_scanouts: {:#x}",
             events_read, num_scanouts
