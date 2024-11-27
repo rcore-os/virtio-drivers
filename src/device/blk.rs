@@ -3,7 +3,7 @@
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::{read_config, Transport};
-use crate::volatile::Volatile;
+use crate::volatile::ReadOnly;
 use crate::{Error, Result};
 use bitflags::bitflags;
 use log::info;
@@ -391,18 +391,18 @@ impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
 #[repr(C)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors
-    capacity_low: Volatile<u32>,
-    capacity_high: Volatile<u32>,
-    size_max: Volatile<u32>,
-    seg_max: Volatile<u32>,
-    cylinders: Volatile<u16>,
-    heads: Volatile<u8>,
-    sectors: Volatile<u8>,
-    blk_size: Volatile<u32>,
-    physical_block_exp: Volatile<u8>,
-    alignment_offset: Volatile<u8>,
-    min_io_size: Volatile<u16>,
-    opt_io_size: Volatile<u32>,
+    capacity_low: ReadOnly<u32>,
+    capacity_high: ReadOnly<u32>,
+    size_max: ReadOnly<u32>,
+    seg_max: ReadOnly<u32>,
+    cylinders: ReadOnly<u16>,
+    heads: ReadOnly<u8>,
+    sectors: ReadOnly<u8>,
+    blk_size: ReadOnly<u32>,
+    physical_block_exp: ReadOnly<u8>,
+    alignment_offset: ReadOnly<u8>,
+    min_io_size: ReadOnly<u16>,
+    opt_io_size: ReadOnly<u32>,
     // ... ignored
 }
 
@@ -565,18 +565,18 @@ mod tests {
     #[test]
     fn config() {
         let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(0x42),
-            capacity_high: Volatile::new(0x02),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+            capacity_low: ReadOnly::new(0x42),
+            capacity_high: ReadOnly::new(0x02),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             queues: vec![QueueStatus::default()],
@@ -598,18 +598,18 @@ mod tests {
     #[test]
     fn read() {
         let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             queues: vec![QueueStatus::default()],
@@ -668,18 +668,18 @@ mod tests {
     #[test]
     fn write() {
         let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             queues: vec![QueueStatus::default()],
@@ -743,18 +743,18 @@ mod tests {
     #[test]
     fn flush() {
         let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             queues: vec![QueueStatus::default()],
@@ -810,18 +810,18 @@ mod tests {
     #[test]
     fn device_id() {
         let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
         let state = Arc::new(Mutex::new(State {
             queues: vec![QueueStatus::default()],

@@ -3,7 +3,7 @@
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::{read_config, Transport};
-use crate::volatile::{ReadOnly, Volatile, WriteOnly};
+use crate::volatile::{ReadOnly, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
@@ -302,7 +302,7 @@ struct Config {
     /// Specifies the maximum number of scanouts supported by the device.
     ///
     /// Minimum value is 1, maximum value is 16.
-    num_scanouts: Volatile<u32>,
+    num_scanouts: ReadOnly<u32>,
 }
 
 /// Display configuration has changed.
