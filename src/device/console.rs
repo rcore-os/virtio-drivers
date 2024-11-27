@@ -127,10 +127,12 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns the size of the console, if the device supports reporting this.
     pub fn size(&self) -> Result<Option<Size>> {
         if self.negotiated_features.contains(Features::SIZE) {
-            Ok(Some(Size {
-                columns: self.transport.read_config_space(offset_of!(Config, cols))?,
-                rows: self.transport.read_config_space(offset_of!(Config, rows))?,
-            }))
+            self.transport.read_consistent(|| {
+                Ok(Some(Size {
+                    columns: self.transport.read_config_space(offset_of!(Config, cols))?,
+                    rows: self.transport.read_config_space(offset_of!(Config, rows))?,
+                }))
+            })
         } else {
             Ok(None)
         }
