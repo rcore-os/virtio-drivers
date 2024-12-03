@@ -112,6 +112,31 @@ pub trait Transport {
     ) -> Result<()>;
 }
 
+/// Reads a value from the device config space. The parameters are (1) an instance of `Transport`,
+/// (2) a type describing the config's memory layout, and (3) a field of that type.
+macro_rules! read_config_field {
+    ($transport:expr, $config_type:ty, $field:ident) => {{
+        // We need to know the config field's type, but there is nothing like C++'s "decltype" in
+        // Rust. Workaround it by creating an instance of the config and a variable `f` initialized
+        // to the field of that instance. That constrains `f`'s type to match the field's type.
+        // Then, assign the result of `Transport::read_config_space` to `f` to constrain its type
+        // parameter to be of the same type. When optimizations are enabled, the extra variables
+        // and initialization will be elided.
+        let c: $config_type = FromZeros::new_zeroed();
+        #[allow(unused_assignments)]
+        let mut f = c.$field;
+        match $transport.read_config_space(offset_of!($config_type, $field)) {
+            Ok(x) => {
+                f = x;
+                Ok(f)
+            }
+            Err(e) => Err(e),
+        }
+    }};
+}
+
+pub(crate) use read_config_field;
+
 bitflags! {
     /// The device status field. Writing 0 into this field resets the device.
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]

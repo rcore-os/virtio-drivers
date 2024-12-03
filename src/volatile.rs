@@ -1,5 +1,5 @@
 /// An MMIO register which can only be read from.
-#[derive(Default)]
+#[derive(Default, zerocopy::FromBytes)]
 #[repr(transparent)]
 pub struct ReadOnly<T: Copy>(pub(crate) T);
 
@@ -11,12 +11,12 @@ impl<T: Copy> ReadOnly<T> {
 }
 
 /// An MMIO register which can only be written to.
-#[derive(Default)]
+#[derive(Default, zerocopy::FromBytes)]
 #[repr(transparent)]
 pub struct WriteOnly<T: Copy>(pub(crate) T);
 
 /// An MMIO register which may be both read and written.
-#[derive(Default)]
+#[derive(Default, zerocopy::FromBytes)]
 #[repr(transparent)]
 pub struct Volatile<T: Copy>(T);
 

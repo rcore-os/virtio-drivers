@@ -2,6 +2,7 @@
 
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
+use crate::transport::read_config_field;
 use crate::transport::Transport;
 use crate::volatile::{ReadOnly, Volatile, WriteOnly};
 use crate::{pages, Error, Result, PAGE_SIZE};
@@ -44,11 +45,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         let negotiated_features = transport.begin_init(SUPPORTED_FEATURES);
 
         // read configuration space
-        let events_read = transport.read_config_space::<u32>(offset_of!(Config, events_read))?;
+        let events_read = read_config_field!(transport, Config, events_read)?;
         let num_scanouts = transport.read_config_space::<u32>(offset_of!(Config, num_scanouts))?;
         info!(
             "events_read: {:#x}, num_scanouts: {:#x}",
-            events_read, num_scanouts
+            events_read.0, num_scanouts
         );
 
         let control_queue = VirtQueue::new(
@@ -292,6 +293,7 @@ impl<H: Hal, T: Transport> Drop for VirtIOGpu<H, T> {
     }
 }
 
+#[derive(Default, zerocopy::FromBytes)]
 #[repr(C)]
 struct Config {
     /// Signals pending events to the driver。
