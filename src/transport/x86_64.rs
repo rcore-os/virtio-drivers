@@ -18,11 +18,8 @@ use crate::{
     Error,
 };
 pub use cam::HypCam;
-use hypercalls::{hyp_io_read, hyp_io_write};
+use hypercalls::HypIoRegion;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
-
-/// The maximum number of bytes that can be read or written by a single IO hypercall.
-const HYP_IO_MAX: usize = 8;
 
 macro_rules! configread {
     ($common_cfg:expr, $field:ident) => {
@@ -317,32 +314,4 @@ fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
         paddr,
         size: struct_info.length as usize,
     })
-}
-
-/// A region of physical address space which may be accessed by IO read and/or write hypercalls.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct HypIoRegion {
-    /// The physical address of the start of the IO region.
-    paddr: usize,
-    /// The size of the IO region in bytes.
-    size: usize,
-}
-
-impl HypIoRegion {
-    fn read<T: FromBytes>(self, offset: usize) -> T {
-        assert!(offset + size_of::<T>() <= self.size);
-        assert!(size_of::<T>() < HYP_IO_MAX);
-
-        let data = hyp_io_read(self.paddr + offset, size_of::<T>());
-        T::read_from_prefix(data.as_bytes()).unwrap().0
-    }
-
-    fn write<T: IntoBytes + Immutable>(self, offset: usize, value: T) {
-        assert!(offset + size_of::<T>() <= self.size);
-        assert!(size_of::<T>() < HYP_IO_MAX);
-
-        let mut data = 0;
-        data.as_mut_bytes()[..size_of::<T>()].copy_from_slice(value.as_bytes());
-        hyp_io_write(self.paddr + offset, size_of::<T>(), data);
-    }
 }
