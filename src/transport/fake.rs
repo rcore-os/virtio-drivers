@@ -15,9 +15,13 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 /// A fake implementation of [`Transport`] for unit tests.
 #[derive(Debug)]
 pub struct FakeTransport<C> {
+    /// The type of device which the transport should claim to be for.
     pub device_type: DeviceType,
+    /// The maximum queue size supported by the transport.
     pub max_queue_size: u32,
+    /// The device features which should be reported by the transport.
     pub device_features: u64,
+    /// The mutable state of the transport.
     pub state: Arc<Mutex<State<C>>>,
 }
 
@@ -136,13 +140,21 @@ impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
     }
 }
 
+/// The mutable state of a fake transport.
 pub struct State<C> {
+    /// The status of the fake device.
     pub status: DeviceStatus,
+    /// The features which the driver says it supports.
     pub driver_features: u64,
+    /// The guest page size set by the driver.
     pub guest_page_size: u32,
+    /// Whether the transport has an interrupt pending.
     pub interrupt_pending: bool,
+    /// The state of the transport's queues.
     pub queues: Vec<QueueStatus>,
+    /// The config generation which the transport should report.
     pub config_generation: u32,
+    /// The state of the transport's VirtIO configuration space.
     pub config_space: C,
 }
 
