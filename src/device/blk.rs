@@ -1,12 +1,11 @@
 //! Driver for VirtIO block devices.
 
+use crate::config::{read_config, ReadOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::Volatile;
 use crate::{Error, Result};
 use bitflags::bitflags;
-use core::mem::offset_of;
 use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -57,12 +56,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
         // Read configuration space.
         let capacity = transport.read_consistent(|| {
-            Ok(
-                transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_low))? as u64
-                    | (transport.read_config_space::<u32>(offset_of!(BlkConfig, capacity_high))?
-                        as u64)
-                        << 32,
-            )
+            Ok(read_config!(transport, BlkConfig, capacity_low)? as u64
+                | (read_config!(transport, BlkConfig, capacity_high)? as u64) << 32)
         })?;
         info!("found a block device of size {}KB", capacity / 2);
 
@@ -393,21 +388,22 @@ impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
     }
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct BlkConfig {
     /// Number of 512 Bytes sectors
-    capacity_low: Volatile<u32>,
-    capacity_high: Volatile<u32>,
-    size_max: Volatile<u32>,
-    seg_max: Volatile<u32>,
-    cylinders: Volatile<u16>,
-    heads: Volatile<u8>,
-    sectors: Volatile<u8>,
-    blk_size: Volatile<u32>,
-    physical_block_exp: Volatile<u8>,
-    alignment_offset: Volatile<u8>,
-    min_io_size: Volatile<u16>,
-    opt_io_size: Volatile<u32>,
+    capacity_low: ReadOnly<u32>,
+    capacity_high: ReadOnly<u32>,
+    size_max: ReadOnly<u32>,
+    seg_max: ReadOnly<u32>,
+    cylinders: ReadOnly<u16>,
+    heads: ReadOnly<u8>,
+    sectors: ReadOnly<u8>,
+    blk_size: ReadOnly<u32>,
+    physical_block_exp: ReadOnly<u8>,
+    alignment_offset: ReadOnly<u8>,
+    min_io_size: ReadOnly<u16>,
+    opt_io_size: ReadOnly<u32>,
     // ... ignored
 }
 
@@ -564,34 +560,33 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::{mem::size_of, ptr::NonNull};
+    use core::mem::size_of;
     use std::{sync::Mutex, thread};
 
     #[test]
     fn config() {
-        let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(0x42),
-            capacity_high: Volatile::new(0x02),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+        let config_space = BlkConfig {
+            capacity_low: ReadOnly::new(0x42),
+            capacity_high: ReadOnly::new(0x02),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RO.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -602,29 +597,28 @@ mod tests {
 
     #[test]
     fn read() {
-        let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+        let config_space = BlkConfig {
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -672,29 +666,28 @@ mod tests {
 
     #[test]
     fn write() {
-        let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+        let config_space = BlkConfig {
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -747,29 +740,28 @@ mod tests {
 
     #[test]
     fn flush() {
-        let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+        let config_space = BlkConfig {
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: (BlkFeature::RING_INDIRECT_DESC | BlkFeature::FLUSH).bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
@@ -814,29 +806,28 @@ mod tests {
 
     #[test]
     fn device_id() {
-        let mut config_space = BlkConfig {
-            capacity_low: Volatile::new(66),
-            capacity_high: Volatile::new(0),
-            size_max: Volatile::new(0),
-            seg_max: Volatile::new(0),
-            cylinders: Volatile::new(0),
-            heads: Volatile::new(0),
-            sectors: Volatile::new(0),
-            blk_size: Volatile::new(0),
-            physical_block_exp: Volatile::new(0),
-            alignment_offset: Volatile::new(0),
-            min_io_size: Volatile::new(0),
-            opt_io_size: Volatile::new(0),
+        let config_space = BlkConfig {
+            capacity_low: ReadOnly::new(66),
+            capacity_high: ReadOnly::new(0),
+            size_max: ReadOnly::new(0),
+            seg_max: ReadOnly::new(0),
+            cylinders: ReadOnly::new(0),
+            heads: ReadOnly::new(0),
+            sectors: ReadOnly::new(0),
+            blk_size: ReadOnly::new(0),
+            physical_block_exp: ReadOnly::new(0),
+            alignment_offset: ReadOnly::new(0),
+            min_io_size: ReadOnly::new(0),
+            opt_io_size: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Block,
             max_queue_size: QUEUE_SIZE.into(),
             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();

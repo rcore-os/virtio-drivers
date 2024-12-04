@@ -1,11 +1,10 @@
 use super::{Config, EthernetAddress, Features, VirtioNetHdr};
 use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT, SUPPORTED_FEATURES};
-use crate::device::net::Status;
+use crate::config::read_config;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
 use crate::{Error, Result};
-use core::mem::offset_of;
 use log::{debug, info, warn};
 use zerocopy::IntoBytes;
 
@@ -31,9 +30,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         info!("negotiated_features {:?}", negotiated_features);
 
         // Read configuration space.
-        let mac =
-            transport.read_consistent(|| transport.read_config_space(offset_of!(Config, mac)))?;
-        let status = transport.read_config_space::<Status>(offset_of!(Config, status))?;
+        let mac = transport.read_consistent(|| read_config!(transport, Config, mac))?;
+        let status = read_config!(transport, Config, status)?;
         debug!("Got MAC={:02x?}, status={:?}", mac, status);
 
         let send_queue = VirtQueue::new(

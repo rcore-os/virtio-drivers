@@ -6,11 +6,12 @@ use super::protocol::{
     Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
 };
 use super::DEFAULT_RX_BUFFER_SIZE;
+use crate::config::read_config;
 use crate::hal::Hal;
 use crate::queue::{owning::OwningQueue, VirtQueue};
 use crate::transport::Transport;
 use crate::Result;
-use core::mem::{offset_of, size_of};
+use core::mem::size_of;
 use log::debug;
 use zerocopy::{FromBytes, IntoBytes};
 
@@ -249,12 +250,8 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
 
         let guest_cid = transport.read_consistent(|| {
             Ok(
-                transport.read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_low))?
-                    as u64
-                    | (transport
-                        .read_config_space::<u32>(offset_of!(VirtioVsockConfig, guest_cid_high))?
-                        as u64)
-                        << 32,
+                read_config!(transport, VirtioVsockConfig, guest_cid_low)? as u64
+                    | (read_config!(transport, VirtioVsockConfig, guest_cid_high)? as u64) << 32,
             )
         })?;
         debug!("guest cid: {guest_cid:?}");
@@ -465,36 +462,34 @@ fn read_header_and_body(buffer: &[u8]) -> Result<(VirtioVsockHdr, &[u8])> {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
-    use core::ptr::NonNull;
     use std::sync::Mutex;
 
     #[test]
     fn config() {
-        let mut config_space = VirtioVsockConfig {
+        let config_space = VirtioVsockConfig {
             guest_cid_low: ReadOnly::new(66),
             guest_cid_high: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
             ],
-            ..Default::default()
-        }));
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Socket,
             max_queue_size: 32,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let socket =

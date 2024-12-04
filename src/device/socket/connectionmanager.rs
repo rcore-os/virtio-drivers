@@ -415,6 +415,7 @@ impl RingBuffer {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         device::socket::{
             protocol::{
                 SocketType, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp,
@@ -426,10 +427,9 @@ mod tests {
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
-    use core::{mem::size_of, ptr::NonNull};
+    use core::mem::size_of;
     use std::{sync::Mutex, thread};
     use zerocopy::{FromBytes, IntoBytes};
 
@@ -446,23 +446,22 @@ mod tests {
         let hello_from_guest = "Hello from guest";
         let hello_from_host = "Hello from host";
 
-        let mut config_space = VirtioVsockConfig {
+        let config_space = VirtioVsockConfig {
             guest_cid_low: ReadOnly::new(66),
             guest_cid_high: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
             ],
-            ..Default::default()
-        }));
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Socket,
             max_queue_size: 32,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut socket = VsockConnectionManager::new(
@@ -661,23 +660,22 @@ mod tests {
             port: host_port,
         };
 
-        let mut config_space = VirtioVsockConfig {
+        let config_space = VirtioVsockConfig {
             guest_cid_low: ReadOnly::new(66),
             guest_cid_high: ReadOnly::new(0),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
             ],
-            ..Default::default()
-        }));
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Socket,
             max_queue_size: 32,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut socket = VsockConnectionManager::new(

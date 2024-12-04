@@ -5,9 +5,9 @@ mod fake;
 
 use super::common::Feature;
 use crate::{
+    config::{read_config, ReadOnly},
     queue::{owning::OwningQueue, VirtQueue},
     transport::Transport,
-    volatile::ReadOnly,
     Error, Hal, Result, PAGE_SIZE,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
@@ -16,7 +16,7 @@ use core::{
     array,
     fmt::{self, Debug, Display, Formatter},
     hint::spin_loop,
-    mem::{offset_of, size_of},
+    mem::size_of,
     ops::RangeInclusive,
 };
 use enumn::N;
@@ -96,9 +96,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         )?;
 
         // read configuration space
-        let jacks = transport.read_config_space(offset_of!(VirtIOSoundConfig, jacks))?;
-        let streams = transport.read_config_space(offset_of!(VirtIOSoundConfig, streams))?;
-        let chmaps = transport.read_config_space(offset_of!(VirtIOSoundConfig, chmaps))?;
+        let jacks = read_config!(transport, VirtIOSoundConfig, jacks)?;
+        let streams = read_config!(transport, VirtIOSoundConfig, streams)?;
+        let chmaps = read_config!(transport, VirtIOSoundConfig, chmaps)?;
         info!(
             "[sound device] config: jacks: {}, streams: {}, chmaps: {}",
             jacks, streams, chmaps
@@ -1012,6 +1012,7 @@ impl From<PcmRate> for u8 {
     }
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct VirtIOSoundConfig {
     jacks: ReadOnly<u32>,
@@ -1558,39 +1559,37 @@ impl Display for VirtIOSndChmapInfo {
 mod tests {
     use super::*;
     use crate::{
+        config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
             fake::{FakeTransport, QueueStatus, State},
             DeviceType,
         },
-        volatile::ReadOnly,
     };
     use alloc::{sync::Arc, vec};
-    use core::ptr::NonNull;
     use fake::FakeSoundDevice;
     use std::sync::Mutex;
 
     #[test]
     fn config() {
-        let mut config_space = VirtIOSoundConfig {
+        let config_space = VirtIOSoundConfig {
             jacks: ReadOnly::new(3),
             streams: ReadOnly::new(4),
             chmaps: ReadOnly::new(2),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
                 QueueStatus::default(),
             ],
-            ..Default::default()
-        }));
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Sound,
             max_queue_size: 32,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let sound =

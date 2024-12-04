@@ -3,16 +3,16 @@
 #[cfg(feature = "embedded-io")]
 mod embedded_io;
 
+use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::Transport;
-use crate::volatile::{ReadOnly, WriteOnly};
 use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::fmt::{self, Display, Formatter, Write};
-use core::mem::offset_of;
 use log::error;
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 const QUEUE_RECEIVEQ_PORT_0: u16 = 0;
 const QUEUE_TRANSMITQ_PORT_0: u16 = 1;
@@ -129,8 +129,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         if self.negotiated_features.contains(Features::SIZE) {
             self.transport.read_consistent(|| {
                 Ok(Some(Size {
-                    columns: self.transport.read_config_space(offset_of!(Config, cols))?,
-                    rows: self.transport.read_config_space(offset_of!(Config, rows))?,
+                    columns: read_config!(self.transport, Config, cols)?,
+                    rows: read_config!(self.transport, Config, rows)?,
                 }))
             })
         } else {
@@ -240,8 +240,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns an error if the device doesn't support emergency write.
     pub fn emergency_write(&mut self, chr: u8) -> Result<()> {
         if self.negotiated_features.contains(Features::EMERG_WRITE) {
-            self.transport
-                .write_config_space::<u32>(offset_of!(Config, emerg_wr), chr.into())?;
+            write_config!(self.transport, Config, emerg_wr, chr.into())?;
             Ok(())
         } else {
             Err(Error::Unsupported)
@@ -267,6 +266,7 @@ impl<H: Hal, T: Transport> Drop for VirtIOConsole<H, T> {
     }
 }
 
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 struct Config {
     cols: ReadOnly<u16>,
@@ -311,26 +311,24 @@ mod tests {
         },
     };
     use alloc::{sync::Arc, vec};
-    use core::ptr::NonNull;
     use std::{sync::Mutex, thread};
 
     #[test]
     fn config_info_no_features() {
-        let mut config_space = Config {
+        let config_space = Config {
             cols: ReadOnly::new(80),
             rows: ReadOnly::new(42),
             max_nr_ports: ReadOnly::new(0),
             emerg_wr: WriteOnly::default(),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
@@ -340,21 +338,20 @@ mod tests {
 
     #[test]
     fn config_info() {
-        let mut config_space = Config {
+        let config_space = Config {
             cols: ReadOnly::new(80),
             rows: ReadOnly::new(42),
             max_nr_ports: ReadOnly::new(0),
             emerg_wr: WriteOnly::default(),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0x07,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
@@ -370,46 +367,44 @@ mod tests {
 
     #[test]
     fn emergency_write() {
-        let mut config_space = Config {
+        let config_space = Config {
             cols: ReadOnly::new(0),
             rows: ReadOnly::new(0),
             max_nr_ports: ReadOnly::new(0),
             emerg_wr: WriteOnly::default(),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0x07,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
 
         console.emergency_write(42).unwrap();
-        assert_eq!(config_space.emerg_wr.0, 42);
+        assert_eq!(state.lock().unwrap().config_space.emerg_wr.0, 42);
     }
 
     #[test]
     fn receive() {
-        let mut config_space = Config {
+        let config_space = Config {
             cols: ReadOnly::new(0),
             rows: ReadOnly::new(0),
             max_nr_ports: ReadOnly::new(0),
             emerg_wr: WriteOnly::default(),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();
@@ -440,21 +435,20 @@ mod tests {
 
     #[test]
     fn send() {
-        let mut config_space = Config {
+        let config_space = Config {
             cols: ReadOnly::new(0),
             rows: ReadOnly::new(0),
             max_nr_ports: ReadOnly::new(0),
             emerg_wr: WriteOnly::default(),
         };
-        let state = Arc::new(Mutex::new(State {
-            queues: vec![QueueStatus::default(), QueueStatus::default()],
-            ..Default::default()
-        }));
+        let state = Arc::new(Mutex::new(State::new(
+            vec![QueueStatus::default(), QueueStatus::default()],
+            config_space,
+        )));
         let transport = FakeTransport {
             device_type: DeviceType::Console,
             max_queue_size: 2,
             device_features: 0,
-            config_space: NonNull::from(&mut config_space),
             state: state.clone(),
         };
         let mut console = VirtIOConsole::<FakeHal, FakeTransport<Config>>::new(transport).unwrap();

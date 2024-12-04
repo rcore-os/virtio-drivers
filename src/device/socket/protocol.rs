@@ -1,7 +1,7 @@
 //! This module defines the socket device protocol according to the virtio spec v1.1 5.10 Socket Device
 
 use super::error::{self, SocketError};
-use crate::volatile::ReadOnly;
+use crate::config::ReadOnly;
 use bitflags::bitflags;
 use core::{
     convert::{TryFrom, TryInto},
@@ -32,6 +32,7 @@ impl From<SocketType> for U16<LittleEndian> {
 }
 
 /// VirtioVsockConfig is the vsock device configuration space.
+#[derive(FromBytes, Immutable, IntoBytes)]
 #[repr(C)]
 pub struct VirtioVsockConfig {
     /// The guest_cid field contains the guest’s context ID, which uniquely identifies
