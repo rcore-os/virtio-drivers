@@ -1,6 +1,7 @@
 //! Hypercalls for x86-64 pKVM.
 
 use core::arch::asm;
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// This CPUID returns the signature and should be used to determine if VM is running under pKVM,
 /// KVM or not. See the Linux header `arch/x86/include/uapi/asm/kvm_para.h`.
@@ -11,6 +12,9 @@ const KVM_CPUID_SIGNATURE: u32 = 0x40000000;
 const KVM_HC_PKVM_OP: u32 = 20;
 const PKVM_GHC_IOREAD: u32 = KVM_HC_PKVM_OP + 3;
 const PKVM_GHC_IOWRITE: u32 = KVM_HC_PKVM_OP + 4;
+
+/// The maximum number of bytes that can be read or written by a single IO hypercall.
+const HYP_IO_MAX: usize = 8;
 
 /// Gets the signature CPU ID.
 pub fn cpuid_signature() -> [u8; 4] {
@@ -79,5 +83,33 @@ pub fn hyp_io_write(address: usize, size: usize, data: u64) {
             in("rcx") size,
             in("rdx") data,
         );
+    }
+}
+
+/// A region of physical address space which may be accessed by IO read and/or write hypercalls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HypIoRegion {
+    /// The physical address of the start of the IO region.
+    pub paddr: usize,
+    /// The size of the IO region in bytes.
+    pub size: usize,
+}
+
+impl HypIoRegion {
+    pub fn read<T: FromBytes>(self, offset: usize) -> T {
+        assert!(offset + size_of::<T>() <= self.size);
+        assert!(size_of::<T>() < HYP_IO_MAX);
+
+        let data = hyp_io_read(self.paddr + offset, size_of::<T>());
+        T::read_from_prefix(data.as_bytes()).unwrap().0
+    }
+
+    pub fn write<T: IntoBytes + Immutable>(self, offset: usize, value: T) {
+        assert!(offset + size_of::<T>() <= self.size);
+        assert!(size_of::<T>() < HYP_IO_MAX);
+
+        let mut data = 0;
+        data.as_mut_bytes()[..size_of::<T>()].copy_from_slice(value.as_bytes());
+        hyp_io_write(self.paddr + offset, size_of::<T>(), data);
     }
 }
