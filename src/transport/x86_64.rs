@@ -1,10 +1,11 @@
 //! x86-64 specific transports.
 
+mod cam;
 mod hypercalls;
 
 use super::{
     pci::{
-        bus::{Cam, ConfigurationAccess, DeviceFunction, PciRoot, PCI_CAP_ID_VNDR},
+        bus::{ConfigurationAccess, DeviceFunction, PciRoot, PCI_CAP_ID_VNDR},
         device_type, CommonCfg, VirtioCapabilityInfo, VirtioPciError, CAP_BAR_OFFSET,
         CAP_BAR_OFFSET_OFFSET, CAP_LENGTH_OFFSET, CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
         VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_DEVICE_CFG, VIRTIO_PCI_CAP_ISR_CFG,
@@ -16,51 +17,12 @@ use crate::{
     hal::{Hal, PhysAddr},
     Error,
 };
-use hypercalls::{cpuid_signature, hyp_io_read, hyp_io_write};
+pub use cam::HypCam;
+use hypercalls::{hyp_io_read, hyp_io_write};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
-
-const PKVM_SIGNATURE: &[u8] = b"PKVM";
 
 /// The maximum number of bytes that can be read or written by a single IO hypercall.
 const HYP_IO_MAX: usize = 8;
-
-/// A PCI configuration access mechanism using hypercalls implemented by the x86-64 pKVM hypervisor.
-pub struct HypCam {
-    /// The physical base address of the PCI root complex.
-    phys_base: usize,
-    cam: Cam,
-}
-
-impl HypCam {
-    /// Creates a new `HypCam` for the PCI root complex at the given physical base address.
-    pub fn new(phys_base: usize, cam: Cam) -> Self {
-        Self { phys_base, cam }
-    }
-
-    /// Returns whether we are running under pKVM by checking the CPU ID signature.
-    pub fn is_pkvm() -> bool {
-        cpuid_signature() == PKVM_SIGNATURE
-    }
-}
-
-impl ConfigurationAccess for HypCam {
-    fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
-        let address = self.cam.cam_offset(device_function, register_offset);
-        hyp_io_read(self.phys_base + (address as usize), 4) as u32
-    }
-
-    fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
-        let address = self.cam.cam_offset(device_function, register_offset);
-        hyp_io_write(self.phys_base + (address as usize), 4, data.into());
-    }
-
-    unsafe fn unsafe_clone(&self) -> Self {
-        Self {
-            phys_base: self.phys_base,
-            cam: self.cam,
-        }
-    }
-}
 
 macro_rules! configread {
     ($common_cfg:expr, $field:ident) => {
