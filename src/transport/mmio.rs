@@ -497,6 +497,11 @@ impl Transport for MmioTransport {
         }
     }
 
+    fn read_config_generation(&self) -> u32 {
+        // SAFETY: self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.header, config_generation) }
+    }
+
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",

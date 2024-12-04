@@ -96,6 +96,10 @@ impl<C> Transport for FakeTransport<C> {
         pending
     }
 
+    fn read_config_generation(&self) -> u32 {
+        self.state.lock().unwrap().config_generation
+    }
+
     fn read_config_space<T>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
@@ -133,6 +137,7 @@ pub struct State {
     pub guest_page_size: u32,
     pub interrupt_pending: bool,
     pub queues: Vec<QueueStatus>,
+    pub config_generation: u32,
 }
 
 impl State {

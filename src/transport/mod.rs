@@ -101,6 +101,9 @@ pub trait Transport {
         );
     }
 
+    /// Reads the configuration space generation.
+    fn read_config_generation(&self) -> u32;
+
     /// Reads a value from the device config space.
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T>;
 
@@ -110,6 +113,19 @@ pub trait Transport {
         offset: usize,
         value: T,
     ) -> Result<()>;
+
+    /// Safely reads multiple fields from config space by ensuring that the config generation is the
+    /// same before and after all reads, and retrying if not.
+    fn read_consistent<T>(&self, f: impl Fn() -> Result<T>) -> Result<T> {
+        loop {
+            let before = self.read_config_generation();
+            let result = f();
+            let after = self.read_config_generation();
+            if before == after {
+                break result;
+            }
+        }
+    }
 }
 
 bitflags! {

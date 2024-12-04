@@ -326,6 +326,11 @@ impl Transport for PciTransport {
         isr_status & 0x3 != 0
     }
 
+    fn read_config_generation(&self) -> u32 {
+        // SAFETY: self.header points to a valid VirtIO MMIO region.
+        unsafe { volread!(self.common_cfg, config_generation) }.into()
+    }
+
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",

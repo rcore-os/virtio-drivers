@@ -123,6 +123,13 @@ impl Transport for SomeTransport {
         }
     }
 
+    fn read_config_generation(&self) -> u32 {
+        match self {
+            Self::Mmio(mmio) => mmio.read_config_generation(),
+            Self::Pci(pci) => pci.read_config_generation(),
+        }
+    }
+
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T> {
         match self {
             Self::Mmio(mmio) => mmio.read_config_space(offset),
