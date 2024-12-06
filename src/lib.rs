@@ -122,7 +122,7 @@ fn align_up(size: usize) -> usize {
 
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
 fn pages(size: usize) -> usize {
-    (size + PAGE_SIZE - 1) / PAGE_SIZE
+    size.div_ceil(PAGE_SIZE)
 }
 
 // TODO: Use NonNull::slice_from_raw_parts once it is stable.
