@@ -1,3 +1,5 @@
+//! A fake implementation of `Transport` for unit tests.
+
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     queue::{fake_read_write_queue, Descriptor},
@@ -173,6 +175,7 @@ impl<C> Debug for State<C> {
 }
 
 impl<C> State<C> {
+    /// Creates a state for a fake transport, with the given queues and VirtIO configuration space.
     pub const fn new(queues: Vec<QueueStatus>, config_space: C) -> Self {
         Self {
             status: DeviceStatus::empty(),
@@ -266,11 +269,17 @@ impl<C> State<C> {
     }
 }
 
+/// The status of a fake virtqueue.
 #[derive(Debug, Default)]
 pub struct QueueStatus {
+    /// The size of the fake virtqueue.
     pub size: u32,
+    /// The physical address set for the queue's descriptors.
     pub descriptors: PhysAddr,
+    /// The physical address set for the queue's driver area.
     pub driver_area: PhysAddr,
+    /// The physical address set for the queue's device area.
     pub device_area: PhysAddr,
+    /// Whether the queue has been notified by the driver since last we checked.
     pub notified: AtomicBool,
 }
