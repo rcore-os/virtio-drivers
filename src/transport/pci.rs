@@ -16,7 +16,7 @@ use crate::{
 };
 use core::{
     mem::{align_of, size_of},
-    ptr::{addr_of_mut, NonNull},
+    ptr::NonNull,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -256,7 +256,7 @@ impl Transport for PciTransport {
 
             let offset_bytes = usize::from(queue_notify_off) * self.notify_off_multiplier as usize;
             let index = offset_bytes / size_of::<u16>();
-            addr_of_mut!((*self.notify_region.as_ptr())[index]).vwrite(queue);
+            (&raw mut (*self.notify_region.as_ptr())[index]).vwrite(queue);
         }
     }
 
