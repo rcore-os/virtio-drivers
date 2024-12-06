@@ -811,7 +811,7 @@ impl<'a, 'b> InputOutputIter<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Iterator for InputOutputIter<'a, 'b> {
+impl Iterator for InputOutputIter<'_, '_> {
     type Item = (NonNull<[u8]>, BufferDirection);
 
     fn next(&mut self) -> Option<Self::Item> {

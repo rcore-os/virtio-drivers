@@ -486,7 +486,7 @@ pub struct CapabilityIterator<'a, C: ConfigurationAccess> {
     next_capability_offset: Option<u8>,
 }
 
-impl<'a, C: ConfigurationAccess> Iterator for CapabilityIterator<'a, C> {
+impl<C: ConfigurationAccess> Iterator for CapabilityIterator<'_, C> {
     type Item = CapabilityInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
