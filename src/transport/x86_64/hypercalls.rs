@@ -98,7 +98,7 @@ pub struct HypIoRegion {
 impl HypIoRegion {
     pub fn read<T: FromBytes>(self, offset: usize) -> T {
         assert!(offset + size_of::<T>() <= self.size);
-        assert!(size_of::<T>() < HYP_IO_MAX);
+        assert!(size_of::<T>() <= HYP_IO_MAX);
 
         let data = hyp_io_read(self.paddr + offset, size_of::<T>());
         T::read_from_prefix(data.as_bytes()).unwrap().0
@@ -106,7 +106,7 @@ impl HypIoRegion {
 
     pub fn write<T: IntoBytes + Immutable>(self, offset: usize, value: T) {
         assert!(offset + size_of::<T>() <= self.size);
-        assert!(size_of::<T>() < HYP_IO_MAX);
+        assert!(size_of::<T>() <= HYP_IO_MAX);
 
         let mut data = 0;
         data.as_mut_bytes()[..size_of::<T>()].copy_from_slice(value.as_bytes());
