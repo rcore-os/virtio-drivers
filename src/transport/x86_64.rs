@@ -13,10 +13,7 @@ use super::{
     },
     DeviceStatus, DeviceType, Transport,
 };
-use crate::{
-    hal::{Hal, PhysAddr},
-    Error,
-};
+use crate::{hal::PhysAddr, Error};
 pub use cam::HypCam;
 use hypercalls::HypIoRegion;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -53,7 +50,7 @@ pub struct HypPciTransport {
 impl HypPciTransport {
     /// Constructs a new x86-64 pKVM PCI VirtIO transport for the given device function on the given
     /// PCI root controller.
-    pub fn new<H: Hal, C: ConfigurationAccess>(
+    pub fn new<C: ConfigurationAccess>(
         root: &mut PciRoot<C>,
         device_function: DeviceFunction,
     ) -> Result<Self, VirtioPciError> {
@@ -114,7 +111,7 @@ impl HypPciTransport {
             }
         }
 
-        let common_cfg = get_bar_region::<H, CommonCfg, _>(
+        let common_cfg = get_bar_region::<CommonCfg, _>(
             root,
             device_function,
             &common_cfg.ok_or(VirtioPciError::MissingCommonConfig)?,
@@ -126,16 +123,16 @@ impl HypPciTransport {
                 notify_off_multiplier,
             ));
         }
-        let notify_region = get_bar_region::<H, u16, _>(root, device_function, &notify_cfg)?;
+        let notify_region = get_bar_region::<u16, _>(root, device_function, &notify_cfg)?;
 
-        let isr_status = get_bar_region::<H, u8, _>(
+        let isr_status = get_bar_region::<u8, _>(
             root,
             device_function,
             &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
         )?;
 
         let config_space = if let Some(device_cfg) = device_cfg {
-            Some(get_bar_region::<H, u32, _>(
+            Some(get_bar_region::<u32, _>(
                 root,
                 device_function,
                 &device_cfg,
@@ -286,7 +283,7 @@ impl Transport for HypPciTransport {
     }
 }
 
-fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
+fn get_bar_region<T, C: ConfigurationAccess>(
     root: &mut PciRoot<C>,
     device_function: DeviceFunction,
     struct_info: &VirtioCapabilityInfo,
