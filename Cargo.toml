@@ -15,12 +15,12 @@ keywords = ["virtio"]
 categories = ["hardware-support", "no-std"]
 
 [dependencies]
-log = "0.4.22"
-bitflags = "2.6.0"
+log = "0.4.25"
+bitflags = "2.8.0"
 enumn = "0.1.14"
 embedded-io = { version = "0.6.1", optional = true }
-thiserror = { version = "2.0.3", default-features = false }
-zerocopy = { version = "0.8.10", features = ["derive"] }
+thiserror = { version = "2.0.11", default-features = false }
+zerocopy = { version = "0.8.14", features = ["derive"] }
 
 [features]
 default = ["alloc", "embedded-io"]
@@ -28,4 +28,4 @@ alloc = ["zerocopy/alloc"]
 embedded-io = ["dep:embedded-io"]
 
 [dev-dependencies]
-zerocopy = { version = "0.8.7", features = ["alloc"] }
+zerocopy = { version = "0.8.14", features = ["alloc"] }
