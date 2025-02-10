@@ -140,6 +140,15 @@ pub unsafe trait Hal {
     unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection);
 }
 
+// TODO: document safety requirements
+/// Device-side abstraction layer for mapping and unmapping memory shared by the driver.
+pub trait DeviceHal {
+    /// Maps in memory shared by the driver.
+    unsafe fn dma_map(paddr: PhysAddr, pages: usize, direction: BufferDirection) -> Result<NonNull<u8>>;
+    /// Unmaps in memory previously shared by the driver.
+    unsafe fn dma_unmap(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32;
+}
+
 /// The direction in which a buffer is passed.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BufferDirection {

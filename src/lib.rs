@@ -62,7 +62,7 @@ use core::ptr::{self, NonNull};
 use device::socket::SocketError;
 use thiserror::Error;
 
-pub use self::hal::{BufferDirection, Hal, PhysAddr};
+pub use self::hal::{BufferDirection, DeviceHal, Hal, PhysAddr};
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;
