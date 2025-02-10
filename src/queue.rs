@@ -3,7 +3,7 @@
 #[cfg(feature = "alloc")]
 pub mod owning;
 
-use crate::hal::{BufferDirection, Dma, DmaMemory, Hal, PhysAddr};
+use crate::hal::{BufferDirection, DeviceDma, DeviceHal, Dma, DmaMemory, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
 #[cfg(feature = "alloc")]
@@ -29,7 +29,7 @@ use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 #[derive(Debug)]
 pub struct VirtQueue<H: Hal, const SIZE: usize> {
     /// DMA guard
-    layout: VirtQueueLayout<H>,
+    layout: VirtQueueLayout<Dma<H>>,
     /// Descriptor table
     ///
     /// The device may be able to modify this, even though it's not supposed to, so we shouldn't
@@ -554,24 +554,24 @@ unsafe impl<H: Hal, const SIZE: usize> Sync for VirtQueue<H, SIZE> {}
 ///
 /// Ref: 2.6 Split Virtqueues
 #[derive(Debug)]
-enum VirtQueueLayout<H: Hal> {
+enum VirtQueueLayout<D: DmaMemory> {
     Legacy {
-        dma: Dma<H>,
+        dma: D,
         avail_offset: usize,
         used_offset: usize,
     },
     Modern {
         /// The region used for the descriptor area and driver area.
-        driver_to_device_dma: Dma<H>,
+        driver_to_device_dma: D,
         /// The region used for the device area.
-        device_to_driver_dma: Dma<H>,
+        device_to_driver_dma: D,
         /// The offset from the start of the `driver_to_device_dma` region to the driver area
         /// (available ring).
         avail_offset: usize,
     },
 }
 
-impl<H: Hal> VirtQueueLayout<H> {
+impl<H: Hal> VirtQueueLayout<Dma<H>> {
     /// Allocates a single DMA region containing all parts of the virtqueue, following the layout
     /// required by legacy interfaces.
     ///
@@ -603,7 +603,43 @@ impl<H: Hal> VirtQueueLayout<H> {
             avail_offset: desc,
         })
     }
+}
 
+impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
+    unsafe fn map_legacy(queue_size: u16, paddr: PhysAddr) -> Result<Self> {
+        let (desc, avail, used) = queue_part_sizes(queue_size);
+        let size = align_up(desc + avail) + align_up(used);
+        let dma = unsafe { DeviceDma::new(paddr, size / PAGE_SIZE, BufferDirection::Both)? };
+        Ok(Self::Legacy {
+            dma,
+            avail_offset: desc,
+            used_offset: align_up(desc + avail),
+        })
+    }
+    unsafe fn map_flexible(
+        queue_size: u16,
+        desc_avail_paddr: PhysAddr,
+        used_paddr: PhysAddr,
+    ) -> Result<Self> {
+        let (desc, avail, used) = queue_part_sizes(queue_size);
+        let driver_to_device_dma = unsafe {
+            DeviceDma::new(
+                desc_avail_paddr,
+                pages(desc + avail),
+                BufferDirection::DriverToDevice,
+            )?
+        };
+        let device_to_driver_dma =
+            unsafe { DeviceDma::new(used_paddr, pages(used), BufferDirection::DeviceToDriver)? };
+        Ok(Self::Modern {
+            driver_to_device_dma,
+            device_to_driver_dma,
+            avail_offset: desc,
+        })
+    }
+}
+
+impl<D: DmaMemory> VirtQueueLayout<D> {
     /// Returns the physical address of the descriptor area.
     fn descriptors_paddr(&self) -> PhysAddr {
         match self {
