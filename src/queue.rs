@@ -3,7 +3,7 @@
 #[cfg(feature = "alloc")]
 pub mod owning;
 
-use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
+use crate::hal::{BufferDirection, Dma, DmaMemory, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
 #[cfg(feature = "alloc")]
