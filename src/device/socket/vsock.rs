@@ -4,6 +4,7 @@
 use super::error::SocketError;
 use super::protocol::{
     Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
+    VMADDR_CID_HOST,
 };
 use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::config::read_config;
@@ -425,6 +426,30 @@ impl<H: DeviceHal, T: DeviceTransport> VirtIOSocketDevice<H, T> {
     }
 }
 
+impl<H: DeviceHal, T: DeviceTransport> VirtIOSocketManager for VirtIOSocketDevice<H, T> {
+    fn local_cid(&self) -> u64 {
+        VMADDR_CID_HOST
+    }
+    fn send_packet_to_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result {
+        if buffer.is_empty() {
+            self.rx
+                .wait_pop_add_notify(&[header.as_bytes()], &mut self.transport)?
+        } else {
+            self.rx
+                .wait_pop_add_notify(&[header.as_bytes(), buffer], &mut self.transport)?
+        }
+        Ok(())
+    }
+    fn poll(
+        &mut self,
+        handler: impl FnOnce(VsockEvent, &[u8]) -> Result<Option<VsockEvent>>,
+    ) -> Result<Option<VsockEvent>> {
+        self.tx.poll(&mut self.transport, |buffer| {
+            let (header, body) = read_header_and_body(buffer)?;
+            VsockEvent::from_header(&header).and_then(|event| handler(event, body))
+        })
+    }
+}
 pub trait VirtIOSocketManager {
     fn local_cid(&self) -> u64;
     fn send_packet_to_queue(&mut self, header: &VirtioVsockHdr, buffer: &[u8]) -> Result;
