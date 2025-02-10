@@ -405,6 +405,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocketManager
     }
 }
 
+/// A low-level interface for a vsock device implementation
 pub struct VirtIOSocketDevice<H: DeviceHal, T: DeviceTransport> {
     transport: T,
     rx: DeviceVirtQueue<H, { QUEUE_SIZE }>,
@@ -413,6 +414,7 @@ pub struct VirtIOSocketDevice<H: DeviceHal, T: DeviceTransport> {
 }
 
 impl<H: DeviceHal, T: DeviceTransport> VirtIOSocketDevice<H, T> {
+    /// Create a new VirtIO Vsock device.
     pub fn new(mut transport: T) -> Result<Self> {
         let rx = DeviceVirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
         let tx = DeviceVirtQueue::new(&mut transport, TX_QUEUE_IDX)?;

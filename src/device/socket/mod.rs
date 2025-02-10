@@ -19,7 +19,9 @@ pub use connectionmanager::VsockConnectionManager;
 pub use error::SocketError;
 pub use protocol::{StreamShutdown, VsockAddr, VMADDR_CID_HOST};
 #[cfg(feature = "alloc")]
-pub use vsock::{ConnectionInfo, DisconnectReason, VirtIOSocket, VsockEvent, VsockEventType};
+pub use vsock::{
+    ConnectionInfo, DisconnectReason, VirtIOSocket, VirtIOSocketDevice, VsockEvent, VsockEventType,
+};
 
 #[cfg(feature = "alloc")]
 pub(crate) use vsock::VirtIOSocketManager;
