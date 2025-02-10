@@ -7,9 +7,9 @@ use super::protocol::{
 };
 use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::config::read_config;
-use crate::hal::Hal;
-use crate::queue::{owning::OwningQueue, VirtQueue};
-use crate::transport::Transport;
+use crate::hal::{DeviceHal, Hal};
+use crate::queue::{owning::OwningQueue, DeviceVirtQueue, VirtQueue};
+use crate::transport::{DeviceTransport, Transport};
 use crate::Result;
 use core::mem::size_of;
 use log::debug;
@@ -436,6 +436,27 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
             )?
         };
         Ok(())
+    }
+}
+
+pub struct VirtIOSocketDevice<H: DeviceHal, T: DeviceTransport> {
+    transport: T,
+    rx: DeviceVirtQueue<H, { QUEUE_SIZE }>,
+    tx: DeviceVirtQueue<H, { QUEUE_SIZE }>,
+    event: DeviceVirtQueue<H, { QUEUE_SIZE }>,
+}
+
+impl<H: DeviceHal, T: DeviceTransport> VirtIOSocketDevice<H, T> {
+    pub fn new(mut transport: T) -> Result<Self> {
+        let rx = DeviceVirtQueue::new(&mut transport, RX_QUEUE_IDX)?;
+        let tx = DeviceVirtQueue::new(&mut transport, TX_QUEUE_IDX)?;
+        let event = DeviceVirtQueue::new(&mut transport, EVENT_QUEUE_IDX)?;
+        Ok(Self {
+            transport,
+            rx,
+            tx,
+            event,
+        })
     }
 }
 
