@@ -1,8 +1,11 @@
 use super::{
-    protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket, VirtIOSocketManager,
-    VsockEvent, VsockEventType, DEFAULT_RX_BUFFER_SIZE,
+    protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket,
+    VirtIOSocketDevice, VirtIOSocketManager, VsockEvent, VsockEventType, DEFAULT_RX_BUFFER_SIZE,
 };
-use crate::{transport::Transport, Hal, Result};
+use crate::{
+    transport::{DeviceTransport, Transport},
+    DeviceHal, Hal, Result,
+};
 use alloc::{boxed::Box, vec::Vec};
 use core::cmp::min;
 use core::convert::TryInto;
@@ -48,6 +51,10 @@ pub struct VsockConnectionManager<
     T: Transport,
     const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
 >(VsockConnectionManagerCommon<VirtIOSocket<H, T, RX_BUFFER_SIZE>>);
+
+pub struct VsockDeviceConnectionManager<H: DeviceHal, T: DeviceTransport>(
+    VsockConnectionManagerCommon<VirtIOSocketDevice<H, T>>,
+);
 
 struct VsockConnectionManagerCommon<M: VirtIOSocketManager> {
     driver: M,
@@ -124,6 +131,85 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
         self.0.connections.push(new_connection);
         Ok(())
     }
+    /// Allows incoming connections on the given port number.
+    pub fn listen(&mut self, port: u32) {
+        self.0.listen(port)
+    }
+
+    /// Stops allowing incoming connections on the given port number.
+    pub fn unlisten(&mut self, port: u32) {
+        self.0.unlisten(port)
+    }
+
+    /// Sends the buffer to the destination.
+    pub fn send(&mut self, destination: VsockAddr, src_port: u32, buffer: &[u8]) -> Result {
+        self.0.send(destination, src_port, buffer)
+    }
+
+    /// Polls the vsock device to receive data or other updates.
+    pub fn poll(&mut self) -> Result<Option<VsockEvent>> {
+        self.0.poll()
+    }
+
+    /// Reads data received from the given connection.
+    pub fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize> {
+        self.0.recv(peer, src_port, buffer)
+    }
+
+    /// Returns the number of bytes in the receive buffer available to be read by `recv`.
+    ///
+    /// When the available bytes is 0, it indicates that the receive buffer is empty and does not
+    /// contain any data.
+    pub fn recv_buffer_available_bytes(&mut self, peer: VsockAddr, src_port: u32) -> Result<usize> {
+        self.0.recv_buffer_available_bytes(peer, src_port)
+    }
+
+    /// Sends a credit update to the given peer.
+    pub fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
+        self.0.update_credit(peer, src_port)
+    }
+
+    /// Blocks until we get some event from the vsock device.
+    pub fn wait_for_event(&mut self) -> Result<VsockEvent> {
+        self.0.wait_for_event()
+    }
+
+    /// Requests to shut down the connection cleanly, telling the peer that we won't send or receive
+    /// any more data.
+    ///
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
+    /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
+    /// shutdown.
+    pub fn shutdown(&mut self, destination: VsockAddr, src_port: u32) -> Result {
+        self.0.shutdown(destination, src_port)
+    }
+
+    /// Forcibly closes the connection without waiting for the peer.
+    pub fn force_close(&mut self, destination: VsockAddr, src_port: u32) -> Result {
+        self.0.force_close(destination, src_port)
+    }
+}
+
+impl<H: DeviceHal, T: DeviceTransport> VsockDeviceConnectionManager<H, T> {
+    /// Construct a new connection manager wrapping the given low-level VirtIO socket driver.
+    pub fn new(driver: VirtIOSocketDevice<H, T>) -> Self {
+        Self::new_with_capacity(driver, DEFAULT_PER_CONNECTION_BUFFER_CAPACITY)
+    }
+
+    /// Construct a new connection manager wrapping the given low-level VirtIO socket driver, with
+    /// the given per-connection buffer capacity.
+    pub fn new_with_capacity(
+        driver: VirtIOSocketDevice<H, T>,
+        per_connection_buffer_capacity: u32,
+    ) -> Self {
+        Self(VsockConnectionManagerCommon {
+            driver,
+            connections: Vec::new(),
+            listening_ports: Vec::new(),
+            per_connection_buffer_capacity,
+        })
+    }
+
     /// Allows incoming connections on the given port number.
     pub fn listen(&mut self, port: u32) {
         self.0.listen(port)
