@@ -17,7 +17,10 @@ struct Logger {
 pub fn init(max_level: LevelFilter) -> Result<(), SetLoggerError> {
     // Safe because BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as device
     // memory.
-    let uart = unsafe { Uart::new(UART_BASE_ADDRESS) };
+    #[cfg_attr(platform = "crosvm", allow(unused_mut))]
+    let mut uart = unsafe { Uart::new(UART_BASE_ADDRESS) };
+    #[cfg(platform = "qemu")]
+    uart.init(50000000, 115200);
     LOGGER.uart.lock().replace(uart);
 
     log::set_logger(&LOGGER)?;
