@@ -212,6 +212,13 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         device_function: DeviceFunction,
         bar_index: u8,
     ) -> Result<BarInfo, PciError> {
+        // Disable address decoding while sizing the BAR.
+        let (_status, command_orig) = self.get_status_command(device_function);
+        let command_disable_decode = command_orig & !(Command::IO_SPACE | Command::MEMORY_SPACE);
+        if command_disable_decode != command_orig {
+            self.set_command(device_function, command_disable_decode);
+        }
+
         let bar_orig = self
             .configuration_access
             .read_word(device_function, BAR0_OFFSET + 4 * bar_index);
@@ -264,6 +271,10 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             BAR0_OFFSET + 4 * bar_index,
             bar_orig,
         );
+
+        if command_disable_decode != command_orig {
+            self.set_command(device_function, command_orig);
+        }
 
         if bar_orig & 0x00000001 == 0x00000001 {
             // I/O space
