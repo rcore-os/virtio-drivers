@@ -1,6 +1,6 @@
 [package]
-name = "virtio-drivers"
-version = "0.9.0"
+name = "virtio-drivers-and-devices"
+version = "0.1.0"
 license = "MIT"
 authors = [
   "Jiajie Chen <noc@jiegec.ac.cn>",
@@ -9,8 +9,8 @@ authors = [
   "Andrew Walbran <qwandor@google.com>",
 ]
 edition = "2021"
-description = "VirtIO guest drivers."
-repository = "https://github.com/rcore-os/virtio-drivers"
+description = "VirtIO guest drivers and devices. Fork of rcore-os/virtio-drivers."
+repository = "https://github.com/immunant/virtio-drivers-and-devices"
 keywords = ["virtio"]
 categories = ["hardware-support", "no-std"]
 
