@@ -7,6 +7,7 @@ authors = [
   "Runji Wang <wangrunji0408@163.com>",
   "Yuekai Jia <equation618@gmail.com>",
   "Andrew Walbran <qwandor@google.com>",
+  "Ayrton Munoz <ayrton@google.com>",
 ]
 edition = "2021"
 description = "VirtIO guest drivers and devices. Fork of rcore-os/virtio-drivers."
