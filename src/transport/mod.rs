@@ -13,6 +13,7 @@ use bitflags::{bitflags, Flags};
 use core::{fmt::Debug, ops::BitAnd};
 use log::debug;
 pub use some::SomeTransport;
+use thiserror::Error;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A VirtIO transport layer.
@@ -165,7 +166,6 @@ bitflags! {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(missing_docs)]
 pub enum DeviceType {
-    Invalid = 0,
     Network = 1,
     Block = 2,
     Console = 3,
@@ -191,45 +191,59 @@ pub enum DeviceType {
     Sound = 25,
 }
 
-impl From<u32> for DeviceType {
-    fn from(virtio_device_id: u32) -> Self {
+/// Errors converting a number to a virtio device type.
+#[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
+pub enum DeviceTypeError {
+    /// Invalid or unknown virtio device type.
+    #[error("Invalid or unknown virtio device type {0}")]
+    InvalidDeviceType(u32),
+}
+
+impl TryFrom<u32> for DeviceType {
+    type Error = DeviceTypeError;
+
+    fn try_from(virtio_device_id: u32) -> core::result::Result<Self, Self::Error> {
         match virtio_device_id {
-            1 => DeviceType::Network,
-            2 => DeviceType::Block,
-            3 => DeviceType::Console,
-            4 => DeviceType::EntropySource,
-            5 => DeviceType::MemoryBalloon,
-            6 => DeviceType::IoMemory,
-            7 => DeviceType::Rpmsg,
-            8 => DeviceType::ScsiHost,
-            9 => DeviceType::_9P,
-            10 => DeviceType::Mac80211,
-            11 => DeviceType::RprocSerial,
-            12 => DeviceType::VirtioCAIF,
-            13 => DeviceType::MemoryBalloon,
-            16 => DeviceType::GPU,
-            17 => DeviceType::Timer,
-            18 => DeviceType::Input,
-            19 => DeviceType::Socket,
-            20 => DeviceType::Crypto,
-            21 => DeviceType::SignalDistributionModule,
-            22 => DeviceType::Pstore,
-            23 => DeviceType::IOMMU,
-            24 => DeviceType::Memory,
-            25 => DeviceType::Sound,
-            _ => DeviceType::Invalid,
+            1 => Ok(DeviceType::Network),
+            2 => Ok(DeviceType::Block),
+            3 => Ok(DeviceType::Console),
+            4 => Ok(DeviceType::EntropySource),
+            5 => Ok(DeviceType::MemoryBalloon),
+            6 => Ok(DeviceType::IoMemory),
+            7 => Ok(DeviceType::Rpmsg),
+            8 => Ok(DeviceType::ScsiHost),
+            9 => Ok(DeviceType::_9P),
+            10 => Ok(DeviceType::Mac80211),
+            11 => Ok(DeviceType::RprocSerial),
+            12 => Ok(DeviceType::VirtioCAIF),
+            13 => Ok(DeviceType::MemoryBalloon),
+            16 => Ok(DeviceType::GPU),
+            17 => Ok(DeviceType::Timer),
+            18 => Ok(DeviceType::Input),
+            19 => Ok(DeviceType::Socket),
+            20 => Ok(DeviceType::Crypto),
+            21 => Ok(DeviceType::SignalDistributionModule),
+            22 => Ok(DeviceType::Pstore),
+            23 => Ok(DeviceType::IOMMU),
+            24 => Ok(DeviceType::Memory),
+            25 => Ok(DeviceType::Sound),
+            _ => Err(DeviceTypeError::InvalidDeviceType(virtio_device_id)),
         }
     }
 }
 
-impl From<u16> for DeviceType {
-    fn from(virtio_device_id: u16) -> Self {
-        u32::from(virtio_device_id).into()
+impl TryFrom<u16> for DeviceType {
+    type Error = DeviceTypeError;
+
+    fn try_from(virtio_device_id: u16) -> core::result::Result<Self, Self::Error> {
+        u32::from(virtio_device_id).try_into()
     }
 }
 
-impl From<u8> for DeviceType {
-    fn from(virtio_device_id: u8) -> Self {
-        u32::from(virtio_device_id).into()
+impl TryFrom<u8> for DeviceType {
+    type Error = DeviceTypeError;
+
+    fn try_from(virtio_device_id: u8) -> core::result::Result<Self, Self::Error> {
+        u32::from(virtio_device_id).try_into()
     }
 }

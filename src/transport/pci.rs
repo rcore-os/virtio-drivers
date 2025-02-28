@@ -52,17 +52,17 @@ pub const VIRTIO_PCI_CAP_ISR_CFG: u8 = 3;
 /// Device specific configuration.
 pub const VIRTIO_PCI_CAP_DEVICE_CFG: u8 = 4;
 
-pub(crate) fn device_type(pci_device_id: u16) -> DeviceType {
+pub(crate) fn device_type(pci_device_id: u16) -> Option<DeviceType> {
     match pci_device_id {
-        TRANSITIONAL_NETWORK => DeviceType::Network,
-        TRANSITIONAL_BLOCK => DeviceType::Block,
-        TRANSITIONAL_MEMORY_BALLOONING => DeviceType::MemoryBalloon,
-        TRANSITIONAL_CONSOLE => DeviceType::Console,
-        TRANSITIONAL_SCSI_HOST => DeviceType::ScsiHost,
-        TRANSITIONAL_ENTROPY_SOURCE => DeviceType::EntropySource,
-        TRANSITIONAL_9P_TRANSPORT => DeviceType::_9P,
-        id if id >= PCI_DEVICE_ID_OFFSET => DeviceType::from(id - PCI_DEVICE_ID_OFFSET),
-        _ => DeviceType::Invalid,
+        TRANSITIONAL_NETWORK => Some(DeviceType::Network),
+        TRANSITIONAL_BLOCK => Some(DeviceType::Block),
+        TRANSITIONAL_MEMORY_BALLOONING => Some(DeviceType::MemoryBalloon),
+        TRANSITIONAL_CONSOLE => Some(DeviceType::Console),
+        TRANSITIONAL_SCSI_HOST => Some(DeviceType::ScsiHost),
+        TRANSITIONAL_ENTROPY_SOURCE => Some(DeviceType::EntropySource),
+        TRANSITIONAL_9P_TRANSPORT => Some(DeviceType::_9P),
+        id if id >= PCI_DEVICE_ID_OFFSET => DeviceType::try_from(id - PCI_DEVICE_ID_OFFSET).ok(),
+        _ => None,
     }
 }
 
@@ -70,12 +70,10 @@ pub(crate) fn device_type(pci_device_id: u16) -> DeviceType {
 /// `None` if it is not a recognised VirtIO device.
 pub fn virtio_device_type(device_function_info: &DeviceFunctionInfo) -> Option<DeviceType> {
     if device_function_info.vendor_id == VIRTIO_VENDOR_ID {
-        let device_type = device_type(device_function_info.device_id);
-        if device_type != DeviceType::Invalid {
-            return Some(device_type);
-        }
+        device_type(device_function_info.device_id)
+    } else {
+        None
     }
-    None
 }
 
 /// PCI transport for VirtIO.
@@ -112,7 +110,8 @@ impl PciTransport {
         if vendor_id != VIRTIO_VENDOR_ID {
             return Err(VirtioPciError::InvalidVendorId(vendor_id));
         }
-        let device_type = device_type(device_id);
+        let device_type =
+            device_type(device_id).ok_or(VirtioPciError::InvalidDeviceId(device_id))?;
 
         // Find the PCI capabilities we need.
         let mut common_cfg = None;
@@ -468,6 +467,9 @@ fn get_bar_region_slice<H: Hal, T, C: ConfigurationAccess>(
 /// An error encountered initialising a VirtIO PCI transport.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum VirtioPciError {
+    /// PCI device ID was not a valid VirtIO device ID.
+    #[error("PCI device ID {0:#06x} was not a valid VirtIO device ID.")]
+    InvalidDeviceId(u16),
     /// PCI device vender ID was not the VirtIO vendor ID.
     #[error("PCI device vender ID {0:#06x} was not the VirtIO vendor ID {VIRTIO_VENDOR_ID:#06x}.")]
     InvalidVendorId(u16),
@@ -524,19 +526,19 @@ mod tests {
 
     #[test]
     fn transitional_device_ids() {
-        assert_eq!(device_type(0x1000), DeviceType::Network);
-        assert_eq!(device_type(0x1002), DeviceType::MemoryBalloon);
-        assert_eq!(device_type(0x1009), DeviceType::_9P);
+        assert_eq!(device_type(0x1000), Some(DeviceType::Network));
+        assert_eq!(device_type(0x1002), Some(DeviceType::MemoryBalloon));
+        assert_eq!(device_type(0x1009), Some(DeviceType::_9P));
     }
 
     #[test]
     fn offset_device_ids() {
-        assert_eq!(device_type(0x1040), DeviceType::Invalid);
-        assert_eq!(device_type(0x1045), DeviceType::MemoryBalloon);
-        assert_eq!(device_type(0x1049), DeviceType::_9P);
-        assert_eq!(device_type(0x1058), DeviceType::Memory);
-        assert_eq!(device_type(0x1059), DeviceType::Sound);
-        assert_eq!(device_type(0x1060), DeviceType::Invalid);
+        assert_eq!(device_type(0x1040), None);
+        assert_eq!(device_type(0x1045), Some(DeviceType::MemoryBalloon));
+        assert_eq!(device_type(0x1049), Some(DeviceType::_9P));
+        assert_eq!(device_type(0x1058), Some(DeviceType::Memory));
+        assert_eq!(device_type(0x1059), Some(DeviceType::Sound));
+        assert_eq!(device_type(0x1060), None);
     }
 
     #[test]
