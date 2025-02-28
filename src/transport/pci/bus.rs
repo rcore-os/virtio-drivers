@@ -222,12 +222,41 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             BAR0_OFFSET + 4 * bar_index,
             0xffffffff,
         );
-        let size_mask = self
-            .configuration_access
-            .read_word(device_function, BAR0_OFFSET + 4 * bar_index);
+        let mut size_mask = u64::from(
+            self.configuration_access
+                .read_word(device_function, BAR0_OFFSET + 4 * bar_index),
+        );
+
+        // Read the upper 32 bits of 64-bit memory BARs.
+        let (address_top, size_top) = if bar_orig & 0b111 == 0b100 {
+            if bar_index >= 5 {
+                return Err(PciError::InvalidBarType);
+            }
+            let bar_top_orig = self
+                .configuration_access
+                .read_word(device_function, BAR0_OFFSET + 4 * (bar_index + 1));
+            self.configuration_access.write_word(
+                device_function,
+                BAR0_OFFSET + 4 * (bar_index + 1),
+                0xffffffff,
+            );
+            let size_top = self
+                .configuration_access
+                .read_word(device_function, BAR0_OFFSET + 4 * (bar_index + 1));
+            self.configuration_access.write_word(
+                device_function,
+                BAR0_OFFSET + 4 * (bar_index + 1),
+                bar_top_orig,
+            );
+            (bar_top_orig, size_top)
+        } else {
+            (0, 0xffffffff)
+        };
+        size_mask |= u64::from(size_top) << 32;
+
         // A wrapping add is necessary to correctly handle the case of unused BARs, which read back
         // as 0, and should be treated as size 0.
-        let size = (!(size_mask & 0xfffffff0)).wrapping_add(1);
+        let size = (!(size_mask & !0b1111)).wrapping_add(1);
 
         // Restore the original value.
         self.configuration_access.write_word(
@@ -239,21 +268,15 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         if bar_orig & 0x00000001 == 0x00000001 {
             // I/O space
             let address = bar_orig & 0xfffffffc;
-            Ok(BarInfo::IO { address, size })
+            Ok(BarInfo::IO {
+                address,
+                size: size as u32,
+            })
         } else {
             // Memory space
-            let mut address = u64::from(bar_orig & 0xfffffff0);
+            let address = u64::from(bar_orig & 0xfffffff0) | (u64::from(address_top) << 32);
             let prefetchable = bar_orig & 0x00000008 != 0;
             let address_type = MemoryBarType::try_from(((bar_orig & 0x00000006) >> 1) as u8)?;
-            if address_type == MemoryBarType::Width64 {
-                if bar_index >= 5 {
-                    return Err(PciError::InvalidBarType);
-                }
-                let address_top = self
-                    .configuration_access
-                    .read_word(device_function, BAR0_OFFSET + 4 * (bar_index + 1));
-                address |= u64::from(address_top) << 32;
-            }
             Ok(BarInfo::Memory {
                 address_type,
                 prefetchable,
@@ -389,7 +412,7 @@ pub enum BarInfo {
         /// The memory address, always 16-byte aligned.
         address: u64,
         /// The size of the BAR in bytes.
-        size: u32,
+        size: u64,
     },
     /// The BAR is for an I/O region.
     IO {
@@ -415,7 +438,7 @@ impl BarInfo {
 
     /// Returns the address and size of this BAR if it is a memory bar, or `None` if it is an IO
     /// BAR.
-    pub fn memory_address_size(&self) -> Option<(u64, u32)> {
+    pub fn memory_address_size(&self) -> Option<(u64, u64)> {
         if let Self::Memory { address, size, .. } = self {
             Some((*address, *size))
         } else {
