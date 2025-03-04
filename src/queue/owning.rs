@@ -146,7 +146,7 @@ impl<H: Hal, const SIZE: usize, const BUFFER_SIZE: usize> Drop
 {
     fn drop(&mut self) {
         for buffer in self.buffers {
-            // Safe because we obtained the buffer pointer from Box::into_raw, and it won't be used
+            // SAFETY: We obtained the buffer pointer from `Box::into_raw`, and it won't be used
             // anywhere else after the queue is destroyed.
             unsafe { drop(Box::from_raw(buffer.as_ptr())) };
         }

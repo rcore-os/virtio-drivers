@@ -211,7 +211,7 @@ impl Transport for PciTransport {
     }
 
     fn read_device_features(&mut self) -> u64 {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, device_feature_select, 0);
@@ -223,7 +223,7 @@ impl Transport for PciTransport {
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, driver_feature_select, 0);
@@ -238,7 +238,7 @@ impl Transport for PciTransport {
     }
 
     fn max_queue_size(&mut self, queue: u16) -> u32 {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
@@ -247,8 +247,8 @@ impl Transport for PciTransport {
     }
 
     fn notify(&mut self, queue: u16) {
-        // Safe because the common config and notify region pointers are valid and we checked in
-        // get_bar_region that they were aligned.
+        // SAFETY: The common config and notify region pointers are valid and we checked in
+        // `get_bar_region` that they were aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
             // TODO: Consider caching this somewhere (per queue).
@@ -261,14 +261,14 @@ impl Transport for PciTransport {
     }
 
     fn get_status(&self) -> DeviceStatus {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         let status = unsafe { volread!(self.common_cfg, device_status) };
         DeviceStatus::from_bits_truncate(status.into())
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, device_status, status.bits() as u8);
@@ -291,7 +291,7 @@ impl Transport for PciTransport {
         driver_area: PhysAddr,
         device_area: PhysAddr,
     ) {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
@@ -309,7 +309,7 @@ impl Transport for PciTransport {
     }
 
     fn queue_used(&mut self, queue: u16) -> bool {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         unsafe {
             volwrite!(self.common_cfg, queue_select, queue);
@@ -318,7 +318,7 @@ impl Transport for PciTransport {
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
+        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status = unsafe { self.isr_status.as_ptr().vread() };
@@ -442,8 +442,7 @@ fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
         return Err(VirtioPciError::BarOffsetOutOfRange);
     }
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
-    // Safe because the paddr and size describe a valid MMIO region, at least according to the PCI
-    // bus.
+    // SAFETY: The paddr and size describe a valid MMIO region, at least according to the PCI bus.
     let vaddr = unsafe { H::mmio_phys_to_virt(paddr, struct_info.length as usize) };
     if vaddr.as_ptr() as usize % align_of::<T>() != 0 {
         return Err(VirtioPciError::Misaligned {

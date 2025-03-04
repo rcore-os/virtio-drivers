@@ -70,8 +70,8 @@ impl<H: Hal> DmaMemory for Dma<H> {
 
 impl<H: Hal> Drop for Dma<H> {
     fn drop(&mut self) {
-        // Safe because the memory was previously allocated by `dma_alloc` in `Dma::new`, not yet
-        // deallocated, and we are passing the values from then.
+        // SAFETY: The memory was previously allocated by `dma_alloc` in `Dma::new`,
+        // not yet deallocated, and we are passing the values from then.
         let err = unsafe { H::dma_dealloc(self.paddr, self.vaddr, self.pages) };
         assert_eq!(err, 0, "failed to deallocate DMA");
     }

@@ -116,8 +116,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         // Link descriptors together.
         for i in 0..(size - 1) {
             desc_shadow[i as usize].next = i + 1;
-            // Safe because `desc` is properly aligned, dereferenceable, initialised, and the device
-            // won't access the descriptors for the duration of this unsafe block.
+            // SAFETY: `desc` is properly aligned, dereferenceable, initialised,
+            // and the device won't access the descriptors for the duration of this unsafe block.
             unsafe {
                 (*desc.as_ptr())[i as usize].next = i + 1;
             }
@@ -187,7 +187,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let head = self.add_direct(inputs, outputs);
 
         let avail_slot = self.avail_idx & (SIZE as u16 - 1);
-        // Safe because self.avail is properly aligned, dereferenceable and initialised.
+        // SAFETY: `self.avail` is properly aligned, dereferenceable and initialised.
         unsafe {
             (*self.avail.as_ptr()).ring[avail_slot as usize] = head;
         }
@@ -198,7 +198,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
         // increase head of avail ring
         self.avail_idx = self.avail_idx.wrapping_add(1);
-        // Safe because self.avail is properly aligned, dereferenceable and initialised.
+        // SAFETY: `self.avail` is properly aligned, dereferenceable and initialised.
         unsafe {
             (*self.avail.as_ptr())
                 .idx
@@ -222,7 +222,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
             // Write to desc_shadow then copy.
             let desc = &mut self.desc_shadow[usize::from(self.free_head)];
-            // Safe because our caller promises that the buffers live at least until `pop_used`
+            // SAFETY: Our caller promises that the buffers live at least until `pop_used`
             // returns them.
             unsafe {
                 desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
@@ -257,7 +257,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             <[Descriptor]>::new_box_zeroed_with_elems(inputs.len() + outputs.len()).unwrap();
         for (i, (buffer, direction)) in InputOutputIter::new(inputs, outputs).enumerate() {
             let desc = &mut indirect_list[i];
-            // Safe because our caller promises that the buffers live at least until `pop_used`
+            // SAFETY: Our caller promises that the buffers live at least until `pop_used`
             // returns them.
             unsafe {
                 desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
@@ -305,7 +305,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         outputs: &'a mut [&'a mut [u8]],
         transport: &mut impl Transport,
     ) -> Result<u32> {
-        // Safe because we don't return until the same token has been popped, so the buffers remain
+        // SAFETY: We don't return until the same token has been popped, so the buffers remain
         // valid and are not otherwise accessed until then.
         let token = unsafe { self.add(inputs, outputs) }?;
 
@@ -319,8 +319,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             spin_loop();
         }
 
-        // Safe because these are the same buffers as we passed to `add` above and they are still
-        // valid.
+        // SAFETY: These are the same buffers as we passed to `add` above and they are still valid.
         unsafe { self.pop_used(token, inputs, outputs) }
     }
 
@@ -330,8 +329,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     pub fn set_dev_notify(&mut self, enable: bool) {
         let avail_ring_flags = if enable { 0x0000 } else { 0x0001 };
         if !self.event_idx {
-            // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
-            // instance of AvailRing.
+            // SAFETY: `self.avail` points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of `AvailRing`.
             unsafe {
                 (*self.avail.as_ptr())
                     .flags
@@ -346,13 +345,13 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// This will be false if the device has supressed notifications.
     pub fn should_notify(&self) -> bool {
         if self.event_idx {
-            // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-            // instance of UsedRing.
+            // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of `UsedRing`.
             let avail_event = unsafe { (*self.used.as_ptr()).avail_event.load(Ordering::Acquire) };
             self.avail_idx >= avail_event.wrapping_add(1)
         } else {
-            // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-            // instance of UsedRing.
+            // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable, readable
+            // instance of `UsedRing`.
             unsafe { (*self.used.as_ptr()).flags.load(Ordering::Acquire) & 0x0001 == 0 }
         }
     }
@@ -361,7 +360,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// the device.
     fn write_desc(&mut self, index: u16) {
         let index = usize::from(index);
-        // Safe because self.desc is properly aligned, dereferenceable and initialised, and nothing
+        // SAFETY: `self.desc` is properly aligned, dereferenceable and initialised, and nothing
         // else reads or writes the descriptor during this block.
         unsafe {
             (*self.desc.as_ptr())[index] = self.desc_shadow[index].clone();
@@ -370,8 +369,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
     /// Returns whether there is a used element that can be popped.
     pub fn can_pop(&self) -> bool {
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
+        // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of `UsedRing`.
         self.last_used_idx != unsafe { (*self.used.as_ptr()).idx.load(Ordering::Acquire) }
     }
 
@@ -380,8 +379,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     pub fn peek_used(&self) -> Option<u16> {
         if self.can_pop() {
             let last_used_slot = self.last_used_idx & (SIZE as u16 - 1);
-            // Safe because self.used points to a valid, aligned, initialised, dereferenceable,
-            // readable instance of UsedRing.
+            // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable,
+            // readable instance of `UsedRing`.
             Some(unsafe { (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16 })
         } else {
             None
@@ -515,8 +514,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let last_used_slot = self.last_used_idx & (SIZE as u16 - 1);
         let index;
         let len;
-        // Safe because self.used points to a valid, aligned, initialised, dereferenceable, readable
-        // instance of UsedRing.
+        // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of `UsedRing`.
         unsafe {
             index = (*self.used.as_ptr()).ring[last_used_slot as usize].id as u16;
             len = (*self.used.as_ptr()).ring[last_used_slot as usize].len;
@@ -527,7 +526,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             return Err(Error::WrongToken);
         }
 
-        // Safe because the caller ensures the buffers are valid and match the descriptor.
+        // SAFETY: The caller ensures the buffers are valid and match the descriptor.
         unsafe {
             self.recycle_descriptors(index, inputs, outputs);
         }
@@ -1040,7 +1039,7 @@ impl Descriptor {
         direction: BufferDirection,
         extra_flags: DescFlags,
     ) {
-        // Safe because our caller promises that the buffer is valid.
+        // SAFETY: Our caller promises that the buffer is valid.
         unsafe {
             self.addr = H::share(buf, direction) as u64;
         }
