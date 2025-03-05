@@ -43,7 +43,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             negotiated_features.contains(Feature::RING_EVENT_IDX),
         )?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
-            // Safe because the buffer lasts as long as the queue.
+            // SAFETY: The buffer lasts as long as the queue.
             let token = unsafe { event_queue.add(&[], &mut [event.as_mut_bytes()])? };
             assert_eq!(token, i as u16);
         }
@@ -70,8 +70,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     pub fn pop_pending_event(&mut self) -> Option<InputEvent> {
         if let Some(token) = self.event_queue.peek_used() {
             let event = &mut self.event_buf[token as usize];
-            // Safe because we are passing the same buffer as we passed to `VirtQueue::add` and it
-            // is still valid.
+            // SAFETY: We are passing the same buffer as we passed to `VirtQueue::add` and it is still valid.
             unsafe {
                 self.event_queue
                     .pop_used(token, &[], &mut [event.as_mut_bytes()])
@@ -79,7 +78,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             }
             let event_saved = *event;
             // requeue
-            // Safe because buffer lasts as long as the queue.
+            // SAFETY: The buffer lasts as long as the queue.
             if let Ok(new_token) = unsafe { self.event_queue.add(&[], &mut [event.as_mut_bytes()]) }
             {
                 // This only works because nothing happen between `pop_used` and `add` that affects

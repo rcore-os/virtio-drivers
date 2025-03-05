@@ -142,7 +142,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// receive request or some data already received and not yet returned.
     fn poll_retrieve(&mut self) -> Result<()> {
         if self.receive_token.is_none() && self.cursor == self.pending_len {
-            // Safe because the buffer lasts at least as long as the queue, and there are no other
+            // SAFETY: The buffer lasts at least as long as the queue, and there are no other
             // outstanding requests using the buffer.
             self.receive_token = Some(unsafe {
                 self.receiveq
@@ -174,7 +174,7 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
         let mut flag = false;
         if let Some(receive_token) = self.receive_token {
             if self.receive_token == self.receiveq.peek_used() {
-                // Safe because we are passing the same buffer as we passed to `VirtQueue::add` in
+                // SAFETY: We are passing the same buffer as we passed to `VirtQueue::add` in
                 // `poll_retrieve` and it is still valid.
                 let len = unsafe {
                     self.receiveq.pop_used(

@@ -31,7 +31,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
         let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];
         for (i, rx_buf_place) in rx_buffers.iter_mut().enumerate() {
             let mut rx_buf = RxBuffer::new(i, buf_len);
-            // Safe because the buffer lives as long as the queue.
+            // SAFETY: The buffer lives as long as the queue.
             let token = unsafe { inner.receive_begin(rx_buf.as_bytes_mut())? };
             assert_eq!(token, i as u16);
             *rx_buf_place = Some(rx_buf);
@@ -84,7 +84,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
                 return Err(Error::WrongToken);
             }
 
-            // Safe because `token` == `rx_buf.idx`, we are passing the same
+            // SAFETY: `token` == `rx_buf.idx`, so we are passing the same
             // buffer as we passed to `VirtQueue::add` and it is still valid.
             let (_hdr_len, pkt_len) =
                 unsafe { self.inner.receive_complete(token, rx_buf.as_bytes_mut())? };
@@ -99,8 +99,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     ///
     /// It will add the buffer back to the NIC queue.
     pub fn recycle_rx_buffer(&mut self, mut rx_buf: RxBuffer) -> Result {
-        // Safe because we take the ownership of `rx_buf` back to `rx_buffers`,
-        // it lives as long as the queue.
+        // SAFETY: We take the ownership of `rx_buf` back to `rx_buffers`,
+        // so it lives as long as the queue.
         let new_token = unsafe { self.inner.receive_begin(rx_buf.as_bytes_mut()) }?;
         // `rx_buffers[new_token]` is expected to be `None` since it was taken
         // away at `Self::receive()` and has not been added back.
