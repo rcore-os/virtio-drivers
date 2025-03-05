@@ -418,6 +418,13 @@ fn allocate_bars(
             address_type, size, ..
         } = info
         {
+            // For now, only attempt to allocate 32-bit memory regions.
+            if size > u32::MAX.into() {
+                warn!("Skipping BAR {} with size {:#x}", bar_index, size);
+                continue;
+            }
+            let size = size as u32;
+
             match address_type {
                 MemoryBarType::Width32 => {
                     if size > 0 {

@@ -436,7 +436,7 @@ fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
     if bar_address == 0 {
         return Err(VirtioPciError::BarNotAllocated(struct_info.bar));
     }
-    if struct_info.offset + struct_info.length > bar_size
+    if u64::from(struct_info.offset + struct_info.length) > bar_size
         || size_of::<T>() > struct_info.length as usize
     {
         return Err(VirtioPciError::BarOffsetOutOfRange);
