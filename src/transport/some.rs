@@ -161,7 +161,7 @@ impl Transport for SomeTransport<'_> {
         }
     }
 
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T> {
+    fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T> {
         match self {
             Self::Mmio(mmio) => mmio.read_config_space(offset),
             Self::Pci(pci) => pci.read_config_space(offset),

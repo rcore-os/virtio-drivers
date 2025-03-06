@@ -12,6 +12,7 @@ use crate::{
 };
 use core::{
     mem::{align_of, size_of},
+    ops::Deref,
     ptr::NonNull,
 };
 use safe_mmio::{
@@ -301,7 +302,7 @@ impl Transport for PciTransport {
             .into()
     }
 
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
+    fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
@@ -314,12 +315,15 @@ impl Transport for PciTransport {
         if config_space.len() * size_of::<u32>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
-            // SAFETY: If we have a config space pointer it must be valid for its length, and we just
-            // checked that the offset and size of the access was within the length.
+            // SAFETY: If we have a config space pointer it must be valid for its length, and we
+            // just checked that the offset and size of the access was within the length and
+            // properly aligned. Reading the config space shouldn't have side-effects.
             unsafe {
-                Ok((config_space.ptr().cast::<T>())
-                    .byte_add(offset)
-                    .read_volatile())
+                let ptr = config_space.ptr().cast::<T>().byte_add(offset);
+                Ok(config_space
+                    .deref()
+                    .child(NonNull::new(ptr.cast_mut()).unwrap())
+                    .read_unsafe())
             }
         }
     }
@@ -341,12 +345,12 @@ impl Transport for PciTransport {
         if config_space.len() * size_of::<u32>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
-            // SAFETY: If we have a config space pointer it must be valid for its length, and we just
-            // checked that the offset and size of the access was within the length.
+            // SAFETY: If we have a config space pointer it must be valid for its length, and we
+            // just checked that the offset and size of the access was within the length and
+            // properly aligned.
             unsafe {
-                (config_space.ptr_nonnull().cast::<T>())
-                    .byte_add(offset)
-                    .write_volatile(value);
+                let ptr = config_space.ptr_nonnull().cast::<T>().byte_add(offset);
+                config_space.child(ptr).write_unsafe(value);
             }
             Ok(())
         }

@@ -5,6 +5,7 @@ use crate::{align_up, queue::Descriptor, Error, PhysAddr, PAGE_SIZE};
 use core::{
     convert::{TryFrom, TryInto},
     mem::{align_of, size_of},
+    ops::Deref,
     ptr::NonNull,
 };
 use safe_mmio::{
@@ -472,7 +473,7 @@ impl Transport for MmioTransport<'_> {
         field_shared!(self.header, config_generation).read()
     }
 
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
+    fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T, Error> {
         assert!(align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>());
@@ -482,14 +483,16 @@ impl Transport for MmioTransport<'_> {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was
-            // valid, including the config space.
+            // valid, including the config space. We have checked that the value is properly aligned
+            // for `T` and within the bounds of the config space. Reading the config space shouldn't
+            // have side-effects.
             unsafe {
+                let ptr = self.config_space.ptr().cast::<T>().byte_add(offset);
                 Ok(self
                     .config_space
-                    .ptr()
-                    .cast::<T>()
-                    .byte_add(offset)
-                    .read_volatile())
+                    .deref()
+                    .child(NonNull::new(ptr.cast_mut()).unwrap())
+                    .read_unsafe())
             }
         }
     }
@@ -508,13 +511,11 @@ impl Transport for MmioTransport<'_> {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was
-            // valid, including the config space.
+            // valid, including the config space. We have checked that the value is properly aligned
+            // for `T` and within the bounds of the config space.
             unsafe {
-                self.config_space
-                    .ptr_nonnull()
-                    .cast::<T>()
-                    .byte_add(offset)
-                    .write_volatile(value);
+                let ptr = self.config_space.ptr_nonnull().cast::<T>().byte_add(offset);
+                self.config_space.child(ptr).write_unsafe(value);
             }
             Ok(())
         }
