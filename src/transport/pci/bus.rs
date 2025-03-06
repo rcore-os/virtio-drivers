@@ -5,8 +5,11 @@ use core::{
     array,
     convert::TryFrom,
     fmt::{self, Display, Formatter},
+    ops::Deref,
+    ptr::NonNull,
 };
 use log::warn;
+use safe_mmio::{fields::ReadPureWrite, UniqueMmioPointer};
 use thiserror::Error;
 
 const INVALID_READ: u32 = 0xffffffff;
@@ -349,12 +352,12 @@ pub trait ConfigurationAccess {
 /// `ConfigurationAccess` implementation for memory-mapped access to a PCI root complex, via either
 /// a 16 MiB region for the PCI Configuration Access Mechanism or a 256 MiB region for the PCIe
 /// Enhanced Configuration Access Mechanism.
-pub struct MmioCam {
-    mmio_base: *mut u32,
+pub struct MmioCam<'a> {
+    mmio: UniqueMmioPointer<'a, [ReadPureWrite<u32>]>,
     cam: Cam,
 }
 
-impl MmioCam {
+impl MmioCam<'_> {
     /// Wraps the PCI root complex with the given MMIO base address.
     ///
     /// Panics if the base address is not aligned to a 4-byte boundary.
@@ -363,52 +366,47 @@ impl MmioCam {
     ///
     /// `mmio_base` must be a valid pointer to an appropriately-mapped MMIO region of at least
     /// 16 MiB (if `cam == Cam::MmioCam`) or 256 MiB (if `cam == Cam::Ecam`). The pointer must be
-    /// valid for the entire lifetime of the program (i.e. `'static`), which implies that no Rust
-    /// references may be used to access any of the memory region at any point.
+    /// valid for the lifetime `'a`, which implies that no Rust references may be used to access any
+    /// of the memory region at least during that lifetime.
     pub unsafe fn new(mmio_base: *mut u8, cam: Cam) -> Self {
         assert!(mmio_base as usize & 0x3 == 0);
         Self {
-            mmio_base: mmio_base as *mut u32,
+            mmio: UniqueMmioPointer::new(NonNull::slice_from_raw_parts(
+                NonNull::new(mmio_base as *mut ReadPureWrite<u32>).unwrap(),
+                cam.size() as usize / size_of::<u32>(),
+            )),
             cam,
         }
     }
 }
 
-impl ConfigurationAccess for MmioCam {
+impl ConfigurationAccess for MmioCam<'_> {
     fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
         let address = self.cam.cam_offset(device_function, register_offset);
-        // SAFETY: Both the `mmio_base` and the address offset are properly aligned,
-        // and the resulting pointer is within the MMIO range of the CAM.
-        unsafe {
-            // Right shift to convert from byte offset to word offset.
-            (self.mmio_base.add((address >> 2) as usize)).read_volatile()
-        }
+        // Right shift to convert from byte offset to word offset.
+        self.mmio
+            .deref()
+            .get((address >> 2) as usize)
+            .unwrap()
+            .read()
     }
 
     fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
         let address = self.cam.cam_offset(device_function, register_offset);
-        // SAFETY: Both the `mmio_base` and the address offset are properly aligned,
-        // and the resulting pointer is within the MMIO range of the CAM.
-        unsafe {
-            // Right shift to convert from byte offset to word offset.
-            (self.mmio_base.add((address >> 2) as usize)).write_volatile(data)
-        }
+        self.mmio.get((address >> 2) as usize).unwrap().write(data);
     }
 
     unsafe fn unsafe_clone(&self) -> Self {
         Self {
-            mmio_base: self.mmio_base,
+            mmio: UniqueMmioPointer::new(NonNull::new(self.mmio.ptr().cast_mut()).unwrap()),
             cam: self.cam,
         }
     }
 }
 
-// SAFETY: `mmio_base` is only used for MMIO, which can happen from any thread or CPU core.
-unsafe impl Send for MmioCam {}
-
 // SAFETY: `&MmioCam` only allows MMIO reads, which are fine to happen concurrently on different CPU
 // cores.
-unsafe impl Sync for MmioCam {}
+unsafe impl Sync for MmioCam<'_> {}
 
 /// Information about a PCI Base Address Register.
 #[derive(Clone, Debug, Eq, PartialEq)]
