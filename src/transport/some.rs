@@ -5,9 +5,9 @@ use crate::{PhysAddr, Result};
 
 /// A wrapper for an arbitrary VirtIO transport, either MMIO or PCI.
 #[derive(Debug)]
-pub enum SomeTransport {
+pub enum SomeTransport<'a> {
     /// An MMIO transport.
-    Mmio(MmioTransport),
+    Mmio(MmioTransport<'a>),
     /// A PCI transport.
     Pci(PciTransport),
     /// An x86-64 pKVM PCI transport.
@@ -15,19 +15,19 @@ pub enum SomeTransport {
     HypPci(super::x86_64::HypPciTransport),
 }
 
-impl From<MmioTransport> for SomeTransport {
-    fn from(mmio: MmioTransport) -> Self {
+impl<'a> From<MmioTransport<'a>> for SomeTransport<'a> {
+    fn from(mmio: MmioTransport<'a>) -> Self {
         Self::Mmio(mmio)
     }
 }
 
-impl From<PciTransport> for SomeTransport {
+impl From<PciTransport> for SomeTransport<'_> {
     fn from(pci: PciTransport) -> Self {
         Self::Pci(pci)
     }
 }
 
-impl Transport for SomeTransport {
+impl Transport for SomeTransport<'_> {
     fn device_type(&self) -> DeviceType {
         match self {
             Self::Mmio(mmio) => mmio.device_type(),
