@@ -150,7 +150,7 @@ impl<C: ConfigurationAccess> PciRoot<C> {
 
     /// Enumerates PCI devices on the given bus.
     pub fn enumerate_bus(&self, bus: u8) -> BusDeviceIterator<C> {
-        // Safe because the BusDeviceIterator only reads read-only fields.
+        // SAFETY: The `BusDeviceIterator` only reads read-only fields.
         let configuration_access = unsafe { self.configuration_access.unsafe_clone() };
         BusDeviceIterator {
             configuration_access,
@@ -343,8 +343,8 @@ impl MmioCam {
 impl ConfigurationAccess for MmioCam {
     fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
         let address = self.cam.cam_offset(device_function, register_offset);
-        // Safe because both the `mmio_base` and the address offset are properly aligned, and the
-        // resulting pointer is within the MMIO range of the CAM.
+        // SAFETY: Both the `mmio_base` and the address offset are properly aligned,
+        // and the resulting pointer is within the MMIO range of the CAM.
         unsafe {
             // Right shift to convert from byte offset to word offset.
             (self.mmio_base.add((address >> 2) as usize)).read_volatile()
@@ -353,8 +353,8 @@ impl ConfigurationAccess for MmioCam {
 
     fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
         let address = self.cam.cam_offset(device_function, register_offset);
-        // Safe because both the `mmio_base` and the address offset are properly aligned, and the
-        // resulting pointer is within the MMIO range of the CAM.
+        // SAFETY: Both the `mmio_base` and the address offset are properly aligned,
+        // and the resulting pointer is within the MMIO range of the CAM.
         unsafe {
             // Right shift to convert from byte offset to word offset.
             (self.mmio_base.add((address >> 2) as usize)).write_volatile(data)
