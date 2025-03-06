@@ -58,7 +58,6 @@ mod hal;
 mod queue;
 pub mod transport;
 
-use core::ptr::{self, NonNull};
 use device::socket::SocketError;
 use thiserror::Error;
 
@@ -124,10 +123,4 @@ fn align_up(size: usize) -> usize {
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
 fn pages(size: usize) -> usize {
     size.div_ceil(PAGE_SIZE)
-}
-
-// TODO: Use NonNull::slice_from_raw_parts once it is stable.
-/// Creates a non-null raw slice from a non-null thin pointer and length.
-fn nonnull_slice_from_raw_parts<T>(data: NonNull<T>, len: usize) -> NonNull<[T]> {
-    NonNull::new(ptr::slice_from_raw_parts_mut(data.as_ptr(), len)).unwrap()
 }

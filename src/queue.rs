@@ -5,7 +5,7 @@ pub mod owning;
 
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
-use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
+use crate::{align_up, pages, Error, Result, PAGE_SIZE};
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 use bitflags::bitflags;
@@ -106,7 +106,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         );
 
         let desc =
-            nonnull_slice_from_raw_parts(layout.descriptors_vaddr().cast::<Descriptor>(), SIZE);
+            NonNull::slice_from_raw_parts(layout.descriptors_vaddr().cast::<Descriptor>(), SIZE);
         let avail = layout.avail_vaddr().cast();
         let used = layout.used_vaddr().cast();
 
