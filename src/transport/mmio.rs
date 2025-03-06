@@ -5,6 +5,7 @@ use crate::{align_up, queue::Descriptor, Error, PhysAddr, PAGE_SIZE};
 use core::{
     convert::{TryFrom, TryInto},
     mem::{align_of, size_of},
+    ptr::NonNull,
 };
 use safe_mmio::{
     field, field_shared,
@@ -266,9 +267,8 @@ impl VirtIOHeader {
 #[derive(Debug)]
 pub struct MmioTransport<'a> {
     header: UniqueMmioPointer<'a, VirtIOHeader>,
+    config_space: UniqueMmioPointer<'a, [u8]>,
     version: MmioVersion,
-    /// The size in bytes of the config space.
-    config_space_size: usize,
     device_type: DeviceType,
 }
 
@@ -281,7 +281,7 @@ impl<'a> MmioTransport<'a> {
     /// `header` must point to a properly aligned valid VirtIO MMIO region, which must remain valid
     /// for the lifetime `'a`. This includes the config space following the header, if any.
     pub unsafe fn new(
-        header: UniqueMmioPointer<'a, VirtIOHeader>,
+        mut header: UniqueMmioPointer<'a, VirtIOHeader>,
         mmio_size: usize,
     ) -> Result<Self, MmioError> {
         let magic = field_shared!(header, magic).read();
@@ -293,12 +293,20 @@ impl<'a> MmioTransport<'a> {
         let Some(config_space_size) = mmio_size.checked_sub(CONFIG_SPACE_OFFSET) else {
             return Err(MmioError::MmioRegionTooSmall);
         };
+        let config_space = NonNull::slice_from_raw_parts(
+            header
+                .ptr_nonnull()
+                .cast::<u8>()
+                .byte_add(CONFIG_SPACE_OFFSET),
+            config_space_size,
+        );
+        let config_space = unsafe { UniqueMmioPointer::new(config_space) };
         let version = field_shared!(header, version).read().try_into()?;
         Ok(Self {
             header,
             version,
-            config_space_size,
             device_type,
+            config_space,
         })
     }
 
@@ -470,17 +478,16 @@ impl Transport for MmioTransport<'_> {
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
 
-        if self.config_space_size < offset + size_of::<T>() {
+        if self.config_space.len() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was
             // valid, including the config space.
             unsafe {
                 Ok(self
-                    .header
+                    .config_space
                     .ptr()
                     .cast::<T>()
-                    .byte_add(CONFIG_SPACE_OFFSET)
                     .byte_add(offset)
                     .read_volatile())
             }
@@ -497,16 +504,15 @@ impl Transport for MmioTransport<'_> {
             align_of::<T>());
         assert!(offset % align_of::<T>() == 0);
 
-        if self.config_space_size < offset + size_of::<T>() {
+        if self.config_space.len() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: The caller of `MmioTransport::new` guaranteed that the header pointer was
             // valid, including the config space.
             unsafe {
-                self.header
+                self.config_space
                     .ptr_nonnull()
                     .cast::<T>()
-                    .byte_add(CONFIG_SPACE_OFFSET)
                     .byte_add(offset)
                     .write_volatile(value);
             }
