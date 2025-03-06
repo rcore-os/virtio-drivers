@@ -108,7 +108,7 @@ pub trait Transport {
     fn read_config_generation(&self) -> u32;
 
     /// Reads a value from the device config space.
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T>;
+    fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T>;
 
     /// Writes a value to the device config space.
     fn write_config_space<T: IntoBytes + Immutable>(
