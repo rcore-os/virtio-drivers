@@ -19,6 +19,7 @@ log = "0.4.25"
 bitflags = "2.8.0"
 enumn = "0.1.14"
 embedded-io = { version = "0.6.1", optional = true }
+safe-mmio = "0.2.1"
 thiserror = { version = "2.0.11", default-features = false }
 zerocopy = { version = "0.8.14", features = ["derive"] }
 

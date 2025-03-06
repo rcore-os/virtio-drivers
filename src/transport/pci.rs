@@ -8,15 +8,16 @@ use self::bus::{
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
-    nonnull_slice_from_raw_parts,
-    volatile::{
-        volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
-    },
-    Error,
+    nonnull_slice_from_raw_parts, Error,
 };
 use core::{
     mem::{align_of, size_of},
     ptr::NonNull,
+};
+use safe_mmio::{
+    field, field_shared,
+    fields::{ReadOnly, ReadPure, ReadPureWrite, WriteOnly},
+    UniqueMmioPointer,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -85,14 +86,14 @@ pub struct PciTransport {
     /// The bus, device and function identifier for the VirtIO device.
     device_function: DeviceFunction,
     /// The common configuration structure within some BAR.
-    common_cfg: NonNull<CommonCfg>,
+    common_cfg: UniqueMmioPointer<'static, CommonCfg>,
     /// The start of the queue notification region within some BAR.
-    notify_region: NonNull<[WriteOnly<u16>]>,
+    notify_region: UniqueMmioPointer<'static, [WriteOnly<u16>]>,
     notify_off_multiplier: u32,
     /// The ISR status register within some BAR.
-    isr_status: NonNull<Volatile<u8>>,
+    isr_status: UniqueMmioPointer<'static, ReadOnly<u8>>,
     /// The VirtIO device-specific configuration within some BAR.
-    config_space: Option<NonNull<[u32]>>,
+    config_space: Option<UniqueMmioPointer<'static, [u32]>>,
 }
 
 impl PciTransport {
@@ -183,23 +184,27 @@ impl PciTransport {
         )?;
 
         let config_space = if let Some(device_cfg) = device_cfg {
-            Some(get_bar_region_slice::<H, _, _>(
-                root,
-                device_function,
-                &device_cfg,
-            )?)
+            Some(unsafe {
+                UniqueMmioPointer::new(get_bar_region_slice::<H, _, _>(
+                    root,
+                    device_function,
+                    &device_cfg,
+                )?)
+            })
         } else {
             None
         };
 
-        Ok(Self {
-            device_type,
-            device_function,
-            common_cfg,
-            notify_region,
-            notify_off_multiplier,
-            isr_status,
-            config_space,
+        Ok(unsafe {
+            Self {
+                device_type,
+                device_function,
+                common_cfg: UniqueMmioPointer::new(common_cfg),
+                notify_region: UniqueMmioPointer::new(notify_region),
+                notify_off_multiplier,
+                isr_status: UniqueMmioPointer::new(isr_status),
+                config_space,
+            }
         })
     }
 }
@@ -210,68 +215,43 @@ impl Transport for PciTransport {
     }
 
     fn read_device_features(&mut self) -> u64 {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, device_feature_select, 0);
-            let mut device_features_bits = volread!(self.common_cfg, device_feature) as u64;
-            volwrite!(self.common_cfg, device_feature_select, 1);
-            device_features_bits |= (volread!(self.common_cfg, device_feature) as u64) << 32;
-            device_features_bits
-        }
+        field!(self.common_cfg, device_feature_select).write(0);
+        let mut device_features_bits = field_shared!(self.common_cfg, device_feature).read() as u64;
+        field!(self.common_cfg, device_feature_select).write(1);
+        device_features_bits |=
+            (field_shared!(self.common_cfg, device_feature).read() as u64) << 32;
+        device_features_bits
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, driver_feature_select, 0);
-            volwrite!(self.common_cfg, driver_feature, driver_features as u32);
-            volwrite!(self.common_cfg, driver_feature_select, 1);
-            volwrite!(
-                self.common_cfg,
-                driver_feature,
-                (driver_features >> 32) as u32
-            );
-        }
+        field!(self.common_cfg, driver_feature_select).write(0);
+        field!(self.common_cfg, driver_feature).write(driver_features as u32);
+        field!(self.common_cfg, driver_feature_select).write(1);
+        field!(self.common_cfg, driver_feature).write((driver_features >> 32) as u32);
     }
 
     fn max_queue_size(&mut self, queue: u16) -> u32 {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, queue_select, queue);
-            volread!(self.common_cfg, queue_size).into()
-        }
+        field!(self.common_cfg, queue_select).write(queue);
+        field_shared!(self.common_cfg, queue_size).read().into()
     }
 
     fn notify(&mut self, queue: u16) {
-        // SAFETY: The common config and notify region pointers are valid and we checked in
-        // `get_bar_region` that they were aligned.
-        unsafe {
-            volwrite!(self.common_cfg, queue_select, queue);
-            // TODO: Consider caching this somewhere (per queue).
-            let queue_notify_off = volread!(self.common_cfg, queue_notify_off);
+        field!(self.common_cfg, queue_select).write(queue);
+        // TODO: Consider caching this somewhere (per queue).
+        let queue_notify_off = field_shared!(self.common_cfg, queue_notify_off).read();
 
-            let offset_bytes = usize::from(queue_notify_off) * self.notify_off_multiplier as usize;
-            let index = offset_bytes / size_of::<u16>();
-            (&raw mut (*self.notify_region.as_ptr())[index]).vwrite(queue);
-        }
+        let offset_bytes = usize::from(queue_notify_off) * self.notify_off_multiplier as usize;
+        let index = offset_bytes / size_of::<u16>();
+        self.notify_region.get(index).unwrap().write(queue);
     }
 
     fn get_status(&self) -> DeviceStatus {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        let status = unsafe { volread!(self.common_cfg, device_status) };
+        let status = field_shared!(self.common_cfg, device_status).read();
         DeviceStatus::from_bits_truncate(status.into())
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, device_status, status.bits() as u8);
-        }
+        field!(self.common_cfg, device_status).write(status.bits() as u8);
     }
 
     fn set_guest_page_size(&mut self, _guest_page_size: u32) {
@@ -290,16 +270,12 @@ impl Transport for PciTransport {
         driver_area: PhysAddr,
         device_area: PhysAddr,
     ) {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, queue_select, queue);
-            volwrite!(self.common_cfg, queue_size, size as u16);
-            volwrite!(self.common_cfg, queue_desc, descriptors as u64);
-            volwrite!(self.common_cfg, queue_driver, driver_area as u64);
-            volwrite!(self.common_cfg, queue_device, device_area as u64);
-            volwrite!(self.common_cfg, queue_enable, 1);
-        }
+        field!(self.common_cfg, queue_select).write(queue);
+        field!(self.common_cfg, queue_size).write(size as u16);
+        field!(self.common_cfg, queue_desc).write(descriptors as u64);
+        field!(self.common_cfg, queue_driver).write(driver_area as u64);
+        field!(self.common_cfg, queue_device).write(device_area as u64);
+        field!(self.common_cfg, queue_enable).write(1);
     }
 
     fn queue_unset(&mut self, _queue: u16) {
@@ -308,26 +284,21 @@ impl Transport for PciTransport {
     }
 
     fn queue_used(&mut self, queue: u16) -> bool {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
-        unsafe {
-            volwrite!(self.common_cfg, queue_select, queue);
-            volread!(self.common_cfg, queue_enable) == 1
-        }
+        field!(self.common_cfg, queue_select).write(queue);
+        field_shared!(self.common_cfg, queue_enable).read() == 1
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
-        // was aligned.
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
-        let isr_status = unsafe { self.isr_status.as_ptr().vread() };
+        let isr_status = self.isr_status.read();
         // TODO: Distinguish between queue interrupt and device configuration interrupt.
         isr_status & 0x3 != 0
     }
 
     fn read_config_generation(&self) -> u32 {
-        // SAFETY: self.header points to a valid VirtIO MMIO region.
-        unsafe { volread!(self.common_cfg, config_generation) }.into()
+        field_shared!(self.common_cfg, config_generation)
+            .read()
+            .into()
     }
 
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
@@ -336,14 +307,17 @@ impl Transport for PciTransport {
             align_of::<T>());
         assert_eq!(offset % align_of::<T>(), 0);
 
-        let config_space = self.config_space.ok_or(Error::ConfigSpaceMissing)?;
+        let config_space = self
+            .config_space
+            .as_ref()
+            .ok_or(Error::ConfigSpaceMissing)?;
         if config_space.len() * size_of::<u32>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: If we have a config space pointer it must be valid for its length, and we just
             // checked that the offset and size of the access was within the length.
             unsafe {
-                Ok((config_space.as_ptr().cast::<T>())
+                Ok((config_space.ptr().cast::<T>())
                     .byte_add(offset)
                     .read_volatile())
             }
@@ -360,14 +334,17 @@ impl Transport for PciTransport {
             align_of::<T>());
         assert_eq!(offset % align_of::<T>(), 0);
 
-        let config_space = self.config_space.ok_or(Error::ConfigSpaceMissing)?;
+        let config_space = self
+            .config_space
+            .as_mut()
+            .ok_or(Error::ConfigSpaceMissing)?;
         if config_space.len() * size_of::<u32>() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
         } else {
             // SAFETY: If we have a config space pointer it must be valid for its length, and we just
             // checked that the offset and size of the access was within the length.
             unsafe {
-                (config_space.as_ptr().cast::<T>())
+                (config_space.ptr_mut().cast::<T>())
                     .byte_add(offset)
                     .write_volatile(value);
             }
@@ -394,22 +371,22 @@ impl Drop for PciTransport {
 /// `virtio_pci_common_cfg`, see 4.1.4.3 "Common configuration structure layout".
 #[repr(C)]
 pub(crate) struct CommonCfg {
-    pub device_feature_select: Volatile<u32>,
-    pub device_feature: ReadOnly<u32>,
-    pub driver_feature_select: Volatile<u32>,
-    pub driver_feature: Volatile<u32>,
-    pub msix_config: Volatile<u16>,
-    pub num_queues: ReadOnly<u16>,
-    pub device_status: Volatile<u8>,
-    pub config_generation: ReadOnly<u8>,
-    pub queue_select: Volatile<u16>,
-    pub queue_size: Volatile<u16>,
-    pub queue_msix_vector: Volatile<u16>,
-    pub queue_enable: Volatile<u16>,
-    pub queue_notify_off: Volatile<u16>,
-    pub queue_desc: Volatile<u64>,
-    pub queue_driver: Volatile<u64>,
-    pub queue_device: Volatile<u64>,
+    pub device_feature_select: ReadPureWrite<u32>,
+    pub device_feature: ReadPure<u32>,
+    pub driver_feature_select: ReadPureWrite<u32>,
+    pub driver_feature: ReadPureWrite<u32>,
+    pub msix_config: ReadPureWrite<u16>,
+    pub num_queues: ReadPure<u16>,
+    pub device_status: ReadPureWrite<u8>,
+    pub config_generation: ReadPure<u8>,
+    pub queue_select: ReadPureWrite<u16>,
+    pub queue_size: ReadPureWrite<u16>,
+    pub queue_msix_vector: ReadPureWrite<u16>,
+    pub queue_enable: ReadPureWrite<u16>,
+    pub queue_notify_off: ReadPureWrite<u16>,
+    pub queue_desc: ReadPureWrite<u64>,
+    pub queue_driver: ReadPureWrite<u64>,
+    pub queue_device: ReadPureWrite<u64>,
 }
 
 /// Information about a VirtIO structure within some BAR, as provided by a `virtio_pci_cap`.
