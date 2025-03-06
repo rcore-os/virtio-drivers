@@ -60,7 +60,7 @@ pub(crate) fn read_help<T, V, R>(
 ) -> Result<V, Error>
 where
     T: Transport,
-    V: FromBytes,
+    V: FromBytes + IntoBytes,
     R: ConfigReadable<V>,
 {
     transport.read_config_space(offset)
