@@ -8,7 +8,7 @@ use self::bus::{
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
-    nonnull_slice_from_raw_parts, Error,
+    Error,
 };
 use core::{
     mem::{align_of, size_of},
@@ -435,7 +435,7 @@ fn get_bar_region_slice<H: Hal, T, C: ConfigurationAccess>(
     struct_info: &VirtioCapabilityInfo,
 ) -> Result<NonNull<[T]>, VirtioPciError> {
     let ptr = get_bar_region::<H, T, C>(root, device_function, struct_info)?;
-    Ok(nonnull_slice_from_raw_parts(
+    Ok(NonNull::slice_from_raw_parts(
         ptr,
         struct_info.length as usize / size_of::<T>(),
     ))
