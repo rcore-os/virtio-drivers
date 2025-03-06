@@ -344,7 +344,7 @@ impl Transport for PciTransport {
             // SAFETY: If we have a config space pointer it must be valid for its length, and we just
             // checked that the offset and size of the access was within the length.
             unsafe {
-                (config_space.ptr_mut().cast::<T>())
+                (config_space.ptr_nonnull().cast::<T>())
                     .byte_add(offset)
                     .write_volatile(value);
             }
