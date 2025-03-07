@@ -1,7 +1,7 @@
 use super::{VirtioNetHdr, NET_HDR_SIZE};
 use alloc::{vec, vec::Vec};
 use core::{convert::TryInto, mem::size_of};
-use zerocopy::IntoBytes;
+use zerocopy::{FromBytes, IntoBytes};
 
 /// A buffer used for transmitting.
 pub struct TxBuffer(pub(crate) Vec<u8>);
@@ -68,7 +68,7 @@ impl RxBuffer {
 
     /// Returns the reference of the header.
     pub fn header(&self) -> &VirtioNetHdr {
-        unsafe { &*(self.buf.as_ptr() as *const VirtioNetHdr) }
+        FromBytes::ref_from_prefix(self.as_bytes()).unwrap().0
     }
 
     /// Returns the network packet as a slice.
