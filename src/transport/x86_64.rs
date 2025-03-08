@@ -60,7 +60,8 @@ impl HypPciTransport {
         if vendor_id != VIRTIO_VENDOR_ID {
             return Err(VirtioPciError::InvalidVendorId(vendor_id));
         }
-        let device_type = device_type(device_id);
+        let device_type =
+            device_type(device_id).ok_or(VirtioPciError::InvalidDeviceId(device_id))?;
 
         // Find the PCI capabilities we need.
         let mut common_cfg = None;

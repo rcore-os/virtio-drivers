@@ -1,6 +1,6 @@
 //! MMIO transport for VirtIO.
 
-use super::{DeviceStatus, DeviceType, Transport};
+use super::{DeviceStatus, DeviceType, DeviceTypeError, Transport};
 use crate::{
     align_up,
     queue::Descriptor,
@@ -60,8 +60,8 @@ pub enum MmioError {
     #[error("Unsupported Virtio MMIO version {0}")]
     UnsupportedVersion(u32),
     /// The header reports a device ID of 0.
-    #[error("Device ID was zero")]
-    ZeroDeviceId,
+    #[error("Invalid or unknown device ID: {0}")]
+    InvalidDeviceID(DeviceTypeError),
     /// The MMIO region size was smaller than the header size we expect.
     #[error("MMIO region too small")]
     MmioRegionTooSmall,
@@ -269,6 +269,7 @@ pub struct MmioTransport {
     version: MmioVersion,
     /// The size in bytes of the config space.
     config_space_size: usize,
+    device_type: DeviceType,
 }
 
 impl MmioTransport {
@@ -283,9 +284,9 @@ impl MmioTransport {
         if magic != MAGIC_VALUE {
             return Err(MmioError::BadMagic(magic));
         }
-        if volread!(header, device_id) == 0 {
-            return Err(MmioError::ZeroDeviceId);
-        }
+        // SAFETY: `header` points to a valid VirtIO MMIO region.
+        let device_id = volread!(header, device_id);
+        let device_type = DeviceType::try_from(device_id).map_err(MmioError::InvalidDeviceID)?;
         let Some(config_space_size) = mmio_size.checked_sub(CONFIG_SPACE_OFFSET) else {
             return Err(MmioError::MmioRegionTooSmall);
         };
@@ -294,6 +295,7 @@ impl MmioTransport {
             header,
             version,
             config_space_size,
+            device_type,
         })
     }
 
@@ -318,9 +320,7 @@ unsafe impl Sync for MmioTransport {}
 
 impl Transport for MmioTransport {
     fn device_type(&self) -> DeviceType {
-        // SAFETY: `self.header` points to a valid VirtIO MMIO region.
-        let device_id = unsafe { volread!(self.header, device_id) };
-        device_id.into()
+        self.device_type
     }
 
     fn read_device_features(&mut self) -> u64 {
