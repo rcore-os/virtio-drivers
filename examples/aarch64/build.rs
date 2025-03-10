@@ -20,10 +20,9 @@ fn main() {
         PLATFORMS,
     );
     Build::new()
-        .file("entry.S")
-        .file("exceptions.S")
         .file(format!("idmap_{platform}.S"))
         .compile("example");
-    println!("cargo:rustc-link-arg=-T{platform}.ld");
     println!("cargo:rustc-link-arg=-Timage.ld");
+    println!("cargo:rustc-link-arg=-T{platform}.ld");
+    println!("cargo:rerun-if-changed={platform}.ld");
 }

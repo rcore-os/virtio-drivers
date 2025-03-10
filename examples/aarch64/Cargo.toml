@@ -5,6 +5,7 @@ authors = ["Andrew Walbran <qwandor@google.com>"]
 edition = "2021"
 
 [dependencies]
+aarch64-rt = "0.1.0"
 buddy_system_allocator = "0.11.0"
 flat_device_tree = "3.1.1"
 log = "0.4.22"

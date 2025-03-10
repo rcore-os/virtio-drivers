@@ -13,6 +13,7 @@ mod uart8250;
 #[cfg(platform = "crosvm")]
 use uart8250 as uart;
 
+use aarch64_rt::entry;
 use buddy_system_allocator::LockedHeap;
 use core::{
     mem::size_of,
@@ -59,8 +60,8 @@ static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
 
 static mut HEAP: [u8; 0x1000000] = [0; 0x1000000];
 
-#[no_mangle]
-extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
+entry!(main);
+fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
     logger::init(LevelFilter::Debug).unwrap();
     info!("virtio-drivers example started.");
     debug!(
@@ -129,6 +130,7 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
     }
 
     system_off::<Hvc>().unwrap();
+    panic!("system_off returned");
 }
 
 fn virtio_device(transport: impl Transport) {
