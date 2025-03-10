@@ -257,10 +257,13 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// received packet. It returns the length of the header and the length of
     /// the packet.
     pub fn receive_wait(&mut self, rx_buf: &mut [u8]) -> Result<(usize, usize)> {
+        // SAFETY: After calling `receive_begin`, `rx_buf` is not accessed
+        // until calling `receive_complete` when the request is complete.
         let token = unsafe { self.receive_begin(rx_buf)? };
         while self.poll_receive().is_none() {
             core::hint::spin_loop();
         }
+        // SAFETY: This `rx_buf` is the same one passed to `receive_begin`.
         unsafe { self.receive_complete(token, rx_buf) }
     }
 }
