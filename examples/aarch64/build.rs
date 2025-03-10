@@ -1,4 +1,3 @@
-use cc::Build;
 use std::env;
 
 const PLATFORMS: [&str; 2] = ["crosvm", "qemu"];
@@ -9,9 +8,6 @@ fn main() {
         PLATFORMS.join("\", \"")
     );
 
-    env::set_var("CROSS_COMPILE", "aarch64-none-elf");
-    env::set_var("CC", "clang");
-
     let platform = env::var("CARGO_CFG_PLATFORM").expect("Missing platform name");
     assert!(
         PLATFORMS.contains(&platform.as_str()),
@@ -19,9 +15,6 @@ fn main() {
         platform,
         PLATFORMS,
     );
-    Build::new()
-        .file(format!("idmap_{platform}.S"))
-        .compile("example");
     println!("cargo:rustc-link-arg=-Timage.ld");
     println!("cargo:rustc-link-arg=-T{platform}.ld");
     println!("cargo:rerun-if-changed={platform}.ld");
