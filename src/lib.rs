@@ -13,10 +13,11 @@
 //! ```
 //! use core::ptr::NonNull;
 //! use virtio_drivers::transport::mmio::{MmioTransport, VirtIOHeader};
+//! use virtio_drivers::UniqueMmioPointer;
 //!
 //! # fn example(mmio_device_address: usize, mmio_size: usize) {
 //! let header = NonNull::new(mmio_device_address as *mut VirtIOHeader).unwrap();
-//! let transport = unsafe { MmioTransport::new(header, mmio_size) }.unwrap();
+//! let transport = unsafe { MmioTransport::new(UniqueMmioPointer::new(header), mmio_size) }.unwrap();
 //! # }
 //! ```
 //!
@@ -56,13 +57,12 @@ mod embedded_io;
 mod hal;
 mod queue;
 pub mod transport;
-mod volatile;
 
-use core::ptr::{self, NonNull};
 use device::socket::SocketError;
 use thiserror::Error;
 
 pub use self::hal::{BufferDirection, Hal, PhysAddr};
+pub use safe_mmio::UniqueMmioPointer;
 
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;
@@ -123,10 +123,4 @@ fn align_up(size: usize) -> usize {
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
 fn pages(size: usize) -> usize {
     size.div_ceil(PAGE_SIZE)
-}
-
-// TODO: Use NonNull::slice_from_raw_parts once it is stable.
-/// Creates a non-null raw slice from a non-null thin pointer and length.
-fn nonnull_slice_from_raw_parts<T>(data: NonNull<T>, len: usize) -> NonNull<[T]> {
-    NonNull::new(ptr::slice_from_raw_parts_mut(data.as_ptr(), len)).unwrap()
 }

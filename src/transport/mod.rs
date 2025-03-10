@@ -108,7 +108,7 @@ pub trait Transport {
     fn read_config_generation(&self) -> u32;
 
     /// Reads a value from the device config space.
-    fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T>;
+    fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T>;
 
     /// Writes a value to the device config space.
     fn write_config_space<T: IntoBytes + Immutable>(
@@ -131,10 +131,14 @@ pub trait Transport {
     }
 }
 
+/// The device status field. Writing 0 into this field resets the device.
+#[derive(Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+pub struct DeviceStatus(u32);
+
+// TODO: Implement Debug
+
 bitflags! {
-    /// The device status field. Writing 0 into this field resets the device.
-    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-    pub struct DeviceStatus: u32 {
+    impl DeviceStatus: u32 {
         /// Indicates that the guest OS has found the device and recognized it
         /// as a valid virtio device.
         const ACKNOWLEDGE = 1;
