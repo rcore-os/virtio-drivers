@@ -13,11 +13,10 @@
 //! ```
 //! use core::ptr::NonNull;
 //! use virtio_drivers::transport::mmio::{MmioTransport, VirtIOHeader};
-//! use virtio_drivers::UniqueMmioPointer;
 //!
 //! # fn example(mmio_device_address: usize, mmio_size: usize) {
 //! let header = NonNull::new(mmio_device_address as *mut VirtIOHeader).unwrap();
-//! let transport = unsafe { MmioTransport::new(UniqueMmioPointer::new(header), mmio_size) }.unwrap();
+//! let transport = unsafe { MmioTransport::new(header, mmio_size) }.unwrap();
 //! # }
 //! ```
 //!
