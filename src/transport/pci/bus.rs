@@ -126,14 +126,14 @@ impl Cam {
     pub fn cam_offset(self, device_function: DeviceFunction, register_offset: u8) -> u32 {
         assert!(device_function.valid());
 
-        let bdf = (device_function.bus as u32) << 8
-            | (device_function.device as u32) << 3
-            | device_function.function as u32;
+        let bdf = ((device_function.bus as u32) << 8)
+            | ((device_function.device as u32) << 3)
+            | (device_function.function as u32);
         let address =
-            bdf << match self {
+            (bdf << match self {
                 Cam::MmioCam => 8,
                 Cam::Ecam => 12,
-            } | register_offset as u32;
+            }) | (register_offset as u32);
         // Ensure that address is within range.
         assert!(address < self.size());
         // Ensure that address is word-aligned.
