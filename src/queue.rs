@@ -280,6 +280,9 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         // responsible for freeing the memory after the buffer chain is popped.
         let direct_desc = &mut self.desc_shadow[usize::from(head)];
         self.free_head = direct_desc.next;
+
+        // SAFETY: Using `Box::leak` on `indirect_list` guarantees it won't be deallocated
+        // while in use.
         unsafe {
             direct_desc.set_buf::<H>(
                 Box::leak(indirect_list).as_bytes().into(),
