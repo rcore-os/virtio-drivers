@@ -164,7 +164,7 @@ impl Transport for HypPciTransport {
         let device_features_low: u32 = configread!(self.common_cfg, device_feature);
         configwrite!(self.common_cfg, device_feature_select, 1u32);
         let device_features_high: u32 = configread!(self.common_cfg, device_feature);
-        (device_features_high as u64) << 32 | device_features_low as u64
+        ((device_features_high as u64) << 32) | (device_features_low as u64)
     }
 
     fn write_driver_features(&mut self, driver_features: u64) {

@@ -250,8 +250,8 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
 
         let guest_cid = transport.read_consistent(|| {
             Ok(
-                read_config!(transport, VirtioVsockConfig, guest_cid_low)? as u64
-                    | (read_config!(transport, VirtioVsockConfig, guest_cid_high)? as u64) << 32,
+                (read_config!(transport, VirtioVsockConfig, guest_cid_low)? as u64)
+                    | ((read_config!(transport, VirtioVsockConfig, guest_cid_high)? as u64) << 32),
             )
         })?;
         debug!("guest cid: {guest_cid:?}");
