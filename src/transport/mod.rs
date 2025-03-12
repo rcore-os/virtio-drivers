@@ -10,7 +10,10 @@ pub mod x86_64;
 
 use crate::{PhysAddr, Result, PAGE_SIZE};
 use bitflags::{bitflags, Flags};
-use core::{fmt::Debug, ops::BitAnd};
+use core::{
+    fmt::{self, Debug, Formatter},
+    ops::BitAnd,
+};
 use log::debug;
 pub use some::SomeTransport;
 use thiserror::Error;
@@ -132,10 +135,17 @@ pub trait Transport {
 }
 
 /// The device status field. Writing 0 into this field resets the device.
-#[derive(Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 pub struct DeviceStatus(u32);
 
-// TODO: Implement Debug
+impl Debug for DeviceStatus {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "DeviceStatus(")?;
+        bitflags::parser::to_writer(self, &mut *f)?;
+        write!(f, ")")?;
+        Ok(())
+    }
+}
 
 bitflags! {
     impl DeviceStatus: u32 {
@@ -249,5 +259,19 @@ impl TryFrom<u8> for DeviceType {
 
     fn try_from(virtio_device_id: u8) -> core::result::Result<Self, Self::Error> {
         u32::from(virtio_device_id).try_into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_device_status() {
+        let status = DeviceStatus::from_bits_retain(0x23);
+        assert_eq!(
+            format!("{:?}", status),
+            "DeviceStatus(ACKNOWLEDGE | DRIVER | 0x20)"
+        );
     }
 }
