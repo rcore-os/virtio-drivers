@@ -15,7 +15,7 @@ use uart8250 as uart;
 
 use aarch64_paging::paging::Attributes;
 use aarch64_rt::{entry, initial_pagetable, InitialPagetable};
-use buddy_system_allocator::LockedHeap;
+use buddy_system_allocator::{Heap, LockedHeap};
 use core::{
     mem::size_of,
     panic::PanicInfo,
@@ -25,6 +25,7 @@ use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use smccc::{psci::system_off, Hvc};
+use spin::mutex::{SpinMutex, SpinMutexGuard};
 use virtio_drivers::{
     device::{
         blk::VirtIOBlk,
@@ -59,7 +60,7 @@ pub const UART_BASE_ADDRESS: *mut u32 = 0x3f8 as _;
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
 
-static mut HEAP: [u8; 0x1000000] = [0; 0x1000000];
+static HEAP: SpinMutex<[u8; 0x1000000]> = SpinMutex::new([0; 0x1000000]);
 
 /// Attributes to use for device memory in the initial identity map.
 const DEVICE_ATTRIBUTES: Attributes = Attributes::VALID
@@ -107,13 +108,11 @@ fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
         x0, x1, x2, x3
     );
 
-    // Safe because `HEAP` is only used here and `entry` is only called once.
-    unsafe {
-        // Give the allocator some memory to allocate.
-        HEAP_ALLOCATOR
-            .lock()
-            .init(HEAP.as_mut_ptr() as usize, HEAP.len());
-    }
+    // Give the allocator some memory to allocate.
+    add_to_heap(
+        &mut HEAP_ALLOCATOR.lock(),
+        SpinMutexGuard::leak(HEAP.try_lock().unwrap()).as_mut_slice(),
+    );
 
     info!("Loading FDT from {:#018x}", x0);
     // Safe because the pointer is a valid pointer to unaliased memory.
@@ -169,6 +168,15 @@ fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
 
     system_off::<Hvc>().unwrap();
     panic!("system_off returned");
+}
+
+/// Adds the given memory range to the given heap.
+fn add_to_heap<const ORDER: usize>(heap: &mut Heap<ORDER>, range: &'static mut [u8]) {
+    // SAFETY: The range we pass is valid because it comes from a mutable static reference, which it
+    // effectively takes ownership of.
+    unsafe {
+        heap.init(range.as_mut_ptr() as usize, range.len());
+    }
 }
 
 fn virtio_device(transport: impl Transport) {
