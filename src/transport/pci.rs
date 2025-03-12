@@ -169,6 +169,9 @@ impl PciTransport {
             device_function,
             &common_cfg.ok_or(VirtioPciError::MissingCommonConfig)?,
         )?;
+        // SAFETY: `get_bar_region` should always return a valid MMIO region, assuming the PCI root
+        // is behaving.
+        let common_cfg = unsafe { UniqueMmioPointer::new(common_cfg) };
 
         let notify_cfg = notify_cfg.ok_or(VirtioPciError::MissingNotifyConfig)?;
         if notify_off_multiplier % 2 != 0 {
@@ -177,14 +180,22 @@ impl PciTransport {
             ));
         }
         let notify_region = get_bar_region_slice::<H, _, _>(root, device_function, &notify_cfg)?;
+        // SAFETY: `get_bar_region` should always return a valid MMIO region, assuming the PCI root
+        // is behaving.
+        let notify_region = unsafe { UniqueMmioPointer::new(notify_region) };
 
         let isr_status = get_bar_region::<H, _, _>(
             root,
             device_function,
             &isr_cfg.ok_or(VirtioPciError::MissingIsrConfig)?,
         )?;
+        // SAFETY: `get_bar_region` should always return a valid MMIO region, assuming the PCI root
+        // is behaving.
+        let isr_status = unsafe { UniqueMmioPointer::new(isr_status) };
 
         let config_space = if let Some(device_cfg) = device_cfg {
+            // SAFETY: `get_bar_region_slice` should always return a valid MMIO region, assuming the
+            // PCI root is behaving.
             Some(unsafe {
                 UniqueMmioPointer::new(get_bar_region_slice::<H, _, _>(
                     root,
@@ -196,16 +207,14 @@ impl PciTransport {
             None
         };
 
-        Ok(unsafe {
-            Self {
-                device_type,
-                device_function,
-                common_cfg: UniqueMmioPointer::new(common_cfg),
-                notify_region: UniqueMmioPointer::new(notify_region),
-                notify_off_multiplier,
-                isr_status: UniqueMmioPointer::new(isr_status),
-                config_space,
-            }
+        Ok(Self {
+            device_type,
+            device_function,
+            common_cfg,
+            notify_region,
+            notify_off_multiplier,
+            isr_status,
+            config_space,
         })
     }
 }
