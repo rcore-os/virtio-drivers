@@ -115,6 +115,12 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         // map frame buffer to screen
         self.set_scanout(display_info.rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
+        // SAFETY: The pointer returned from `raw_slice` is guaranteed to be
+        // non-null, aligned, and a valid allocation. We store the `Dma` object
+        // in `self.frame_buffer_dma`, which prevents the allocation from being
+        // freed while `self` exists. The returned ptr borrows `self` mutably,
+        // which prevents other code from getting another reference to
+        // `frame_buffer_dma` while the returned slice is still in use.
         let buf = unsafe { frame_buffer_dma.raw_slice().as_mut() };
         self.frame_buffer_dma = Some(frame_buffer_dma);
         Ok(buf)
