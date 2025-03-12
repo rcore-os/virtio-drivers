@@ -588,7 +588,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
         buf[U32_SIZE..U32_SIZE + period_size].copy_from_slice(frames);
         let mut rsp = VirtIOSndPcmStatus::new_box_zeroed().unwrap();
+
+        // SAFETY: `buf` and `rsp` are owned allocations (a `Vec` and a `Box`, respectively)
+        // that are stored in `self` until the corresponding call to `pcm_xfer_ok`. The stored
+        // buffers are not used before the call to `pcm_xfer_ok`.
         let token = unsafe { self.tx_queue.add(&[&buf], &mut [rsp.as_mut_bytes()])? };
+
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
@@ -601,6 +606,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
         assert!(self.token_buf.contains_key(&token));
         assert!(self.token_rsp.contains_key(&token));
+
+        // SAFETY: The buffers passed into `pop_used` are the same buffers from a previous call
+        // to `add` that returned `token`.
         unsafe {
             self.tx_queue.pop_used(
                 token,
