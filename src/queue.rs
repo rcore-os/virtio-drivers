@@ -442,8 +442,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
 
                 // SAFETY: `paddr` comes from a previous call `H::share` (inside
                 // `Descriptor::set_buf`, which was called from `add_direct` or `add_indirect`).
-                // `indirect_list` is owned by this function and is not accessed from any other
-                // threads.
+                // `indirect_list` is owned by this function and is not accessed from any other threads.
                 unsafe {
                     H::unshare(
                         paddr as usize,
@@ -542,6 +541,8 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
 
         if self.event_idx {
+            // SAFETY: `self.avail` points to a valid, aligned, initialised, dereferenceable,
+            // readable instance of `AvailRing`.
             unsafe {
                 (*self.avail.as_ptr())
                     .used_event
