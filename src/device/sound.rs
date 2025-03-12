@@ -512,7 +512,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut tokens = [0; QUEUE_SIZE as usize];
         // The next element of `statuses` and `tokens` to use for adding to the queue.
         let mut head = 0;
-        // The next element of `status` and `tokens` to use for popping the queue.
+        // The next element of `statuses` and `tokens` to use for popping the queue.
         let mut tail = 0;
 
         loop {
@@ -520,6 +520,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             // input buffers and 1 output buffer.
             if self.tx_queue.available_desc() >= 3 {
                 if let Some(buffer) = remaining_buffers.next() {
+                    // SAFETY: The buffers being added to the queue are non-empty and are not
+                    // accessed before the corresponding call to `pop_used`.
                     tokens[head] = unsafe {
                         self.tx_queue.add(
                             &[&stream_id_bytes, buffer],
@@ -539,6 +541,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 }
             }
             if self.tx_queue.can_pop() {
+                // SAFETY: The same buffers passed to `add` are passed to `pop_used` by using
+                // `tail` to get the corresponding items from `tokens`, `buffers`, and
+                // `statuses`.
                 unsafe {
                     self.tx_queue.pop_used(
                         tokens[tail],
