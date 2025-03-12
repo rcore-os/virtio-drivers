@@ -13,6 +13,8 @@ mod uart8250;
 #[cfg(platform = "crosvm")]
 use uart8250 as uart;
 
+use aarch64_paging::paging::Attributes;
+use aarch64_rt::{entry, initial_pagetable, InitialPagetable};
 use buddy_system_allocator::LockedHeap;
 use core::{
     mem::size_of,
@@ -59,8 +61,45 @@ static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
 
 static mut HEAP: [u8; 0x1000000] = [0; 0x1000000];
 
-#[no_mangle]
-extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
+/// Attributes to use for device memory in the initial identity map.
+const DEVICE_ATTRIBUTES: Attributes = Attributes::VALID
+    .union(Attributes::ATTRIBUTE_INDEX_0)
+    .union(Attributes::ACCESSED)
+    .union(Attributes::UXN);
+
+/// Attributes to use for normal memory in the initial identity map.
+const MEMORY_ATTRIBUTES: Attributes = Attributes::VALID
+    .union(Attributes::ATTRIBUTE_INDEX_1)
+    .union(Attributes::INNER_SHAREABLE)
+    .union(Attributes::ACCESSED)
+    .union(Attributes::NON_GLOBAL);
+
+#[cfg(platform = "qemu")]
+initial_pagetable!({
+    let mut idmap = [0; 512];
+    // 1 GiB of device memory.
+    idmap[0] = DEVICE_ATTRIBUTES.bits();
+    // 1 GiB of normal memory.
+    idmap[1] = MEMORY_ATTRIBUTES.bits() | 0x40000000;
+    // Another 1 GiB of device memory starting at 256 GiB.
+    idmap[256] = DEVICE_ATTRIBUTES.bits() | 0x4000000000;
+    InitialPagetable(idmap)
+});
+
+#[cfg(platform = "crosvm")]
+initial_pagetable!({
+    let mut idmap = [0; 512];
+    // 1 GiB of device memory.
+    idmap[0] = DEVICE_ATTRIBUTES.bits();
+    // Another 1 GiB of device memory.
+    idmap[1] = DEVICE_ATTRIBUTES.bits() | 0x40000000;
+    // 1 GiB of normal memory.
+    idmap[2] = MEMORY_ATTRIBUTES.bits() | 0x80000000;
+    InitialPagetable(idmap)
+});
+
+entry!(main);
+fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
     logger::init(LevelFilter::Debug).unwrap();
     info!("virtio-drivers example started.");
     debug!(
@@ -129,6 +168,7 @@ extern "C" fn main(x0: u64, x1: u64, x2: u64, x3: u64) {
     }
 
     system_off::<Hvc>().unwrap();
+    panic!("system_off returned");
 }
 
 fn virtio_device(transport: impl Transport) {
