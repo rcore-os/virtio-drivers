@@ -281,9 +281,30 @@ impl<'a> MmioTransport<'a> {
     ///
     /// `header` must point to a properly aligned valid VirtIO MMIO region, which must remain valid
     /// for the lifetime `'a`. This includes the config space following the header, if any.
-    pub unsafe fn new(
-        mut header: UniqueMmioPointer<'a, VirtIOHeader>,
-        mmio_size: usize,
+    pub unsafe fn new(header: NonNull<VirtIOHeader>, mmio_size: usize) -> Result<Self, MmioError> {
+        let Some(config_space_size) = mmio_size.checked_sub(CONFIG_SPACE_OFFSET) else {
+            return Err(MmioError::MmioRegionTooSmall);
+        };
+        let config_space = NonNull::slice_from_raw_parts(
+            header.cast::<u8>().byte_add(CONFIG_SPACE_OFFSET),
+            config_space_size,
+        );
+        // SAFETY: The caller promises that the config space following the header is an MMIO region
+        // valid for `'a`.
+        let config_space = unsafe { UniqueMmioPointer::new(config_space) };
+
+        // SAFETY: The caller promises that `header` is a properly aligned MMIO region  valid for
+        // `'a`.
+        let header = UniqueMmioPointer::new(header);
+
+        Self::new_from_unique(header, config_space)
+    }
+
+    /// Constructs a new VirtIO MMIO transport, or returns an error if the header reports an
+    /// unsupported version.
+    pub fn new_from_unique(
+        header: UniqueMmioPointer<'a, VirtIOHeader>,
+        config_space: UniqueMmioPointer<'a, [u8]>,
     ) -> Result<Self, MmioError> {
         let magic = field_shared!(header, magic).read();
         if magic != MAGIC_VALUE {
@@ -291,17 +312,6 @@ impl<'a> MmioTransport<'a> {
         }
         let device_id = field_shared!(header, device_id).read();
         let device_type = DeviceType::try_from(device_id).map_err(MmioError::InvalidDeviceID)?;
-        let Some(config_space_size) = mmio_size.checked_sub(CONFIG_SPACE_OFFSET) else {
-            return Err(MmioError::MmioRegionTooSmall);
-        };
-        let config_space = NonNull::slice_from_raw_parts(
-            header
-                .ptr_nonnull()
-                .cast::<u8>()
-                .byte_add(CONFIG_SPACE_OFFSET),
-            config_space_size,
-        );
-        let config_space = unsafe { UniqueMmioPointer::new(config_space) };
         let version = field_shared!(header, version).read().try_into()?;
         Ok(Self {
             header,
