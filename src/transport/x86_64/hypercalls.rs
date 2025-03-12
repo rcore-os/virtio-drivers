@@ -19,14 +19,15 @@ const HYP_IO_MAX: usize = 8;
 /// Gets the signature CPU ID.
 pub fn cpuid_signature() -> [u8; 4] {
     let signature: u32;
+
+    // SAFETY: Assembly call. The argument for cpuid is passed via rax and in case of
+    // KVM_CPUID_SIGNATURE returned via rbx, rcx and rdx. Ideally using a named argument in
+    // inline asm for rbx would be more straightforward, but when "rbx" is directly used
+    // LLVM complains that it is used internally.
+    //
+    // Therefore use r8 instead and push rbx to the stack before making cpuid call, store
+    // rbx content to r8 as use it as inline asm output and pop the rbx.
     unsafe {
-        // The argument for cpuid is passed via rax and in case of KVM_CPUID_SIGNATURE returned via
-        // rbx, rcx and rdx. Ideally using a named argument in inline asm for rbx would be more
-        // straightforward, but when "rbx" is directly used LLVM complains that it is used
-        // internally.
-        //
-        // Therefore use r8 instead and push rbx to the stack before making cpuid call, store
-        // rbx content to r8 as use it as inline asm output and pop the rbx.
         asm!(
             "push rbx",
             "cpuid",
@@ -43,13 +44,13 @@ pub fn cpuid_signature() -> [u8; 4] {
 
 /// Asks the hypervisor to perform an IO read at the given physical address.
 pub fn hyp_io_read(address: usize, size: usize) -> u64 {
-    // Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally using a named argument in
-    // the inline asm for rbx would be more straightforward, but when "rbx" is used directly LLVM
-    // complains that it is used internally.
-    //
-    // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx
-    // again
     let data;
+
+    // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
+    // using a named argument in the inline asm for rbx would be more straightforward, but when
+    // "rbx" is used directly LLVM complains that it is used internally.
+    //
+    // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx again.
     unsafe {
         asm!(
             "push rbx",
@@ -66,13 +67,12 @@ pub fn hyp_io_read(address: usize, size: usize) -> u64 {
 
 /// Asks the hypervisor to perform an IO write at the given physical address.
 pub fn hyp_io_write(address: usize, size: usize, data: u64) {
+    // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
+    // using a named argument in the inline asm for rbx would be more straightforward but when
+    // "rbx" is used directly used LLVM complains that it is used internally.
+    //
+    // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx again.
     unsafe {
-        // Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally using a named argument
-        // in the inline asm for rbx would be more straightforward but when "rbx" is used directly
-        // used LLVM complains that it is used internally.
-        //
-        // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx
-        // again
         asm!(
             "push rbx",
             "mov rbx, r8",
