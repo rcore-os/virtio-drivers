@@ -56,6 +56,17 @@ pub struct VsockDeviceConnectionManager<H: DeviceHal, T: DeviceTransport>(
     VsockConnectionManagerCommon<VirtIOSocketDevice<H, T>>,
 );
 
+pub trait VsockManager {
+    fn connect(&mut self, destination: VsockAddr, src_port: u32) -> Result;
+    fn send(&mut self, dest: VsockAddr, src_port: u32, buffer: &[u8]) -> Result;
+    fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result;
+    fn force_close(&mut self, dest: VsockAddr, src_port: u32) -> Result;
+    fn listen(&mut self, port: u32);
+    fn poll(&mut self) -> Result<Option<VsockEvent>>;
+    fn shutdown(&mut self, dest: VsockAddr, src_port: u32) -> Result;
+    fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize>;
+}
+
 struct VsockConnectionManagerCommon<M: VirtIOSocketManager> {
     driver: M,
     per_connection_buffer_capacity: u32,
@@ -266,6 +277,62 @@ impl<H: DeviceHal, T: DeviceTransport> VsockDeviceConnectionManager<H, T> {
     /// Forcibly closes the connection without waiting for the peer.
     pub fn force_close(&mut self, destination: VsockAddr, src_port: u32) -> Result {
         self.0.force_close(destination, src_port)
+    }
+}
+
+impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VsockManager
+    for VsockConnectionManager<H, T, RX_BUFFER_SIZE>
+{
+    fn connect(&mut self, destination: VsockAddr, src_port: u32) -> Result {
+        Self::connect(self, destination, src_port)
+    }
+    fn send(&mut self, dest: VsockAddr, src_port: u32, buffer: &[u8]) -> Result {
+        Self::send(self, dest, src_port, buffer)
+    }
+    fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
+        Self::update_credit(self, peer, src_port)
+    }
+    fn force_close(&mut self, dest: VsockAddr, src_port: u32) -> Result {
+        Self::force_close(self, dest, src_port)
+    }
+    fn listen(&mut self, port: u32) {
+        Self::listen(self, port)
+    }
+    fn poll(&mut self) -> Result<Option<VsockEvent>> {
+        Self::poll(self)
+    }
+    fn shutdown(&mut self, dest: VsockAddr, src_port: u32) -> Result {
+        Self::shutdown(self, dest, src_port)
+    }
+    fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize> {
+        Self::recv(self, peer, src_port, buffer)
+    }
+}
+
+impl<H: DeviceHal, T: DeviceTransport> VsockManager for VsockDeviceConnectionManager<H, T> {
+    fn connect(&mut self, _destination: VsockAddr, _src_port: u32) -> Result {
+        unreachable!("vsock devices should not make outgoing connections")
+    }
+    fn send(&mut self, dest: VsockAddr, src_port: u32, buffer: &[u8]) -> Result {
+        Self::send(self, dest, src_port, buffer)
+    }
+    fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
+        Self::update_credit(self, peer, src_port)
+    }
+    fn force_close(&mut self, dest: VsockAddr, src_port: u32) -> Result {
+        Self::force_close(self, dest, src_port)
+    }
+    fn listen(&mut self, port: u32) {
+        Self::listen(self, port)
+    }
+    fn poll(&mut self) -> Result<Option<VsockEvent>> {
+        Self::poll(self)
+    }
+    fn shutdown(&mut self, dest: VsockAddr, src_port: u32) -> Result {
+        Self::shutdown(self, dest, src_port)
+    }
+    fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize> {
+        Self::recv(self, peer, src_port, buffer)
     }
 }
 

@@ -15,7 +15,7 @@ mod protocol;
 mod vsock;
 
 #[cfg(feature = "alloc")]
-pub use connectionmanager::{VsockConnectionManager, VsockDeviceConnectionManager};
+pub use connectionmanager::{VsockConnectionManager, VsockDeviceConnectionManager, VsockManager};
 pub use error::SocketError;
 pub use protocol::{StreamShutdown, VsockAddr, VMADDR_CID_HOST};
 #[cfg(feature = "alloc")]
