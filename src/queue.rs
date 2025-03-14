@@ -557,7 +557,7 @@ pub struct MappedDescriptor<H: DeviceHal> {
 }
 
 impl<H: DeviceHal> MappedDescriptor<H> {
-    unsafe fn map_buf(desc_copy: Descriptor) -> Result<Self> {
+    unsafe fn map_buf(desc_copy: Descriptor, client_id: u16) -> Result<Self> {
         let direction = if desc_copy.flags.contains(DescFlags::WRITE) {
             BufferDirection::DeviceToDriver
         } else {
@@ -568,6 +568,7 @@ impl<H: DeviceHal> MappedDescriptor<H> {
                 desc_copy.addr as PhysAddr,
                 pages(desc_copy.len as usize),
                 direction,
+                client_id,
             )?
         };
         Ok(Self { desc_copy, dma })
@@ -589,6 +590,7 @@ pub struct DeviceVirtQueue<H: DeviceHal, const SIZE: usize> {
     avail_idx: u16,
     last_used_idx: u16,
     desc_mapped: [Option<MappedDescriptor<H>>; SIZE],
+    client_id: u16,
 }
 
 impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
@@ -601,15 +603,16 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         if transport.max_queue_size(idx) < SIZE as u32 {
             return Err(Error::InvalidParam);
         }
+        let client_id = transport.get_client_id();
 
         let size = SIZE as u16;
 
         let [paddr, _, used_paddr] = transport.queue_get(idx);
 
         let layout = if transport.requires_legacy_layout() {
-            unsafe { VirtQueueLayout::map_legacy(size, paddr)? }
+            unsafe { VirtQueueLayout::map_legacy(size, paddr, client_id)? }
         } else {
-            unsafe { VirtQueueLayout::map_flexible(size, paddr, used_paddr)? }
+            unsafe { VirtQueueLayout::map_flexible(size, paddr, used_paddr, client_id)? }
         };
         let desc =
             nonnull_slice_from_raw_parts(layout.descriptors_vaddr().cast::<Descriptor>(), SIZE);
@@ -625,6 +628,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             avail_idx: 0,
             last_used_idx: 0,
             desc_mapped,
+            client_id,
         })
     }
 
@@ -714,7 +718,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         };
         if desc_changed {
             // Drop impl unmaps the old descriptor's buffer
-            *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc)? });
+            *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
         }
         let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
         let buffer = unsafe { buffer.as_mut() };
@@ -805,10 +809,11 @@ impl<H: Hal> VirtQueueLayout<Dma<H>> {
 }
 
 impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
-    unsafe fn map_legacy(queue_size: u16, paddr: PhysAddr) -> Result<Self> {
+    unsafe fn map_legacy(queue_size: u16, paddr: PhysAddr, client_id: u16) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
         let size = align_up(desc + avail) + align_up(used);
-        let dma = unsafe { DeviceDma::new(paddr, size / PAGE_SIZE, BufferDirection::Both)? };
+        let dma =
+            unsafe { DeviceDma::new(paddr, size / PAGE_SIZE, BufferDirection::Both, client_id)? };
         Ok(Self::Legacy {
             dma,
             avail_offset: desc,
@@ -819,6 +824,7 @@ impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
         queue_size: u16,
         desc_avail_paddr: PhysAddr,
         used_paddr: PhysAddr,
+        client_id: u16,
     ) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
         let driver_to_device_dma = unsafe {
@@ -826,10 +832,17 @@ impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
                 desc_avail_paddr,
                 pages(desc + avail),
                 BufferDirection::DriverToDevice,
+                client_id,
             )?
         };
-        let device_to_driver_dma =
-            unsafe { DeviceDma::new(used_paddr, pages(used), BufferDirection::DeviceToDriver)? };
+        let device_to_driver_dma = unsafe {
+            DeviceDma::new(
+                used_paddr,
+                pages(used),
+                BufferDirection::DeviceToDriver,
+                client_id,
+            )?
+        };
         Ok(Self::Modern {
             driver_to_device_dma,
             device_to_driver_dma,

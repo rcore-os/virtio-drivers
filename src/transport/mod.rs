@@ -17,6 +17,9 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A VirtIO device-side transport layer.
 pub trait DeviceTransport {
+    /// Gets the client VM ID
+    fn get_client_id(&self) -> u16;
+
     /// Gets the max size of the given queue.
     fn max_queue_size(&mut self, queue: u16) -> u32;
 

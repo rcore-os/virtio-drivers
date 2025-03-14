@@ -83,6 +83,7 @@ pub struct DeviceDma<H: DeviceHal> {
     vaddr: NonNull<u8>,
     pages: usize,
     _hal: PhantomData<H>,
+    client_id: u16,
 }
 
 unsafe impl<H: DeviceHal> Send for DeviceDma<H> {}
@@ -90,13 +91,19 @@ unsafe impl<H: DeviceHal> Send for DeviceDma<H> {}
 unsafe impl<H: DeviceHal> Sync for DeviceDma<H> {}
 
 impl<H: DeviceHal> DeviceDma<H> {
-    pub unsafe fn new(paddr: PhysAddr, pages: usize, direction: BufferDirection) -> Result<Self> {
-        let vaddr = H::dma_map(paddr, pages, direction)?;
+    pub unsafe fn new(
+        paddr: PhysAddr,
+        pages: usize,
+        direction: BufferDirection,
+        client_id: u16,
+    ) -> Result<Self> {
+        let vaddr = H::dma_map(paddr, pages, direction, client_id)?;
         Ok(Self {
             paddr,
             vaddr,
             pages,
             _hal: PhantomData,
+            client_id,
         })
     }
 }
@@ -203,7 +210,12 @@ pub unsafe trait Hal {
 /// Device-side abstraction layer for mapping and unmapping memory shared by the driver.
 pub trait DeviceHal {
     /// Maps in memory shared by the driver.
-    unsafe fn dma_map(paddr: PhysAddr, pages: usize, direction: BufferDirection) -> Result<NonNull<u8>>;
+    unsafe fn dma_map(
+        paddr: PhysAddr,
+        pages: usize,
+        direction: BufferDirection,
+        client_id: u16,
+    ) -> Result<NonNull<u8>>;
     /// Unmaps in memory previously shared by the driver.
     unsafe fn dma_unmap(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32;
 }
