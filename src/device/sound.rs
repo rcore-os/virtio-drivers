@@ -512,7 +512,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         let mut tokens = [0; QUEUE_SIZE as usize];
         // The next element of `statuses` and `tokens` to use for adding to the queue.
         let mut head = 0;
-        // The next element of `status` and `tokens` to use for popping the queue.
+        // The next element of `statuses` and `tokens` to use for popping the queue.
         let mut tail = 0;
 
         loop {
@@ -520,6 +520,8 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             // input buffers and 1 output buffer.
             if self.tx_queue.available_desc() >= 3 {
                 if let Some(buffer) = remaining_buffers.next() {
+                    // SAFETY: The buffers being added to the queue are non-empty and are not
+                    // accessed before the corresponding call to `pop_used`.
                     tokens[head] = unsafe {
                         self.tx_queue.add(
                             &[&stream_id_bytes, buffer],
@@ -539,6 +541,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
                 }
             }
             if self.tx_queue.can_pop() {
+                // SAFETY: The same buffers passed to `add` are passed to `pop_used` by using
+                // `tail` to get the corresponding items from `tokens`, `buffers`, and
+                // `statuses`.
                 unsafe {
                     self.tx_queue.pop_used(
                         tokens[tail],
@@ -583,7 +588,12 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         buf[..U32_SIZE].copy_from_slice(&stream_id.to_le_bytes());
         buf[U32_SIZE..U32_SIZE + period_size].copy_from_slice(frames);
         let mut rsp = VirtIOSndPcmStatus::new_box_zeroed().unwrap();
+
+        // SAFETY: `buf` and `rsp` are owned allocations (a `Vec` and a `Box`, respectively)
+        // that are stored in `self` until the corresponding call to `pcm_xfer_ok`. The stored
+        // buffers are not used before the call to `pcm_xfer_ok`.
         let token = unsafe { self.tx_queue.add(&[&buf], &mut [rsp.as_mut_bytes()])? };
+
         if self.tx_queue.should_notify() {
             self.transport.notify(TX_QUEUE_IDX);
         }
@@ -596,6 +606,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     pub fn pcm_xfer_ok(&mut self, token: u16) -> Result {
         assert!(self.token_buf.contains_key(&token));
         assert!(self.token_rsp.contains_key(&token));
+
+        // SAFETY: The buffers passed into `pop_used` are the same buffers from a previous call
+        // to `add` that returned `token`.
         unsafe {
             self.tx_queue.pop_used(
                 token,
