@@ -7,7 +7,7 @@ mod exceptions;
 mod hal;
 mod logger;
 #[cfg(platform = "qemu")]
-use pl011_uart as uart;
+use arm_pl011_uart as uart;
 #[cfg(platform = "crosvm")]
 mod uart8250;
 #[cfg(platform = "crosvm")]
@@ -15,6 +15,8 @@ use uart8250 as uart;
 
 use aarch64_paging::paging::Attributes;
 use aarch64_rt::{entry, initial_pagetable, InitialPagetable};
+#[cfg(platform = "qemu")]
+use arm_pl011_uart::{DataBits, LineConfig, PL011Registers, Parity, StopBits};
 use buddy_system_allocator::{Heap, LockedHeap};
 use core::{
     mem::size_of,
@@ -24,8 +26,10 @@ use core::{
 use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
+use safe_mmio::OwnedMmioPointer;
 use smccc::{psci::system_off, Hvc};
 use spin::mutex::{SpinMutex, SpinMutexGuard};
+use uart::Uart;
 use virtio_drivers::{
     device::{
         blk::VirtIOBlk,
@@ -51,11 +55,11 @@ use virtio_drivers::{
 
 /// Base memory-mapped address of the primary PL011 UART device.
 #[cfg(platform = "qemu")]
-pub const UART_BASE_ADDRESS: *mut u32 = 0x900_0000 as _;
+pub const UART_BASE_ADDRESS: *mut PL011Registers = 0x900_0000 as _;
 
 /// The base address of the first 8250 UART.
 #[cfg(platform = "crosvm")]
-pub const UART_BASE_ADDRESS: *mut u32 = 0x3f8 as _;
+pub const UART_BASE_ADDRESS: *mut u8 = 0x3f8 as _;
 
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
@@ -101,7 +105,24 @@ initial_pagetable!({
 
 entry!(main);
 fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
-    logger::init(LevelFilter::Debug).unwrap();
+    // Safe because BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as device
+    // memory.
+    #[cfg_attr(platform = "crosvm", allow(unused_mut))]
+    let mut uart =
+        Uart::new(unsafe { OwnedMmioPointer::new(NonNull::new(UART_BASE_ADDRESS).unwrap()) });
+    #[cfg(platform = "qemu")]
+    uart.enable(
+        LineConfig {
+            data_bits: DataBits::Bits8,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+        },
+        115200,
+        50000000,
+    )
+    .unwrap();
+    logger::init(uart, LevelFilter::Debug).unwrap();
+
     info!("virtio-drivers example started.");
     debug!(
         "x0={:#018x}, x1={:#018x}, x2={:#018x}, x3={:#018x}",
