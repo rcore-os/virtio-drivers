@@ -26,6 +26,8 @@ use core::{
 use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
+#[cfg(platform = "crosvm")]
+use safe_mmio::fields::WriteOnly;
 use safe_mmio::UniqueMmioPointer;
 use smccc::{psci::system_off, Hvc};
 use spin::mutex::{SpinMutex, SpinMutexGuard};
@@ -59,7 +61,7 @@ pub const UART_BASE_ADDRESS: *mut PL011Registers = 0x900_0000 as _;
 
 /// The base address of the first 8250 UART.
 #[cfg(platform = "crosvm")]
-pub const UART_BASE_ADDRESS: *mut u8 = 0x3f8 as _;
+pub const UART_BASE_ADDRESS: *mut WriteOnly<u8> = 0x3f8 as _;
 
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::new();
@@ -105,8 +107,8 @@ initial_pagetable!({
 
 entry!(main);
 fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
-    // Safe because BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as device
-    // memory.
+    // Safe because UART_BASE_ADDRESS is the base of the MMIO region for a UART and is mapped as
+    // device memory.
     #[cfg_attr(platform = "crosvm", allow(unused_mut))]
     let mut uart =
         Uart::new(unsafe { UniqueMmioPointer::new(NonNull::new(UART_BASE_ADDRESS).unwrap()) });
