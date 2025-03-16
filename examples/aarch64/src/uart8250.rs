@@ -2,17 +2,17 @@
 //! provided by crosvm, and won't work with real hardware.
 
 use core::fmt::{self, Write};
-use safe_mmio::OwnedMmioPointer;
+use safe_mmio::UniqueMmioPointer;
 
 /// Minimal driver for an 8250 UART. This only implements enough to work with the emulated 8250
 /// provided by crosvm, and won't work with real hardware.
 pub struct Uart<'a> {
-    base_address: OwnedMmioPointer<'a, u8>,
+    base_address: UniqueMmioPointer<'a, u8>,
 }
 
 impl<'a> Uart<'a> {
     /// Constructs a new instance of the UART driver for a device at the given base address.
-    pub fn new(base_address: OwnedMmioPointer<'a, u8>) -> Self {
+    pub fn new(base_address: UniqueMmioPointer<'a, u8>) -> Self {
         Self { base_address }
     }
 
