@@ -26,7 +26,7 @@ use core::{
 use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
-use safe_mmio::OwnedMmioPointer;
+use safe_mmio::UniqueMmioPointer;
 use smccc::{psci::system_off, Hvc};
 use spin::mutex::{SpinMutex, SpinMutexGuard};
 use uart::Uart;
@@ -109,7 +109,7 @@ fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
     // memory.
     #[cfg_attr(platform = "crosvm", allow(unused_mut))]
     let mut uart =
-        Uart::new(unsafe { OwnedMmioPointer::new(NonNull::new(UART_BASE_ADDRESS).unwrap()) });
+        Uart::new(unsafe { UniqueMmioPointer::new(NonNull::new(UART_BASE_ADDRESS).unwrap()) });
     #[cfg(platform = "qemu")]
     uart.enable(
         LineConfig {
