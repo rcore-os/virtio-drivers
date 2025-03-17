@@ -86,11 +86,16 @@ pub struct DeviceDma<H: DeviceHal> {
     client_id: u16,
 }
 
+// SAFETY: Device DMA memory can be accessed from any thread.
 unsafe impl<H: DeviceHal> Send for DeviceDma<H> {}
 
+// SAFETY: `&DeviceDma` only allows pointers and physical addresses to be returned. Any accesses to
+// the memory requires unsafe code, which is responsible for avoiding data races.
 unsafe impl<H: DeviceHal> Sync for DeviceDma<H> {}
 
 impl<H: DeviceHal> DeviceDma<H> {
+    // SAFETY: The caller must ensure that the memory described by paddr and pages can be mapped by
+    // the type implementing DeviceHal such as a virtqueue or a buffer described by a descriptor.
     pub unsafe fn new(
         paddr: PhysAddr,
         pages: usize,
@@ -130,6 +135,8 @@ impl<H: DeviceHal> DmaMemory for DeviceDma<H> {
 
 impl<H: DeviceHal> Drop for DeviceDma<H> {
     fn drop(&mut self) {
+        // SAFETY: DeviceDma::new ensures that paddr, vaddr and pages were passed to
+        // DeviceHal::dma_map for this instance of DeviceDma
         let err = unsafe { H::dma_unmap(self.paddr, self.vaddr, self.pages) };
         assert_eq!(err, 0, "failed to unmap DMA");
     }
@@ -206,17 +213,36 @@ pub unsafe trait Hal {
     unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection);
 }
 
-// TODO: document safety requirements
 /// Device-side abstraction layer for mapping and unmapping memory shared by the driver.
+///
+/// # Safety
+///
+/// Implementations of this trait must follow the "implementation safety" requirements documented
+/// for each method. Callers must follow the safety requirements documented for the unsafe methods.
 pub trait DeviceHal {
-    /// Maps in memory shared by the driver.
+    /// Maps in memory for a range of physical addresses shared by a VirtIO driver.
+    ///
+    /// Returns the virtual address which the device should use to access it.
+    /// # Implementation safety
+    ///
+    /// Implementations of this method must ensure that the `NonNull<u8>` returned is a
+    /// [_valid_](https://doc.rust-lang.org/std/ptr/index.html#safety) pointer, aligned to
+    /// [`PAGE_SIZE`], and won't alias any other allocations or references in the program until it
+    /// is freed by `dma_unmap`.
     unsafe fn dma_map(
         paddr: PhysAddr,
         pages: usize,
         direction: BufferDirection,
         client_id: u16,
     ) -> Result<NonNull<u8>>;
-    /// Unmaps in memory previously shared by the driver.
+
+    /// Unmaps memory previously shared by the driver.
+    ///
+    /// # Safety
+    ///
+    /// The memory must have been mapped in by `dma_map` on the same `DeviceHal` implementation, and
+    /// not yet unmapped. `pages` must be the same number passed to `dma_map` originally, and
+    /// both `paddr` and `vaddr` must be the values returned by `dma_map`.
     unsafe fn dma_unmap(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32;
 }
 
