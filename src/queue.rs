@@ -8,6 +8,8 @@ use crate::transport::{DeviceTransport, Transport};
 use crate::{align_up, nonnull_slice_from_raw_parts, pages, Error, Result, PAGE_SIZE};
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 use bitflags::bitflags;
 #[cfg(test)]
 use core::cmp::min;
@@ -649,11 +651,12 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         while !self.can_pop() {
             spin_loop();
         }
-        let (buffer, token) = self.pop_avail()?.unwrap();
+        let (mut buffers, token) = self.pop_avail()?.unwrap();
 
+        let out_buf = &mut buffers[0];
         let mut copied = 0;
         for in_buf in inputs {
-            buffer[copied..copied + in_buf.len()].copy_from_slice(in_buf);
+            out_buf[copied..copied + in_buf.len()].copy_from_slice(in_buf);
             copied += in_buf.len();
         }
 
@@ -671,13 +674,19 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         transport: &mut impl DeviceTransport,
         handler: impl FnOnce(&[u8]) -> Result<Option<T>>,
     ) -> Result<Option<T>> {
-        let Some((buffer, token)) = self.pop_avail()? else {
+        // SAFETY: The buffers are copied to a single, temporary buffer. Then handler is called on
+        // that and the original buffers are returned to the used vring and not accessed again.
+        let Some((buffers, token)) = (unsafe { self.pop_avail()? }) else {
             return Ok(None);
         };
 
-        let result = handler(buffer);
+        let mut tmp = Vec::new();
+        for in_buf in &buffers {
+            tmp.extend_from_slice(in_buf);
+        }
+        let result = handler(tmp.as_slice());
 
-        let head_len = buffer.len();
+        let head_len = buffers[0].len();
         self.add_used(token, head_len);
 
         if self.should_notify() {
@@ -714,29 +723,38 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     }
 
     fn pop_avail<'a>(&mut self) -> Result<Option<(&'a mut [u8], u16)>> {
-        let Some(token) = self.peek_avail() else {
+        let Some(head) = self.peek_avail() else {
             return Ok(None);
         };
-        let desc = self.read_desc(token)?;
-        assert!(!desc.flags.contains(DescFlags::INDIRECT));
-        assert!(!desc.flags.contains(DescFlags::NEXT));
-        let mapped_desc = self
-            .desc_mapped
-            .get_mut(usize::from(token))
-            .ok_or(Error::WrongToken)?;
-        let desc_changed = if let Some(prev_mapped_desc) = mapped_desc {
-            prev_mapped_desc.desc_copy != desc
-        } else {
-            true
-        };
-        if desc_changed {
-            // Drop impl unmaps the old descriptor's buffer
-            *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
+        let mut res = Vec::new();
+        let mut next_token = Some(head);
+        while let Some(token) = next_token {
+            let desc = self.read_desc(token)?;
+            assert!(!desc.flags.contains(DescFlags::INDIRECT));
+            next_token = if desc.flags.contains(DescFlags::NEXT) {
+                Some(desc.next)
+            } else {
+                None
+            };
+            let mapped_desc = self
+                .desc_mapped
+                .get_mut(usize::from(token))
+                .ok_or(Error::WrongToken)?;
+            let desc_changed = if let Some(prev_mapped_desc) = mapped_desc {
+                prev_mapped_desc.desc_copy != desc
+            } else {
+                true
+            };
+            if desc_changed {
+                // Drop impl unmaps the old descriptor's buffer
+                *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
+            }
+            let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
+            let buffer = unsafe { buffer.as_mut() };
+            res.push(buffer);
         }
-        let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
-        let buffer = unsafe { buffer.as_mut() };
         self.avail_idx = self.avail_idx.wrapping_add(1);
-        Ok(Some((buffer, token)))
+        Ok(Some((res, head)))
     }
 
     fn can_pop(&self) -> bool {
