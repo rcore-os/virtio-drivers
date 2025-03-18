@@ -614,8 +614,13 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         let [paddr, _, used_paddr] = transport.queue_get(idx);
 
         let layout = if transport.requires_legacy_layout() {
+            // SAFETY: paddr was the physical address returned by the DeviceTransport implementor
+            // for the start of the virtqueue (i.e. descriptor table)
             unsafe { VirtQueueLayout::map_legacy(size, paddr, client_id)? }
         } else {
+            // SAFETY: paddr was the physical address returned by the DeviceTransport implementor
+            // for the start of the virtqueue. used_paddr was the physical address returned for the
+            // used vring.
             unsafe { VirtQueueLayout::map_flexible(size, paddr, used_paddr, client_id)? }
         };
         let desc =
@@ -683,6 +688,8 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
 
     fn add_used(&mut self, head: u16, head_len: usize) {
         let last_used_slot = self.last_used_idx & (SIZE as u16 - 1);
+        // SAFETY: self.used is properly aligned, dereferenceable and initialised instance of
+        // UsedRing
         unsafe {
             (*self.used.as_ptr()).ring[usize::from(last_used_slot)].id = u32::from(head);
             (*self.used.as_ptr()).ring[usize::from(last_used_slot)].len = head_len as u32;
@@ -691,6 +698,8 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         fence(Ordering::SeqCst);
 
         self.last_used_idx = self.last_used_idx.wrapping_add(1);
+        // SAFETY: self.used is properly aligned, dereferenceable and initialised instance of
+        // UsedRing
         unsafe {
             (*self.used.as_ptr())
                 .idx
@@ -731,12 +740,16 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     }
 
     fn can_pop(&self) -> bool {
+        // SAFETY: self.avail points to a valid, aligned, initialised, dereferenceable, readable
+        // instance of AvailRing.
         self.avail_idx != unsafe { (*self.avail.as_ptr()).idx.load(Ordering::Acquire) }
     }
 
     fn peek_avail(&self) -> Option<u16> {
         if self.can_pop() {
             let avail_slot = self.avail_idx & (SIZE as u16 - 1);
+            // SAFETY: self.avail points to a valid, aligned, initialised, dereferenceable,
+            // readable instance of AvailRing.
             Some(unsafe { (*self.avail.as_ptr()).ring[avail_slot as usize] })
         } else {
             None
@@ -744,7 +757,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     }
 
     fn should_notify(&self) -> bool {
-        // Safe because self.avail points to a valid, aligned, initialised, dereferenceable, readable
+        // SAFETY: self.avail points to a valid, aligned, initialised, dereferenceable, readable
         // instance of AvailRing.
         unsafe { (*self.avail.as_ptr()).flags.load(Ordering::Acquire) & 0x0001 == 0 }
     }
