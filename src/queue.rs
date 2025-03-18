@@ -651,7 +651,9 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         while !self.can_pop() {
             spin_loop();
         }
-        let (mut buffers, token) = self.pop_avail()?.unwrap();
+        // SAFETY: inputs is copied into the first buffer then the they are returned to the used
+        // vring and not accessed again.
+        let (mut buffers, token) = unsafe { self.pop_avail()?.unwrap() };
 
         let out_buf = &mut buffers[0];
         let mut copied = 0;
@@ -718,11 +720,19 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
 
     fn read_desc(&mut self, index: u16) -> Result<Descriptor> {
         let index = usize::from(index);
+        // SAFETY: self.desc is a properly aligned, dereferencable and initialised instance of
+        // Descriptor
         let desc = unsafe { (*self.desc.as_ptr()).get(index) };
         desc.ok_or(Error::WrongToken).cloned()
     }
 
-    fn pop_avail<'a>(&mut self) -> Result<Option<(&'a mut [u8], u16)>> {
+    /// Pop a chain of buffers from the avail vring and return the index of the first buffer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned buffers are not accessed after the first buffer's
+    /// token has been written to the used vring and the `last_used` index has been updated.
+    unsafe fn pop_avail<'a>(&mut self) -> Result<Option<(Vec<&'a mut [u8]>, u16)>> {
         let Some(head) = self.peek_avail() else {
             return Ok(None);
         };
@@ -746,10 +756,15 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
                 true
             };
             if desc_changed {
-                // Drop impl unmaps the old descriptor's buffer
+                // SAFETY: desc was read from the virtqueue descriptor table and is currently not in
+                // use since it was either obtained by getting the next available index from
+                // peek_avail and using that to index into the descriptor table or through a chain
+                // of buffers starting from the buffer obtained via peek_avail.
+                // Drop impl unmaps the old descriptor's buffer to avoid leaking that memory
                 *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
             }
             let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
+            // SAFETY: Safety delegated to safety requirements on this function.
             let buffer = unsafe { buffer.as_mut() };
             res.push(buffer);
         }
