@@ -557,12 +557,16 @@ pub struct MappedDescriptor<H: DeviceHal> {
 }
 
 impl<H: DeviceHal> MappedDescriptor<H> {
+    // SAFETY: The caller must ensure that the entire chain of buffers described by desc_copy came
+    // from a device virtqueue descriptor.
     unsafe fn map_buf(desc_copy: Descriptor, client_id: u16) -> Result<Self> {
         let direction = if desc_copy.flags.contains(DescFlags::WRITE) {
             BufferDirection::DeviceToDriver
         } else {
             BufferDirection::DriverToDevice
         };
+        // SAFETY: The safety requirements on this function ensure that the memory region can be
+        // mapped in as DMA memory.
         let dma = unsafe {
             DeviceDma::new(
                 desc_copy.addr as PhysAddr,
@@ -809,9 +813,13 @@ impl<H: Hal> VirtQueueLayout<Dma<H>> {
 }
 
 impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
+    // SAFETY: paddr must be memory shared by a virtio driver for a split virtqueue with the legacy
+    // layout and queue_size entries.
     unsafe fn map_legacy(queue_size: u16, paddr: PhysAddr, client_id: u16) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
         let size = align_up(desc + avail) + align_up(used);
+        // SAFETY: The safety requirements on this function ensure that this memory region can be
+        // mapped in as DMA memory.
         let dma =
             unsafe { DeviceDma::new(paddr, size / PAGE_SIZE, BufferDirection::Both, client_id)? };
         Ok(Self::Legacy {
@@ -820,6 +828,11 @@ impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
             used_offset: align_up(desc + avail),
         })
     }
+
+    // SAFETY: desc_avail_paddr and used_paddr must be memory shared by a virtio driver for a split
+    // virtqueue where the device writeable and driver writeable portions are described by separate
+    // memory regions. Specifically desc_avail_paddr must point to the descriptor table and
+    // available vring and used_paddr must point to the used vring.
     unsafe fn map_flexible(
         queue_size: u16,
         desc_avail_paddr: PhysAddr,
@@ -827,6 +840,8 @@ impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
         client_id: u16,
     ) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
+        // SAFETY: The safety requirements on this function ensure that this memory region can be
+        // mapped in as DMA memory.
         let driver_to_device_dma = unsafe {
             DeviceDma::new(
                 desc_avail_paddr,
@@ -835,6 +850,8 @@ impl<H: DeviceHal> VirtQueueLayout<DeviceDma<H>> {
                 client_id,
             )?
         };
+        // SAFETY: The safety requirements on this function ensure that this memory region can be
+        // mapped in as DMA memory.
         let device_to_driver_dma = unsafe {
             DeviceDma::new(
                 used_paddr,
