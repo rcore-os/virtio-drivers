@@ -648,27 +648,32 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         inputs: &[&[u8]],
         transport: &mut impl DeviceTransport,
     ) -> Result<()> {
-        while !self.can_pop() {
-            spin_loop();
-        }
-        // SAFETY: inputs is copied into the first buffer then the they are returned to the used
-        // vring and not accessed again.
-        let (mut buffers, token) = unsafe { self.pop_avail()?.unwrap() };
+        #[cfg(feature = "alloc")]
+        {
+            while !self.can_pop() {
+                spin_loop();
+            }
+            // SAFETY: inputs is copied into the first buffer then the they are returned to the used
+            // vring and not accessed again.
+            let (mut buffers, token) = unsafe { self.pop_avail()?.unwrap() };
 
-        let out_buf = &mut buffers[0];
-        let mut copied = 0;
-        for in_buf in inputs {
-            out_buf[copied..copied + in_buf.len()].copy_from_slice(in_buf);
-            copied += in_buf.len();
-        }
+            let out_buf = &mut buffers[0];
+            let mut copied = 0;
+            for in_buf in inputs {
+                out_buf[copied..copied + in_buf.len()].copy_from_slice(in_buf);
+                copied += in_buf.len();
+            }
 
-        let head_len = copied;
-        self.add_used(token, head_len);
+            let head_len = copied;
+            self.add_used(token, head_len);
 
-        if self.should_notify() {
-            transport.notify(self.queue_idx);
+            if self.should_notify() {
+                transport.notify(self.queue_idx);
+            }
+            Ok(())
         }
-        Ok(())
+        #[cfg(not(feature = "alloc"))]
+        unreachable!("device virtqueue send loop requires alloc feature")
     }
 
     pub fn poll<T>(
@@ -676,25 +681,30 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         transport: &mut impl DeviceTransport,
         handler: impl FnOnce(&[u8]) -> Result<Option<T>>,
     ) -> Result<Option<T>> {
-        // SAFETY: The buffers are copied to a single, temporary buffer. Then handler is called on
-        // that and the original buffers are returned to the used vring and not accessed again.
-        let Some((buffers, token)) = (unsafe { self.pop_avail()? }) else {
-            return Ok(None);
-        };
+        #[cfg(feature = "alloc")]
+        {
+            // SAFETY: The buffers are copied to a single, temporary buffer. Then handler is called on
+            // that and the original buffers are returned to the used vring and not accessed again.
+            let Some((buffers, token)) = (unsafe { self.pop_avail()? }) else {
+                return Ok(None);
+            };
 
-        let mut tmp = Vec::new();
-        for in_buf in &buffers {
-            tmp.extend_from_slice(in_buf);
+            let mut tmp = Vec::new();
+            for in_buf in &buffers {
+                tmp.extend_from_slice(in_buf);
+            }
+            let result = handler(tmp.as_slice());
+
+            let head_len = buffers[0].len();
+            self.add_used(token, head_len);
+
+            if self.should_notify() {
+                transport.notify(self.queue_idx);
+            }
+            result
         }
-        let result = handler(tmp.as_slice());
-
-        let head_len = buffers[0].len();
-        self.add_used(token, head_len);
-
-        if self.should_notify() {
-            transport.notify(self.queue_idx);
-        }
-        result
+        #[cfg(not(feature = "alloc"))]
+        unreachable!("device virtqueue polling requires alloc feature")
     }
 
     fn add_used(&mut self, head: u16, head_len: usize) {
