@@ -732,6 +732,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     ///
     /// The caller must ensure that the returned buffers are not accessed after the first buffer's
     /// token has been written to the used vring and the `last_used` index has been updated.
+    #[cfg(feature = "alloc")]
     unsafe fn pop_avail<'a>(&mut self) -> Result<Option<(Vec<&'a mut [u8]>, u16)>> {
         let Some(head) = self.peek_avail() else {
             return Ok(None);
