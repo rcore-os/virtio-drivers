@@ -29,8 +29,8 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
 /// # Example
 ///
 /// ```
-/// # use virtio_drivers::{Error, Hal, transport::Transport};
-/// use virtio_drivers::device::console::VirtIOConsole;
+/// # use virtio_drivers_and_devices::{Error, Hal, transport::Transport};
+/// use virtio_drivers_and_devices::device::console::VirtIOConsole;
 /// # fn example<HalImpl: Hal, T: Transport>(transport: T) -> Result<(), Error> {
 /// let mut console = VirtIOConsole::<HalImpl, _>::new(transport)?;
 ///

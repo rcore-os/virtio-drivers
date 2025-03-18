@@ -68,7 +68,7 @@ impl<T: Copy> VolatileWritable<T> for *mut Volatile<T> {
 /// # Usage
 /// ```compile_fail
 /// # use core::ptr::NonNull;
-/// # use virtio_drivers::volatile::{ReadOnly, volread};
+/// # use virtio_drivers_and_devices::volatile::{ReadOnly, volread};
 /// struct MmioDevice {
 ///   field: ReadOnly<u32>,
 /// }
@@ -87,7 +87,7 @@ macro_rules! volread {
 /// # Usage
 /// ```compile_fail
 /// # use core::ptr::NonNull;
-/// # use virtio_drivers::volatile::{WriteOnly, volread};
+/// # use virtio_drivers_and_devices::volatile::{WriteOnly, volread};
 /// struct MmioDevice {
 ///   field: WriteOnly<u32>,
 /// }
