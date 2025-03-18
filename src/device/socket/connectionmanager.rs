@@ -15,7 +15,7 @@ use zerocopy::FromZeros;
 
 const DEFAULT_PER_CONNECTION_BUFFER_CAPACITY: u32 = 1024;
 
-/// A higher level interface for VirtIO socket (vsock) devices.
+/// A higher level interface for VirtIO socket (vsock) drivers.
 ///
 /// This keeps track of multiple vsock connections.
 ///
@@ -52,18 +52,48 @@ pub struct VsockConnectionManager<
     const RX_BUFFER_SIZE: usize = DEFAULT_RX_BUFFER_SIZE,
 >(VsockConnectionManagerCommon<VirtIOSocket<H, T, RX_BUFFER_SIZE>>);
 
+/// A high level interface for VirtIO socket (vsock) devices.
 pub struct VsockDeviceConnectionManager<H: DeviceHal, T: DeviceTransport>(
     VsockConnectionManagerCommon<VirtIOSocketDevice<H, T>>,
 );
 
+/// A trait defining shared behavior for VirtIO socket devices and drivers.
+///
+/// All methods are implemented for VsockConnectionManager and VsockDeviceConnectionManager though
+/// the device side must not call the connect method. These are equivalent to the inherent methods
+/// which are kept for backwards compatibility.
 pub trait VsockManager {
+    /// Sends a request to connect to the given destination on the driver side.
+    ///
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
+    /// `VsockEventType::Connected` event indicating that the peer has accepted the connection
+    /// before sending data. This panics if called from the device side.
     fn connect(&mut self, destination: VsockAddr, src_port: u32) -> Result;
+
+    /// Sends the buffer to the destination.
     fn send(&mut self, dest: VsockAddr, src_port: u32, buffer: &[u8]) -> Result;
+
+    /// Sends a credit update to the given peer.
     fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result;
+
+    /// Forcibly closes the connection without waiting for the peer.
     fn force_close(&mut self, dest: VsockAddr, src_port: u32) -> Result;
+
+    /// Allows incoming connections on the given port number.
     fn listen(&mut self, port: u32);
+
+    /// Polls the vsock device to receive data or other updates.
     fn poll(&mut self) -> Result<Option<VsockEvent>>;
+
+    /// Requests to shut down the connection cleanly, telling the peer that we won't send or receive
+    /// any more data.
+    ///
+    /// This returns as soon as the request is sent; you should wait until `poll` returns a
+    /// `VsockEventType::Disconnected` event if you want to know that the peer has acknowledged the
+    /// shutdown.
     fn shutdown(&mut self, dest: VsockAddr, src_port: u32) -> Result;
+
+    /// Reads data received from the given connection.
     fn recv(&mut self, peer: VsockAddr, src_port: u32, buffer: &mut [u8]) -> Result<usize>;
 }
 
