@@ -18,7 +18,7 @@ x86_64 = { version = "0.14.12", default-features = false, features = [
 uart_16550 = "0.2"
 linked_list_allocator = "0.10"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-virtio-drivers = { path = "../.." }
+virtio-drivers-and-devices = { path = "../.." }
 
 [dependencies.smoltcp]
 version = "0.9.1"

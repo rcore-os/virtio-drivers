@@ -12,7 +12,7 @@ use alloc::vec;
 use core::ptr::NonNull;
 use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
-use virtio_drivers::{
+use virtio_drivers_and_devices::{
     device::{
         blk::VirtIOBlk,
         gpu::VirtIOGpu,
@@ -153,9 +153,12 @@ fn virtio_input<T: Transport>(transport: T) {
 fn virtio_net<T: Transport>(transport: T) {
     #[cfg(not(feature = "tcp"))]
     {
-        let mut net =
-            virtio_drivers::device::net::VirtIONetRaw::<HalImpl, T, NET_QUEUE_SIZE>::new(transport)
-                .expect("failed to create net driver");
+        let mut net = virtio_drivers_and_devices::device::net::VirtIONetRaw::<
+            HalImpl,
+            T,
+            NET_QUEUE_SIZE,
+        >::new(transport)
+        .expect("failed to create net driver");
         info!("MAC address: {:02x?}", net.mac_address());
 
         let mut buf = [0u8; 2048];
@@ -172,11 +175,12 @@ fn virtio_net<T: Transport>(transport: T) {
     #[cfg(feature = "tcp")]
     {
         const NET_BUFFER_LEN: usize = 2048;
-        let net = virtio_drivers::device::net::VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(
-            transport,
-            NET_BUFFER_LEN,
-        )
-        .expect("failed to create net driver");
+        let net =
+            virtio_drivers_and_devices::device::net::VirtIONet::<HalImpl, T, NET_QUEUE_SIZE>::new(
+                transport,
+                NET_BUFFER_LEN,
+            )
+            .expect("failed to create net driver");
         info!("MAC address: {:02x?}", net.mac_address());
         tcp::test_echo_server(net);
     }

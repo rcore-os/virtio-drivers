@@ -11,7 +11,7 @@ log = "0.4.22"
 pl011-uart = "0.1.0"
 smccc = "0.1.1"
 spin = "0.9.8"
-virtio-drivers = { path = "../.." }
+virtio-drivers-and-devices = { path = "../.." }
 
 [build-dependencies]
 cc = "1.0.73"

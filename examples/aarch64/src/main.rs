@@ -23,7 +23,7 @@ use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use hal::HalImpl;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use smccc::{psci::system_off, Hvc};
-use virtio_drivers::{
+use virtio_drivers_and_devices::{
     device::{
         blk::VirtIOBlk,
         console::VirtIOConsole,
@@ -218,7 +218,7 @@ fn virtio_console<T: Transport>(transport: T) {
     info!("virtio-console test finished");
 }
 
-fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers::Result<()> {
+fn virtio_socket<T: Transport>(transport: T) -> virtio_drivers_and_devices::Result<()> {
     let mut socket = VsockConnectionManager::new(
         VirtIOSocket::<HalImpl, T>::new(transport).expect("Failed to create socket driver"),
     );

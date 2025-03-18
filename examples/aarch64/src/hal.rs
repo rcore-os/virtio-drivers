@@ -1,7 +1,7 @@
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
 use core::{alloc::Layout, ptr::NonNull};
 use log::trace;
-use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
+use virtio_drivers_and_devices::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
 
 pub struct HalImpl;
 

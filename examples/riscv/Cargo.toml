@@ -15,7 +15,7 @@ log = "0.4"
 riscv = "0.10"
 opensbi-rt = { git = "https://github.com/rcore-os/opensbi-rt.git", rev = "abdfeb72" }
 flat_device_tree = "3.1.1"
-virtio-drivers = { path = "../.." }
+virtio-drivers-and-devices = { path = "../.." }
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
 
 [dependencies.smoltcp]
