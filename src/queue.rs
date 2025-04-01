@@ -664,9 +664,9 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             }
             // SAFETY: inputs is copied into the first buffer then the they are returned to the used
             // vring and not accessed again.
-            let (mut buffers, token) = unsafe { self.pop_avail()?.unwrap() };
+            let (_read_buffers, mut write_buffers, token) = unsafe { self.pop_avail()?.unwrap() };
 
-            let out_buf = &mut buffers[0];
+            let out_buf = &mut write_buffers[0];
             let mut copied = 0;
             for in_buf in inputs {
                 out_buf[copied..copied + in_buf.len()].copy_from_slice(in_buf);
@@ -694,17 +694,17 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         {
             // SAFETY: The buffers are copied to a single, temporary buffer. Then handler is called on
             // that and the original buffers are returned to the used vring and not accessed again.
-            let Some((buffers, token)) = (unsafe { self.pop_avail()? }) else {
+            let Some((read_buffers, _write_buffers, token)) = (unsafe { self.pop_avail()? }) else {
                 return Ok(None);
             };
 
             let mut tmp = Vec::new();
-            for in_buf in &buffers {
+            for in_buf in &read_buffers {
                 tmp.extend_from_slice(in_buf);
             }
             let result = handler(tmp.as_slice());
 
-            let head_len = buffers[0].len();
+            let head_len = read_buffers[0].len();
             self.add_used(token, head_len);
 
             if self.should_notify() {
@@ -752,14 +752,16 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     /// The caller must ensure that the returned buffers are not accessed after the first buffer's
     /// token has been written to the used vring and the `last_used` index has been updated.
     #[cfg(feature = "alloc")]
-    unsafe fn pop_avail<'a>(&mut self) -> Result<Option<(Vec<&'a mut [u8]>, u16)>> {
+    unsafe fn pop_avail<'a>(&mut self) -> Result<Option<(Vec<&'a [u8]>, Vec<&'a mut [u8]>, u16)>> {
         let Some(head) = self.peek_avail() else {
             return Ok(None);
         };
-        let mut res = Vec::new();
+        let mut read_buffers = Vec::new();
+        let mut write_buffers = Vec::new();
         let mut next_token = Some(head);
         while let Some(token) = next_token {
             let desc = self.read_desc(token)?;
+            let write = desc.flags.contains(DescFlags::WRITE);
             assert!(!desc.flags.contains(DescFlags::INDIRECT));
             next_token = if desc.flags.contains(DescFlags::NEXT) {
                 Some(desc.next)
@@ -785,12 +787,18 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
                 *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
             }
             let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
-            // SAFETY: Safety delegated to safety requirements on this function.
-            let buffer = unsafe { &mut buffer.as_mut()[0..avail_len] };
-            res.push(buffer);
+            if write {
+                // SAFETY: Safety delegated to safety requirements on this function.
+                let buffer = unsafe { &mut buffer.as_mut()[0..avail_len] };
+                write_buffers.push(buffer);
+            } else {
+                // SAFETY: Safety delegated to safety requirements on this function.
+                let buffer = unsafe { &buffer.as_ref()[0..avail_len] };
+                read_buffers.push(buffer);
+            }
         }
         self.avail_idx = self.avail_idx.wrapping_add(1);
-        Ok(Some((res, head)))
+        Ok(Some((read_buffers, write_buffers, head)))
     }
 
     fn can_pop(&self) -> bool {
