@@ -775,6 +775,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             } else {
                 true
             };
+            let avail_len = desc.len as usize;
             if desc_changed {
                 // SAFETY: desc was read from the virtqueue descriptor table and is currently not in
                 // use since it was either obtained by getting the next available index from
@@ -785,7 +786,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             }
             let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
             // SAFETY: Safety delegated to safety requirements on this function.
-            let buffer = unsafe { buffer.as_mut() };
+            let buffer = unsafe { &mut buffer.as_mut()[0..avail_len] };
             res.push(buffer);
         }
         self.avail_idx = self.avail_idx.wrapping_add(1);
