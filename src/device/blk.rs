@@ -56,8 +56,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
 
         // Read configuration space.
         let capacity = transport.read_consistent(|| {
-            Ok(read_config!(transport, BlkConfig, capacity_low)? as u64
-                | (read_config!(transport, BlkConfig, capacity_high)? as u64) << 32)
+            Ok((read_config!(transport, BlkConfig, capacity_low)? as u64)
+                | ((read_config!(transport, BlkConfig, capacity_high)? as u64) << 32))
         })?;
         info!("found a block device of size {}KB", capacity / 2);
 

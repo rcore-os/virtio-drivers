@@ -81,7 +81,9 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, KnownLayout, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq,
+)]
 #[repr(transparent)]
 struct Status(u16);
 
