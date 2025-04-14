@@ -1,6 +1,6 @@
 //! A fake implementation of `Transport` for unit tests.
 
-use super::{DeviceStatus, DeviceType, Transport};
+use super::{DeviceStatus, DeviceTransport, DeviceType, Transport};
 use crate::{
     queue::{fake_read_write_queue, Descriptor},
     Error, PhysAddr,
@@ -15,7 +15,7 @@ use std::{sync::Mutex, thread};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A fake implementation of [`Transport`] for unit tests.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FakeTransport<C> {
     /// The type of device which the transport should claim to be for.
     pub device_type: DeviceType,
@@ -25,6 +25,32 @@ pub struct FakeTransport<C> {
     pub device_features: u64,
     /// The mutable state of the transport.
     pub state: Arc<Mutex<State<C>>>,
+}
+
+impl<C: FromBytes + Immutable + IntoBytes> DeviceTransport for FakeTransport<C> {
+    fn get_client_id(&self) -> u16 {
+        0
+    }
+
+    fn max_queue_size(&mut self, queue: u16) -> u32 {
+        <Self as Transport>::max_queue_size(self, queue)
+    }
+
+    fn requires_legacy_layout(&self) -> bool {
+        <Self as Transport>::requires_legacy_layout(self)
+    }
+
+    fn queue_get(&mut self, queue: u16) -> [PhysAddr; 3] {
+        let state = self.state.lock().unwrap();
+        let addrs = &state.queues[queue as usize];
+        [addrs.descriptors, addrs.driver_area, addrs.device_area]
+    }
+
+    fn notify(&mut self, queue: u16) {
+        self.state.lock().unwrap().queues[queue as usize]
+            .device_notified
+            .store(true, Ordering::SeqCst);
+    }
 }
 
 impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
@@ -282,4 +308,6 @@ pub struct QueueStatus {
     pub device_area: PhysAddr,
     /// Whether the queue has been notified by the driver since last we checked.
     pub notified: AtomicBool,
+    /// Whether the queue has been notified by the device since last we checked.
+    pub device_notified: AtomicBool,
 }
