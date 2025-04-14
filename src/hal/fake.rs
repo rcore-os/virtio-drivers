@@ -2,7 +2,7 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use crate::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
+use crate::{BufferDirection, DeviceHal, Hal, PhysAddr, Result, PAGE_SIZE};
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
 use core::{
     alloc::Layout,
@@ -78,6 +78,23 @@ unsafe impl Hal for FakeHal {
                     .copy_from(shared_buffer.as_ptr(), buffer.len());
             }
         }
+    }
+}
+
+impl DeviceHal for FakeHal {
+    unsafe fn dma_map(
+        paddr: PhysAddr,
+        _pages: usize,
+        _direction: BufferDirection,
+        _client_id: u16,
+    ) -> Result<NonNull<u8>> {
+        // Tests use one virtual address space so just return paddr as a virtual address
+        Ok(NonNull::new(paddr as *mut u8).unwrap())
+    }
+
+    unsafe fn dma_unmap(_paddr: PhysAddr, _vaddr: NonNull<u8>, _pages: usize) -> i32 {
+        // The driver will free memory so no need to do anything on the device side
+        0
     }
 }
 
