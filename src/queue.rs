@@ -704,8 +704,9 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             }
             let result = handler(tmp.as_slice());
 
-            let head_len = read_buffers[0].len();
-            self.add_used(token, head_len);
+            self.add_used(
+                token, 0, /* zero bytes were written to the write buffers */
+            );
 
             if self.should_notify() {
                 transport.notify(self.queue_idx);
