@@ -17,6 +17,7 @@ use virtio_drivers_and_devices::{
         blk::VirtIOBlk,
         gpu::VirtIOGpu,
         input::VirtIOInput,
+        rng::VirtIORng,
         sound::{PcmFormat, PcmRate, VirtIOSound},
     },
     transport::{
@@ -91,8 +92,19 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::Input => virtio_input(transport),
         DeviceType::Network => virtio_net(transport),
         DeviceType::Sound => virtio_sound(transport),
+        DeviceType::EntropySource => virtio_rng(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
+}
+
+fn virtio_rng<T: Transport>(transport: T) {
+    let mut bytes = [0u8; 8];
+    let mut rng = VirtIORng::<HalImpl, T>::new(transport).expect("failed to create rng driver");
+    let len = rng
+        .request_entropy(&mut bytes)
+        .expect("failed to receive entropy");
+    info!("received {len} random bytes: {:?}", &bytes[..len]);
+    info!("virtio-rng test finished");
 }
 
 fn virtio_blk<T: Transport>(transport: T) {

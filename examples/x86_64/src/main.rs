@@ -18,7 +18,7 @@ mod tcp;
 
 use self::hal::HalImpl;
 use virtio_drivers_and_devices::{
-    device::{blk::VirtIOBlk, gpu::VirtIOGpu},
+    device::{blk::VirtIOBlk, gpu::VirtIOGpu, rng::VirtioIORng},
     transport::{
         pci::{
             bus::{BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MmioCam, PciRoot},
@@ -66,8 +66,19 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::Block => virtio_blk(transport),
         DeviceType::GPU => virtio_gpu(transport),
         DeviceType::Network => virtio_net(transport),
+        DeviceType::EntropySource => virtio_rng(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
+}
+
+fn virtio_rng<T: Transport>(transport: T) {
+    let mut bytes = [0u8; 8];
+    let mut rng = VirtIORng::<HalImpl, T>::new(transport).expect("failed to create rng driver");
+    let len = rng
+        .request_entropy(&mut bytes)
+        .expect("failed to receive entropy");
+    info!("received {len} random bytes: {:?}", &bytes[..len]);
+    info!("virtio-rng test finished");
 }
 
 fn virtio_blk<T: Transport>(transport: T) {

@@ -29,6 +29,7 @@ use virtio_drivers_and_devices::{
         console::VirtIOConsole,
         gpu::VirtIOGpu,
         net::VirtIONetRaw,
+        rng::VirtIORng,
         socket::{
             VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType, VMADDR_CID_HOST,
         },
@@ -141,8 +142,19 @@ fn virtio_device(transport: impl Transport) {
             Ok(()) => info!("virtio-socket test finished successfully"),
             Err(e) => error!("virtio-socket test finished with error '{e:?}'"),
         },
+        DeviceType::EntropySource => virtio_rng(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
+}
+
+fn virtio_rng<T: Transport>(transport: T) {
+    let mut bytes = [0u8; 8];
+    let mut rng = VirtIORng::<HalImpl, T>::new(transport).expect("failed to create rng driver");
+    let len = rng
+        .request_entropy(&mut bytes)
+        .expect("failed to receive entropy");
+    info!("received {len} random bytes: {:?}", &bytes[..len]);
+    info!("virtio-rng test finished");
 }
 
 fn virtio_blk<T: Transport>(transport: T) {
