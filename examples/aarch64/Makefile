@@ -84,6 +84,7 @@ qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device vhost-vsock-device,id=virtiosocket0,guest-cid=102 \
 		-device virtio-blk-device,drive=x0 \
+		-device virtio-rng-device \
 		-device virtio-gpu-device \
 		-device virtio-serial,id=virtio-serial0 \
 		-chardev stdio,id=char0,mux=on \
@@ -101,6 +102,7 @@ qemu-pci: $(kernel_qemu_bin) $(img)
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device vhost-vsock-pci,id=virtiosocket0,guest-cid=103 \
 		-device virtio-blk-pci,drive=x0 \
+		-device virtio-rng-pci \
 		-device virtio-gpu-pci \
 		-device virtio-serial,id=virtio-serial0 \
 		-chardev stdio,id=char0,mux=on \

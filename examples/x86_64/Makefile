@@ -26,6 +26,7 @@ QEMU_ARGS += \
 	-kernel $(kernel) \
 	-device virtio-gpu-pci -vga none \
 	-device virtio-blk-pci,drive=x0 -drive file=$(img),if=none,format=raw,id=x0 \
+	-device virtio-rng-pci \
 	-device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::5555-:5555
 
 ifeq ($(accel), on)
