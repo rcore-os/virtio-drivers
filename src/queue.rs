@@ -666,6 +666,10 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             // vring and not accessed again.
             let (_read_buffers, mut write_buffers, token) = unsafe { self.pop_avail()?.unwrap() };
 
+            if write_buffers.is_empty() {
+                return Err(Error::NotReady);
+            }
+
             let out_buf = &mut write_buffers[0];
             let mut copied = 0;
             for in_buf in inputs {
