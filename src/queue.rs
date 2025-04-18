@@ -591,6 +591,13 @@ impl<H: DeviceHal> MappedDescriptor<H> {
 }
 
 #[derive(Debug)]
+struct DescriptorBuffers<'a> {
+    read_buffers: Vec<&'a [u8]>,
+    write_buffers: Vec<&'a mut [u8]>,
+    head: u16,
+}
+
+#[derive(Debug)]
 pub struct DeviceVirtQueue<H: DeviceHal, const SIZE: usize> {
     /// DMA guard
     layout: VirtQueueLayout<DeviceDma<H>>,
@@ -662,15 +669,22 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             while !self.can_pop() {
                 spin_loop();
             }
-            // SAFETY: inputs is copied into the first buffer then the they are returned to the used
-            // vring and not accessed again.
-            let (_read_buffers, mut write_buffers, token) = unsafe { self.pop_avail()?.unwrap() };
+            // SAFETY: inputs is copied into the first write buffer then they are returned to the
+            // used vring and not accessed again. This function waits until it can pop the avail
+            // vring so this should never panic
+            let popped = unsafe { self.pop_avail()?.unwrap() };
 
-            if write_buffers.is_empty() {
+            // TODO: Support popping chains of mixed descriptors by caching any read buffers popped
+            // here.
+            if !popped.read_buffers.is_empty() {
+                return Err(Error::Unsupported);
+            }
+
+            if popped.write_buffers.is_empty() {
                 return Err(Error::NotReady);
             }
 
-            let out_buf = &mut write_buffers[0];
+            let out_buf = &mut popped.write_buffers[0];
             let mut copied = 0;
             for in_buf in inputs {
                 out_buf[copied..copied + in_buf.len()].copy_from_slice(in_buf);
@@ -678,7 +692,8 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             }
 
             let head_len = copied;
-            self.add_used(token, head_len);
+            // Return the entire popped chain by writing the head to the used vring
+            self.add_used(popped.head, head_len);
 
             if self.should_notify() {
                 transport.notify(self.queue_idx);
@@ -696,20 +711,23 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     ) -> Result<Option<T>> {
         #[cfg(feature = "alloc")]
         {
-            // SAFETY: The buffers are copied to a single, temporary buffer. Then handler is called on
-            // that and the original buffers are returned to the used vring and not accessed again.
-            let Some((read_buffers, _write_buffers, token)) = (unsafe { self.pop_avail()? }) else {
+            // TODO: Store any popped write buffers to avoid potential deadlocks caused by mixed
+            // descriptor chains.
+            // SAFETY: The buffers are copied to a single temporary buffer. Then handler is called
+            // on that and the original buffers are returned to the used vring and not accessed again.
+            let Some(popped) = (unsafe { self.pop_avail()? }) else {
                 return Ok(None);
             };
 
             let mut tmp = Vec::new();
-            for in_buf in &read_buffers {
+            for in_buf in &popped.read_buffers {
                 tmp.extend_from_slice(in_buf);
             }
             let result = handler(tmp.as_slice());
 
             self.add_used(
-                token, 0, /* zero bytes were written to the write buffers */
+                popped.head,
+                0, /* zero bytes were written to the write buffers */
             );
 
             if self.should_notify() {
@@ -757,7 +775,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
     /// The caller must ensure that the returned buffers are not accessed after the first buffer's
     /// token has been written to the used vring and the `last_used` index has been updated.
     #[cfg(feature = "alloc")]
-    unsafe fn pop_avail<'a>(&mut self) -> Result<Option<(Vec<&'a [u8]>, Vec<&'a mut [u8]>, u16)>> {
+    unsafe fn pop_avail<'a>(&mut self) -> Result<Option<DescriptorBuffers<'a>>> {
         let Some(head) = self.peek_avail() else {
             return Ok(None);
         };
@@ -803,7 +821,11 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             }
         }
         self.avail_idx = self.avail_idx.wrapping_add(1);
-        Ok(Some((read_buffers, write_buffers, head)))
+        Ok(Some(DescriptorBuffers {
+            read_buffers,
+            write_buffers,
+            head,
+        }))
     }
 
     fn can_pop(&self) -> bool {
