@@ -590,6 +590,7 @@ impl<H: DeviceHal> MappedDescriptor<H> {
     }
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 struct DescriptorBuffers<'a> {
     read_buffers: Vec<&'a [u8]>,
@@ -672,16 +673,18 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             // SAFETY: inputs is copied into the first write buffer then they are returned to the
             // used vring and not accessed again. This function waits until it can pop the avail
             // vring so this should never panic
-            let popped = unsafe { self.pop_avail()?.unwrap() };
+            let mut popped = unsafe { self.pop_avail()?.unwrap() };
 
+            // If there isn't at least one write buffer, the device isn't ready
+            if popped.write_buffers.is_empty() {
+                return Err(Error::NotReady);
+            }
+
+            // A mix of write and read buffers is currently not supported
             // TODO: Support popping chains of mixed descriptors by caching any read buffers popped
             // here.
             if !popped.read_buffers.is_empty() {
                 return Err(Error::Unsupported);
-            }
-
-            if popped.write_buffers.is_empty() {
-                return Err(Error::NotReady);
             }
 
             let out_buf = &mut popped.write_buffers[0];
