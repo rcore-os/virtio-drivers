@@ -1334,8 +1334,10 @@ mod tests {
             DeviceType,
         },
     };
+    use core::array;
     use core::ptr::NonNull;
     use std::sync::{Arc, Mutex};
+    use std::thread;
 
     #[test]
     fn queue_too_big() {
@@ -1607,5 +1609,179 @@ mod tests {
 
         // Check that the transport should be notified again now.
         assert_eq!(queue.should_notify(), true);
+    }
+
+    struct VirtQueuePair<const SIZE: usize> {
+        driver: VirtQueue<FakeHal, SIZE>,
+        device: DeviceVirtQueue<FakeHal, SIZE>,
+        transport: FakeTransport<()>,
+    }
+
+    // Create a device/driver virtqueue pair which share memory in the test process's virtual
+    // address space
+    fn create_queues<const SIZE: usize>(device_type: DeviceType) -> VirtQueuePair<SIZE> {
+        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+        let state = Arc::new(Mutex::new(State::new(vec![QueueStatus::default()], ())));
+        let mut transport = FakeTransport {
+            device_type,
+            max_queue_size: SIZE as u32,
+            device_features: 0,
+            state: state.clone(),
+        };
+        let driver = VirtQueue::<FakeHal, SIZE>::new(&mut transport, 0, false, true).unwrap();
+        let device = DeviceVirtQueue::<FakeHal, SIZE>::new(&mut transport, 0).unwrap();
+        VirtQueuePair {
+            driver,
+            device,
+            transport,
+        }
+    }
+
+    // Run a test with the given callbacks using a virtqueue pair. Since this spins up new threads
+    // we must assert whether the threads join or not to ensure that asserts in the callback get
+    // called before the test's main thread returns.
+    fn queue_pair_test<const SIZE: usize>(
+        driver_func: impl FnOnce(VirtQueue<FakeHal, SIZE>, FakeTransport<()>) + Send + 'static,
+        device_func: impl FnOnce(DeviceVirtQueue<FakeHal, SIZE>, FakeTransport<()>) + Send + 'static,
+    ) {
+        let mut queues = create_queues::<SIZE>(DeviceType::Socket);
+        let mut dev_transport = queues.transport.clone();
+        let driver_handle = thread::spawn(move || driver_func(queues.driver, queues.transport));
+        let device_handle = thread::spawn(move || device_func(queues.device, dev_transport));
+        // If the driver panics while the device is waiting on it this is expected to hang.
+        assert!(device_handle.join().is_ok());
+        assert!(driver_handle.join().is_ok());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn simple_send_to_device() {
+        // This test sends [0..10] using 1 10-byte descriptor
+        let mut data: [u8; 10] = array::from_fn(|i| i as u8);
+        queue_pair_test::<8>(
+            move |mut driver, mut transport| {
+                driver
+                    .add_notify_wait_pop(&[&data], &mut [], &mut transport)
+                    .unwrap();
+            },
+            move |mut device, mut transport| {
+                // Wait until the driver adds to the avail vring
+                while !device.can_pop() {
+                    spin_loop();
+                }
+                let poll_res = device
+                    .poll(&mut transport, |buffer| {
+                        // Make sure what's read from the buffers matches what was send in
+                        // add_notify_wait_pop
+                        assert_eq!(buffer, data);
+                        Ok(Some(()))
+                    })
+                    .unwrap();
+                // Make sure that polling actually invoked the callback
+                assert!(poll_res.is_some());
+            },
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn split_send_to_device() {
+        // This test sends [0..10] using 10 1-byte descriptors
+        // Data sent from the device using multiple descriptors
+        let driver_data: [[u8; 1]; 10] = array::from_fn(|i| [i as u8]);
+        // Data in a single descriptor as the device is expected to receive it
+        let device_data: [u8; 10] = array::from_fn(|i| i as u8);
+
+        queue_pair_test::<16>(
+            move |mut driver, mut transport| {
+                // Creates a &[&[u8]] from driver_data and sends it to the device
+                driver
+                    .add_notify_wait_pop(
+                        array::from_fn::<&[u8], 10, _>(|i| driver_data[i].as_slice()).as_slice(),
+                        &mut [],
+                        &mut transport,
+                    )
+                    .unwrap();
+            },
+            move |mut device, mut transport| {
+                // Wait until the driver adds to the avail vring
+                while !device.can_pop() {
+                    spin_loop();
+                }
+                let poll_res = device
+                    .poll(&mut transport, |buffer| {
+                        assert_eq!(buffer, device_data);
+                        Ok(Some(()))
+                    })
+                    .unwrap();
+                // Make sure that polling actually invoked the callback
+                assert!(poll_res.is_some());
+            },
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn recv_from_device() {
+        // This test makes 1 10-byte descriptor available to the device and receives [0..10] in the
+        // driver using it.
+        // A buffer for the driver to receive the data in
+        let mut buffer = [0u8; 10];
+        // The data the device will send
+        let data: [u8; 10] = array::from_fn(|i| i as u8);
+        queue_pair_test::<8>(
+            move |mut driver, mut transport| {
+                assert_eq!(buffer, [0; 10]);
+                // Add a write descriptor for the device to use then pop it
+                driver
+                    .add_notify_wait_pop(&[], &mut [&mut buffer], &mut transport)
+                    .unwrap();
+                // Make sure the device wrote the expected data to the buffer
+                assert_eq!(buffer, data);
+            },
+            move |mut device, mut transport| {
+                // Wait until the driver adds a descriptor and write the contents of data to it
+                device
+                    .wait_pop_add_notify(&[&data], &mut transport)
+                    .unwrap();
+            },
+        );
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn recv_from_device_with_retry() {
+        // In this test the driver makes a read descriptor available, the device pops it to try to
+        // send some data but returns Err. The driver then makes a write descriptor available and
+        // the device retries and succeeds at sending the data.
+        let mut buffer = [0u8; 10];
+        let data: [u8; 10] = array::from_fn(|i| i as u8);
+        queue_pair_test::<8>(
+            move |mut driver, mut transport| {
+                // Add a 1-byte read descriptor to the avail vring
+                let read_buffer = [0; 1];
+                unsafe {
+                    driver.add(&[&read_buffer], &mut []).unwrap();
+                }
+                // Make sure the device didn't try to write to the buffer
+                assert_eq!(buffer, [0; 10]);
+                // Add 1 10-byte write descriptor to the avail vring
+                driver
+                    .add_notify_wait_pop(&[], &mut [&mut buffer], &mut transport)
+                    .unwrap();
+                // Make sure the device wrote to the second descriptor
+                assert_eq!(buffer, data);
+            },
+            move |mut device, mut transport| {
+                // Wait until there's a descriptor in the avail vring
+                let res = device.wait_pop_add_notify(&[&data], &mut transport);
+                // The first descriptor will be read-only so wait_pop_add_notify should return Err
+                assert_eq!(res, Err(Error::NotReady));
+                // Wait until there's another descriptor added and use that to send data
+                device
+                    .wait_pop_add_notify(&[&data], &mut transport)
+                    .unwrap();
+            },
+        );
     }
 }
