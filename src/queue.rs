@@ -818,6 +818,11 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
                 let buffer = unsafe { &mut buffer.as_mut()[0..avail_len] };
                 write_buffers.push(buffer);
             } else {
+                // All read descriptors must come before write descriptors so if we've seen any
+                // write descriptors error out.
+                if !write_buffers.is_empty() {
+                    return Err(Error::InvalidDescriptor);
+                }
                 // SAFETY: Safety delegated to safety requirements on this function.
                 let buffer = unsafe { &buffer.as_ref()[0..avail_len] };
                 read_buffers.push(buffer);

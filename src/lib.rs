@@ -106,6 +106,9 @@ pub enum Error {
     /// Error from the socket device.
     #[error("Error from the socket device: {0}")]
     SocketDeviceError(#[from] SocketError),
+    /// Invalid descriptor or descriptor chain.
+    #[error("Popped an invalid descriptor or descriptor chain")]
+    InvalidDescriptor,
 }
 
 #[cfg(feature = "alloc")]

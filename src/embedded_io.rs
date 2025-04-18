@@ -6,7 +6,7 @@ use embedded_io::ErrorKind;
 impl embedded_io::Error for Error {
     fn kind(&self) -> ErrorKind {
         match self {
-            Error::InvalidParam => ErrorKind::InvalidInput,
+            Error::InvalidDescriptor | Error::InvalidParam => ErrorKind::InvalidInput,
             Error::DmaError => ErrorKind::OutOfMemory,
             Error::Unsupported => ErrorKind::Unsupported,
             Error::SocketDeviceError(e) => match e {
