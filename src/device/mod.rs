@@ -10,6 +10,8 @@ pub mod input;
 
 pub mod net;
 
+pub mod rng;
+
 pub mod socket;
 #[cfg(feature = "alloc")]
 pub mod sound;
