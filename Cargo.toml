@@ -1,6 +1,6 @@
 [package]
 name = "virtio-drivers-and-devices"
-version = "0.2.0"
+version = "0.2.1"
 license = "MIT"
 authors = [
   "Jiajie Chen <noc@jiegec.ac.cn>",
