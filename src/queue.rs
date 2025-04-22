@@ -722,6 +722,13 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
                 return Ok(None);
             };
 
+            // A mix of write and read buffers is currently not supported
+            // TODO: Support popping chains of mixed descriptors by caching any write buffers popped
+            // here.
+            if !popped.write_buffers.is_empty() {
+                return Err(Error::Unsupported);
+            }
+
             let mut tmp = Vec::new();
             for in_buf in &popped.read_buffers {
                 tmp.extend_from_slice(in_buf);
