@@ -2,6 +2,7 @@
 pub mod fake;
 
 use crate::{Error, Result, PAGE_SIZE};
+use core::cmp::PartialEq;
 use core::{marker::PhantomData, ptr::NonNull};
 
 /// A physical address as used for virtio.
@@ -92,6 +93,15 @@ unsafe impl<H: DeviceHal> Send for DeviceDma<H> {}
 // SAFETY: `&DeviceDma` only allows pointers and physical addresses to be returned. Any accesses to
 // the memory requires unsafe code, which is responsible for avoiding data races.
 unsafe impl<H: DeviceHal> Sync for DeviceDma<H> {}
+
+impl<H: DeviceHal> PartialEq for DeviceDma<H> {
+    fn eq(&self, other: &Self) -> bool {
+        let paddrs_match = self.paddr == other.paddr;
+        let vaddrs_match = self.vaddr == other.vaddr;
+        let num_pages_match = self.pages == other.pages;
+        paddrs_match && vaddrs_match && num_pages_match
+    }
+}
 
 impl<H: DeviceHal> DeviceDma<H> {
     // SAFETY: The caller must ensure that the memory described by paddr and pages can be mapped by

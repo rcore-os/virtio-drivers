@@ -15,7 +15,7 @@ use bitflags::bitflags;
 use core::cmp::min;
 use core::convert::TryInto;
 use core::hint::spin_loop;
-use core::mem::{size_of, take};
+use core::mem::{forget, size_of, take};
 #[cfg(test)]
 use core::ptr;
 use core::ptr::NonNull;
@@ -567,6 +567,12 @@ pub struct MappedDescriptor<H: DeviceHal> {
     dma: DeviceDma<H>,
 }
 
+impl<H: DeviceHal> PartialEq for MappedDescriptor<H> {
+    fn eq(&self, other: &Self) -> bool {
+        (self.desc_copy == other.desc_copy) && (self.dma == other.dma)
+    }
+}
+
 impl<H: DeviceHal> MappedDescriptor<H> {
     // SAFETY: The caller must ensure that the entire chain of buffers described by desc_copy came
     // from a device virtqueue descriptor.
@@ -794,6 +800,7 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
         let mut next_token = Some(head);
         while let Some(token) = next_token {
             let desc = self.read_desc(token)?;
+            let avail_len = desc.len as usize;
             let write = desc.flags.contains(DescFlags::WRITE);
             assert!(!desc.flags.contains(DescFlags::INDIRECT));
             next_token = if desc.flags.contains(DescFlags::NEXT) {
@@ -801,23 +808,36 @@ impl<H: DeviceHal, const SIZE: usize> DeviceVirtQueue<H, SIZE> {
             } else {
                 None
             };
+            // Check if a buffer has previously been mapped in for this descriptor entry
             let mapped_desc = self
                 .desc_mapped
                 .get_mut(usize::from(token))
                 .ok_or(Error::WrongToken)?;
-            let desc_changed = if let Some(prev_mapped_desc) = mapped_desc {
-                prev_mapped_desc.desc_copy != desc
+
+            // SAFETY: desc was read from the virtqueue descriptor table and is currently not in
+            // use since it was either obtained by getting the next available index from
+            // peek_avail and using that to index into the descriptor table or through a chain
+            // of buffers starting from the buffer obtained via peek_avail.
+            let new_desc = unsafe { MappedDescriptor::map_buf(desc, self.client_id)? };
+
+            let desc_buf_changed = if let Some(prev_mapped_desc) = mapped_desc {
+                // If there was already a mapped descriptor compare both the physical and virtual
+                // addresses against the new descriptor. We cannot only compare the physical
+                // addresses because if they're translated (e.g. if VIRTIO_F_ACCESS_PLATFORM is
+                // used) the bus addresses in the descriptors' address fields may be translated to
+                // different physical addresses even if the descriptor itself hasn't changed.
+                *prev_mapped_desc != new_desc
             } else {
                 true
             };
-            let avail_len = desc.len as usize;
-            if desc_changed {
-                // SAFETY: desc was read from the virtqueue descriptor table and is currently not in
-                // use since it was either obtained by getting the next available index from
-                // peek_avail and using that to index into the descriptor table or through a chain
-                // of buffers starting from the buffer obtained via peek_avail.
-                // Drop impl unmaps the old descriptor's buffer to avoid leaking that memory
-                *mapped_desc = Some(unsafe { MappedDescriptor::map_buf(desc, self.client_id)? });
+            if desc_buf_changed {
+                // Store the newly mapped dscriptor buffer new_desc into self.desc_mapped[token],
+                // dropping the old MappedDescriptor if any and unmapping the old descriptor buffer.
+                *mapped_desc = Some(new_desc);
+            } else {
+                // If the descriptor and its buffer didn't change drop `new_desc` since the DMA
+                // memory will be unmapped when self.desc_mapped[token] is dropped or replaced.
+                forget(new_desc);
             }
             let mut buffer = mapped_desc.as_ref().unwrap().dma.raw_slice();
             if write {
