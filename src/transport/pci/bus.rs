@@ -614,7 +614,7 @@ impl<C: ConfigurationAccess> Iterator for BusDeviceIterator<C> {
 }
 
 /// An identifier for a PCI bus, device and function.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DeviceFunction {
     /// The PCI bus number, between 0 and 255.
     pub bus: u8,
@@ -692,6 +692,113 @@ impl From<u8> for HeaderType {
             0x01 => Self::PciPciBridge,
             0x02 => Self::PciCardbusBridge,
             _ => Self::Unrecognised(value),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bar_info() {
+        let device_function = DeviceFunction {
+            bus: 0,
+            device: 1,
+            function: 2,
+        };
+        let fake_cam = FakeCam {
+            device_function,
+            bar_values: [0, 4, 0, 0, 0, 0],
+            bar_masks: [63, 127, 0, 0xffffffff, 0xffffffff, 0xffffffff],
+            status_command: 0,
+        };
+        let mut root = PciRoot::new(fake_cam);
+
+        assert_eq!(
+            root.bars(device_function).unwrap(),
+            [
+                Some(BarInfo::Memory {
+                    address_type: MemoryBarType::Width32,
+                    prefetchable: false,
+                    address: 0,
+                    size: 64,
+                }),
+                Some(BarInfo::Memory {
+                    address_type: MemoryBarType::Width64,
+                    prefetchable: false,
+                    address: 0,
+                    size: 128,
+                }),
+                None,
+                Some(BarInfo::Memory {
+                    address_type: MemoryBarType::Width32,
+                    prefetchable: false,
+                    address: 0,
+                    size: 0,
+                }),
+                Some(BarInfo::Memory {
+                    address_type: MemoryBarType::Width32,
+                    prefetchable: false,
+                    address: 0,
+                    size: 0,
+                }),
+                Some(BarInfo::Memory {
+                    address_type: MemoryBarType::Width32,
+                    prefetchable: false,
+                    address: 0,
+                    size: 0,
+                }),
+            ]
+        );
+    }
+
+    #[derive(Clone, Debug)]
+    struct FakeCam {
+        device_function: DeviceFunction,
+        bar_values: [u32; 6],
+        // Bits which can't be changed.
+        bar_masks: [u32; 6],
+        status_command: u32,
+    }
+
+    impl ConfigurationAccess for FakeCam {
+        fn read_word(&self, device_function: DeviceFunction, register_offset: u8) -> u32 {
+            assert_eq!(device_function, self.device_function);
+            assert_eq!(register_offset & 0b11, 0);
+            if register_offset == STATUS_COMMAND_OFFSET {
+                self.status_command
+            } else if register_offset >= BAR0_OFFSET && register_offset < 0x28 {
+                let bar_index = usize::from((register_offset - BAR0_OFFSET) / 4);
+                println!(
+                    "Reading {} from bar {}",
+                    self.bar_values[bar_index], bar_index
+                );
+                self.bar_values[bar_index]
+            } else {
+                return 0xffffffff;
+            }
+        }
+
+        fn write_word(&mut self, device_function: DeviceFunction, register_offset: u8, data: u32) {
+            assert_eq!(device_function, self.device_function);
+            assert_eq!(register_offset & 0b11, 0);
+            if register_offset == STATUS_COMMAND_OFFSET {
+                self.status_command = data;
+            } else if register_offset >= BAR0_OFFSET && register_offset < 0x28 {
+                let bar_index = usize::from((register_offset - BAR0_OFFSET) / 4);
+                println!("Writing {:#010x} to bar {}", data, bar_index);
+                let bar_mask = self.bar_masks[bar_index];
+                self.bar_values[bar_index] =
+                    (bar_mask & self.bar_values[bar_index]) | (!bar_mask & data);
+            } else {
+                println!("Ignoring write of {:#010x} to {}", data, register_offset);
+                return;
+            }
+        }
+
+        unsafe fn unsafe_clone(&self) -> Self {
+            self.clone()
         }
     }
 }
