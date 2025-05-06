@@ -261,7 +261,8 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             );
             (bar_top_orig, size_top)
         } else {
-            (0, 0xffffffff)
+            let size_top = if size_mask == 0 { 0 } else { 0xffffffff };
+            (0, size_top)
         };
         size_mask |= u64::from(size_top) << 32;
 
