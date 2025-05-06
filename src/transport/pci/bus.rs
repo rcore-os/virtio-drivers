@@ -225,6 +225,7 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         let bar_orig = self
             .configuration_access
             .read_word(device_function, BAR0_OFFSET + 4 * bar_index);
+        let io_space = bar_orig & 0x00000001 == 0x00000001;
 
         // Get the size of the BAR.
         self.configuration_access.write_word(
@@ -264,9 +265,11 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         };
         size_mask |= u64::from(size_top) << 32;
 
+        // For IO BARs bits 2 and 3 can be part of the address.
+        let flag_bits = if io_space { 0b11 } else { 0b1111 };
         // A wrapping add is necessary to correctly handle the case of unused BARs, which read back
         // as 0, and should be treated as size 0.
-        let size = (!(size_mask & !0b1111)).wrapping_add(1);
+        let size = (!(size_mask & !flag_bits)).wrapping_add(1);
 
         // Restore the original value.
         self.configuration_access.write_word(
@@ -279,7 +282,7 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             self.set_command(device_function, command_orig);
         }
 
-        if bar_orig & 0x00000001 == 0x00000001 {
+        if io_space {
             // I/O space
             let address = bar_orig & 0xfffffffc;
             Ok(BarInfo::IO {
