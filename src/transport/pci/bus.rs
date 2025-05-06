@@ -709,8 +709,8 @@ mod tests {
         };
         let fake_cam = FakeCam {
             device_function,
-            bar_values: [0, 4, 0, 0, 0, 0],
-            bar_masks: [63, 127, 0, 0xffffffff, 0xffffffff, 0xffffffff],
+            bar_values: [0, 4, 0, 4, 0, 0],
+            bar_masks: [63, 127, 0, 0xffffffff, 3, 0xffffffff],
             status_command: 0,
         };
         let mut root = PciRoot::new(fake_cam);
@@ -732,17 +732,12 @@ mod tests {
                 }),
                 None,
                 Some(BarInfo::Memory {
-                    address_type: MemoryBarType::Width32,
+                    address_type: MemoryBarType::Width64,
                     prefetchable: false,
                     address: 0,
-                    size: 0,
+                    size: 0x400000000,
                 }),
-                Some(BarInfo::Memory {
-                    address_type: MemoryBarType::Width32,
-                    prefetchable: false,
-                    address: 0,
-                    size: 0,
-                }),
+                None,
                 Some(BarInfo::Memory {
                     address_type: MemoryBarType::Width32,
                     prefetchable: false,
