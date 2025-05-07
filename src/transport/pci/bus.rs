@@ -202,8 +202,12 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         let mut bar_index = 0;
         while bar_index < 6 {
             let info = self.bar_info(device_function, bar_index)?;
-            let takes_two_entries = info.takes_two_entries();
-            bars[usize::from(bar_index)] = Some(info);
+            let takes_two_entries = if let Some(info) = &info {
+                info.takes_two_entries()
+            } else {
+                false
+            };
+            bars[usize::from(bar_index)] = info;
             bar_index += if takes_two_entries { 2 } else { 1 };
         }
         Ok(bars)
@@ -214,7 +218,7 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         &mut self,
         device_function: DeviceFunction,
         bar_index: u8,
-    ) -> Result<BarInfo, PciError> {
+    ) -> Result<Option<BarInfo>, PciError> {
         // Disable address decoding while sizing the BAR.
         let (_status, command_orig) = self.get_status_command(device_function);
         let command_disable_decode = command_orig & !(Command::IO_SPACE | Command::MEMORY_SPACE);
@@ -237,6 +241,10 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             self.configuration_access
                 .read_word(device_function, BAR0_OFFSET + 4 * bar_index),
         );
+
+        if size_mask == 0 {
+            return Ok(None);
+        }
 
         // Read the upper 32 bits of 64-bit memory BARs.
         let (address_top, size_top) = if bar_orig & 0b111 == 0b100 {
@@ -286,21 +294,21 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         if io_space {
             // I/O space
             let address = bar_orig & 0xfffffffc;
-            Ok(BarInfo::IO {
+            Ok(Some(BarInfo::IO {
                 address,
                 size: size as u32,
-            })
+            }))
         } else {
             // Memory space
             let address = u64::from(bar_orig & 0xfffffff0) | (u64::from(address_top) << 32);
             let prefetchable = bar_orig & 0x00000008 != 0;
             let address_type = MemoryBarType::try_from(((bar_orig & 0x00000006) >> 1) as u8)?;
-            Ok(BarInfo::Memory {
+            Ok(Some(BarInfo::Memory {
                 address_type,
                 prefetchable,
                 address,
                 size,
-            })
+            }))
         }
     }
 
@@ -724,12 +732,7 @@ mod tests {
         assert_eq!(
             root.bars(device_function).unwrap(),
             [
-                Some(BarInfo::Memory {
-                    address_type: MemoryBarType::Width32,
-                    prefetchable: false,
-                    address: 0,
-                    size: 0,
-                }),
+                None,
                 Some(BarInfo::IO {
                     address: 0,
                     size: 0,
@@ -741,18 +744,8 @@ mod tests {
                     size: 0,
                 }),
                 None,
-                Some(BarInfo::Memory {
-                    address_type: MemoryBarType::Width32,
-                    prefetchable: false,
-                    address: 0,
-                    size: 0,
-                }),
-                Some(BarInfo::Memory {
-                    address_type: MemoryBarType::Width32,
-                    prefetchable: false,
-                    address: 0,
-                    size: 0,
-                }),
+                None,
+                None,
             ]
         );
     }

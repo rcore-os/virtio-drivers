@@ -471,7 +471,7 @@ fn dump_bar_contents(
 ) {
     let bar_info = root.bar_info(device_function, bar_index).unwrap();
     trace!("Dumping bar {}: {:#x?}", bar_index, bar_info);
-    if let BarInfo::Memory { address, size, .. } = bar_info {
+    if let Some(BarInfo::Memory { address, size, .. }) = bar_info {
         let start = address as *const u8;
         unsafe {
             let mut buf = [0u8; 32];
