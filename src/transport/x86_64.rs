@@ -291,7 +291,7 @@ fn get_bar_region<T, C: ConfigurationAccess>(
 ) -> Result<HypIoRegion, VirtioPciError> {
     let bar_info = root
         .bar_info(device_function, struct_info.bar)?
-        .ok_or_else(|| VirtioPciError::BarNotAllocated(struct_info.bar))?;
+        .ok_or(VirtioPciError::BarNotAllocated(struct_info.bar))?;
     let (bar_address, bar_size) = bar_info
         .memory_address_size()
         .ok_or(VirtioPciError::UnexpectedIoBar)?;
