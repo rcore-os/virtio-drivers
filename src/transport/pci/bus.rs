@@ -242,10 +242,6 @@ impl<C: ConfigurationAccess> PciRoot<C> {
                 .read_word(device_function, BAR0_OFFSET + 4 * bar_index),
         );
 
-        if size_mask == 0 {
-            return Ok(None);
-        }
-
         // Read the upper 32 bits of 64-bit memory BARs.
         let (address_top, size_top) = if bar_orig & 0b111 == 0b100 {
             if bar_index >= 5 {
@@ -291,7 +287,9 @@ impl<C: ConfigurationAccess> PciRoot<C> {
             self.set_command(device_function, command_orig);
         }
 
-        if io_space {
+        if size_mask == 0 {
+            Ok(None)
+        } else if io_space {
             // I/O space
             let address = bar_orig & 0xfffffffc;
             Ok(Some(BarInfo::IO {
