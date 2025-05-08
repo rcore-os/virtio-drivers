@@ -202,13 +202,13 @@ impl<C: ConfigurationAccess> PciRoot<C> {
         let mut bar_index = 0;
         while bar_index < 6 {
             let info = self.bar_info(device_function, bar_index)?;
-            let takes_two_entries = if let Some(info) = &info {
-                info.takes_two_entries()
+            let bar_entries = if info.as_ref().is_some_and(BarInfo::takes_two_entries) {
+                2
             } else {
-                false
+                1
             };
             bars[usize::from(bar_index)] = info;
-            bar_index += if takes_two_entries { 2 } else { 1 };
+            bar_index += bar_entries;
         }
         Ok(bars)
     }
