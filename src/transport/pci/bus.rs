@@ -753,6 +753,7 @@ mod tests {
             ],
             status_command,
         };
+        let fake_cam_orig = fake_cam.clone();
         let mut root = PciRoot::new(fake_cam);
 
         assert_eq!(
@@ -775,8 +776,8 @@ mod tests {
             ]
         );
 
-        // Status and command should be restored to their initial values.
-        assert_eq!(root.configuration_access.status_command, status_command);
+        // Status and command should be restored to their initial values, as should BAR values.
+        assert_eq!(root.configuration_access, fake_cam_orig);
     }
 
     #[test]
@@ -793,6 +794,7 @@ mod tests {
             bar_masks: [63, 31, 127, 7, 1023, 255],
             status_command,
         };
+        let fake_cam_orig = fake_cam.clone();
         let mut root = PciRoot::new(fake_cam);
 
         assert_eq!(
@@ -835,8 +837,8 @@ mod tests {
             ]
         );
 
-        // Status and command should be restored to their initial values.
-        assert_eq!(root.configuration_access.status_command, status_command);
+        // Status and command should be restored to their initial values, as should BAR values.
+        assert_eq!(root.configuration_access, fake_cam_orig);
     }
 
     #[test]
@@ -853,6 +855,7 @@ mod tests {
             bar_masks: [127, 0, 0xffffffff, 3, 255, 0],
             status_command,
         };
+        let fake_cam_orig = fake_cam.clone();
         let mut root = PciRoot::new(fake_cam);
 
         assert_eq!(
@@ -882,11 +885,11 @@ mod tests {
             ]
         );
 
-        // Status and command should be restored to their initial values.
-        assert_eq!(root.configuration_access.status_command, status_command);
+        // Status and command should be restored to their initial values, as should BAR values.
+        assert_eq!(root.configuration_access, fake_cam_orig);
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     struct FakeCam {
         device_function: DeviceFunction,
         bar_values: [u32; 6],
