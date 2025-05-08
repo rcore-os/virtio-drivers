@@ -713,7 +713,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bar_info_unused() {
+    fn read_status_command() {
+        let status_command = 0x0020_0003;
         let device_function = DeviceFunction {
             bus: 0,
             device: 1,
@@ -725,7 +726,34 @@ mod tests {
             bar_masks: [
                 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
             ],
-            status_command: 0,
+            status_command,
+        };
+        let root = PciRoot::new(fake_cam);
+
+        assert_eq!(
+            root.get_status_command(device_function),
+            (
+                Status::MHZ_66_CAPABLE,
+                Command::IO_SPACE | Command::MEMORY_SPACE
+            )
+        );
+    }
+
+    #[test]
+    fn bar_info_unused() {
+        let status_command = 0x0020_0003;
+        let device_function = DeviceFunction {
+            bus: 0,
+            device: 1,
+            function: 2,
+        };
+        let fake_cam = FakeCam {
+            device_function,
+            bar_values: [0, 1, 4, 0, 0, 0],
+            bar_masks: [
+                0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+            ],
+            status_command,
         };
         let mut root = PciRoot::new(fake_cam);
 
@@ -748,10 +776,14 @@ mod tests {
                 None,
             ]
         );
+
+        // Status and command should be restored to their initial values.
+        assert_eq!(root.configuration_access.status_command, status_command);
     }
 
     #[test]
     fn bar_info_32() {
+        let status_command = 0x0020_0003;
         let device_function = DeviceFunction {
             bus: 0,
             device: 1,
@@ -761,7 +793,7 @@ mod tests {
             device_function,
             bar_values: [0b0000, 0b0010, 0b1000, 0b01, 0b0000, 0b0000],
             bar_masks: [63, 31, 127, 7, 1023, 255],
-            status_command: 0,
+            status_command,
         };
         let mut root = PciRoot::new(fake_cam);
 
@@ -804,10 +836,14 @@ mod tests {
                 }),
             ]
         );
+
+        // Status and command should be restored to their initial values.
+        assert_eq!(root.configuration_access.status_command, status_command);
     }
 
     #[test]
     fn bar_info_64() {
+        let status_command = 0x0020_0003;
         let device_function = DeviceFunction {
             bus: 0,
             device: 1,
@@ -817,7 +853,7 @@ mod tests {
             device_function,
             bar_values: [0b0100, 0, 0b0100, 0, 0b1100, 0],
             bar_masks: [127, 0, 0xffffffff, 3, 255, 0],
-            status_command: 0,
+            status_command,
         };
         let mut root = PciRoot::new(fake_cam);
 
@@ -847,6 +883,9 @@ mod tests {
                 None,
             ]
         );
+
+        // Status and command should be restored to their initial values.
+        assert_eq!(root.configuration_access.status_command, status_command);
     }
 
     #[derive(Clone, Debug)]
@@ -877,7 +916,8 @@ mod tests {
             assert_eq!(device_function, self.device_function);
             assert_eq!(register_offset & 0b11, 0);
             if register_offset == STATUS_COMMAND_OFFSET {
-                self.status_command = data;
+                // Ignore write to status, only write to command.
+                self.status_command = (self.status_command & 0xffff_0000) | (data & 0x0000_ffff);
             } else if register_offset >= BAR0_OFFSET && register_offset < 0x28 {
                 let bar_index = usize::from((register_offset - BAR0_OFFSET) / 4);
                 let bar_mask = self.bar_masks[bar_index];
