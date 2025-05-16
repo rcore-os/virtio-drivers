@@ -366,6 +366,18 @@ impl Transport for PciTransport {
     }
 }
 
+impl PciTransport {
+    /// Get the MSI-X vector for queue.
+    pub fn get_queue_msix_vector(&self) -> u16 {
+        field_shared!(self.common_cfg, queue_msix_vector).read()
+    }
+
+    /// Set the MSI-X vector for queue.
+    pub fn set_queue_msix_vector(&mut self, vector: u16) {
+        field!(self.common_cfg, queue_msix_vector).write(vector);
+    }
+}
+
 // SAFETY: MMIO can be done from any thread or CPU core.
 unsafe impl Send for PciTransport {}
 
