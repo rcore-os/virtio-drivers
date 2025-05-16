@@ -366,6 +366,30 @@ impl Transport for PciTransport {
     }
 }
 
+impl PciTransport {
+    /// Get the MSI-X vector for config.
+    pub fn get_config_msix_vector(&self) -> u16 {
+        field_shared!(self.common_cfg, config_msix_vector).read()
+    }
+
+    /// Set the MSI-X vector for config.
+    pub fn set_config_msix_vector(&mut self, vector: u16) {
+        field!(self.common_cfg, config_msix_vector).write(vector);
+    }
+
+    /// Get the MSI-X vector for a queue.
+    pub fn get_queue_msix_vector(&mut self, queue: u16) -> u16 {
+        field!(self.common_cfg, queue_select).write(queue);
+        field_shared!(self.common_cfg, queue_msix_vector).read()
+    }
+
+    /// Set the MSI-X vector for a queue.
+    pub fn set_queue_msix_vector(&mut self, queue: u16, vector: u16) {
+        field!(self.common_cfg, queue_select).write(queue);
+        field!(self.common_cfg, queue_msix_vector).write(vector);
+    }
+}
+
 // SAFETY: MMIO can be done from any thread or CPU core.
 unsafe impl Send for PciTransport {}
 
@@ -388,7 +412,7 @@ pub(crate) struct CommonCfg {
     pub device_feature: ReadPure<u32>,
     pub driver_feature_select: ReadPureWrite<u32>,
     pub driver_feature: ReadPureWrite<u32>,
-    pub msix_config: ReadPureWrite<u16>,
+    pub config_msix_vector: ReadPureWrite<u16>,
     pub num_queues: ReadPure<u16>,
     pub device_status: ReadPureWrite<u8>,
     pub config_generation: ReadPure<u8>,

@@ -246,6 +246,16 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             Err(Error::Unsupported)
         }
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
 }
 
 impl<H: Hal, T: Transport> Write for VirtIOConsole<H, T> {

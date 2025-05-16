@@ -378,6 +378,16 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     pub fn virt_queue_size(&self) -> u16 {
         QUEUE_SIZE
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
 }
 
 impl<H: Hal, T: Transport> Drop for VirtIOBlk<H, T> {
