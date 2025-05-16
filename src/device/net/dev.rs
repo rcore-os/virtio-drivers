@@ -122,4 +122,14 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     pub fn send(&mut self, tx_buf: TxBuffer) -> Result {
         self.inner.send(tx_buf.packet())
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        self.inner.transport()
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        self.inner.transport_mut()
+    }
 }
