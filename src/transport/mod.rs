@@ -80,13 +80,22 @@ pub trait Transport {
         &mut self,
         supported_features: F,
     ) -> F {
+        use crate::device::common::Feature;
+
         self.set_status(DeviceStatus::empty());
         self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
 
-        let device_features = F::from_bits_truncate(self.read_device_features());
+        let device_feature_bits = self.read_device_features();
+        let device_features = F::from_bits_truncate(device_feature_bits);
         debug!("Device features: {:?}", device_features);
         let negotiated_features = device_features & supported_features;
-        self.write_driver_features(negotiated_features.bits());
+        if device_feature_bits & Feature::VERSION_1.bits() > 0 {
+            // > 6.1 Driver Requirements: Reserved Feature Bits
+            // > A driver MUST accept VIRTIO_F_VERSION_1 if it is offered.
+            self.write_driver_features(negotiated_features.bits() | Feature::VERSION_1.bits());
+        } else {
+            self.write_driver_features(negotiated_features.bits());
+        }
 
         self.set_status(
             DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK,
