@@ -301,7 +301,9 @@ pub struct InputEvent {
 
 const QUEUE_EVENT: u16 = 0;
 const QUEUE_STATUS: u16 = 1;
-const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX.union(Feature::RING_INDIRECT_DESC);
+const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX
+    .union(Feature::RING_INDIRECT_DESC)
+    .union(Feature::VERSION_1);
 
 // a parameter that can change
 const QUEUE_SIZE: usize = 32;
