@@ -76,5 +76,6 @@ jobs:
         working-directory: examples/${{ matrix.example }}
         run: make kernel
       - name: Run
+        timeout-minutes: 1
         working-directory: examples/${{ matrix.example }}
         run: QEMU_ARGS="-display none -audiodev none,id=audio0" make qemu accel="off"
