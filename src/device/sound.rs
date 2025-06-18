@@ -173,7 +173,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             .0)
     }
 
-    /// Set up the driver, initate pcm_infos and jacks_infos
+    /// Set up the driver, initiate pcm_infos and jacks_infos
     fn set_up(&mut self) -> Result<()> {
         // init jack info
         if let Ok(jack_infos) = self.jack_info(0, self.jacks) {
@@ -1236,7 +1236,7 @@ struct VirtIOSndJackHdr {
     jack_id: u32,
 }
 
-/// Jack infomation.
+/// Jack information.
 #[repr(C)]
 #[derive(Clone, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 pub struct VirtIOSndJackInfo {
@@ -1550,7 +1550,7 @@ impl Display for VirtIOSndChmapInfo {
         };
         write!(
             f,
-            "direction: {}, channels: {}, postions: [",
+            "direction: {}, channels: {}, positions: [",
             direction, self.channels
         )?;
         for i in 0..usize::from(self.channels) {

@@ -50,7 +50,7 @@ impl RxBuffer {
         self.packet_len = packet_len
     }
 
-    /// Returns the network packet length (witout header).
+    /// Returns the network packet length (without header).
     pub const fn packet_len(&self) -> usize {
         self.packet_len
     }

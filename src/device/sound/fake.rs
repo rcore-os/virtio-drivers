@@ -33,7 +33,7 @@ use zerocopy::{FromBytes, IntoBytes};
 pub struct FakeSoundDevice {
     pub state: Arc<Mutex<State<VirtIOSoundConfig>>>,
     pub terminate: Arc<AtomicBool>,
-    /// The paramaters set for each stream, if any.
+    /// The parameters set for each stream, if any.
     pub params: Arc<Mutex<Vec<Option<VirtIOSndPcmSetParams>>>>,
     /// The bytes send on the TX queue for each channel.
     pub played_bytes: Arc<Mutex<Vec<Vec<u8>>>>,
