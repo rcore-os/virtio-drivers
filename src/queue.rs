@@ -345,7 +345,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
     /// Returns whether the driver should notify the device after adding a new buffer to the
     /// virtqueue.
     ///
-    /// This will be false if the device has supressed notifications.
+    /// This will be false if the device has suppressed notifications.
     pub fn should_notify(&self) -> bool {
         if self.event_idx {
             // SAFETY: `self.used` points to a valid, aligned, initialised, dereferenceable, readable
