@@ -177,7 +177,7 @@ bitflags! {
 
 /// Types of virtio devices.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[allow(missing_docs)]
 pub enum DeviceType {
     Network = 1,
