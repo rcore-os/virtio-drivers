@@ -20,7 +20,8 @@ const QUEUE_SIZE: usize = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
     .union(Features::RING_INDIRECT_DESC)
     .union(Features::SIZE)
-    .union(Features::EMERG_WRITE);
+    .union(Features::EMERG_WRITE)
+    .union(Features::VERSION_1);
 
 /// Driver for a VirtIO console device.
 ///

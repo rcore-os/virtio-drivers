@@ -5,7 +5,9 @@ use crate::{queue::VirtQueue, transport::Transport, Hal, Result};
 // VirtioRNG only uses one queue
 const QUEUE_IDX: u16 = 0;
 const QUEUE_SIZE: usize = 8;
-const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC.union(Feature::RING_EVENT_IDX);
+const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC
+    .union(Feature::RING_EVENT_IDX)
+    .union(Feature::VERSION_1);
 
 /// Driver for a VirtIO random number generator device.
 pub struct VirtIORng<H: Hal, T: Transport> {

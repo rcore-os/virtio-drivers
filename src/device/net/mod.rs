@@ -163,4 +163,5 @@ const QUEUE_TRANSMIT: u16 = 1;
 const SUPPORTED_FEATURES: Features = Features::MAC
     .union(Features::STATUS)
     .union(Features::RING_EVENT_IDX)
-    .union(Features::RING_INDIRECT_DESC);
+    .union(Features::RING_INDIRECT_DESC)
+    .union(Features::VERSION_1);
