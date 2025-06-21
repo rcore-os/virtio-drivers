@@ -49,6 +49,16 @@ impl<H: Hal, T: Transport> VirtIORng<H, T> {
     pub fn ack_interrupt(&mut self) -> bool {
         self.transport.ack_interrupt()
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
 }
 
 impl<H: Hal, T: Transport> Drop for VirtIORng<H, T> {
