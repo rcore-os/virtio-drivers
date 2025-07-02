@@ -12,8 +12,10 @@ pub mod net;
 
 pub mod rng;
 
+pub mod utility;
+
 pub mod socket;
 #[cfg(feature = "alloc")]
 pub mod sound;
 
-pub(crate) mod common;
+pub mod common;
