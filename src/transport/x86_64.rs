@@ -238,8 +238,6 @@ impl Transport for HypPciTransport {
     }
 
     fn ack_interrupt(&mut self) -> bool {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
-        // was aligned.
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status: u8 = self.isr_status.read(0);
         // TODO: Distinguish between queue interrupt and device configuration interrupt.
