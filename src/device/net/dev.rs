@@ -2,6 +2,7 @@ use alloc::vec;
 
 use super::net_buf::{RxBuffer, TxBuffer};
 use super::{EthernetAddress, VirtIONetRaw};
+use crate::transport::InterruptStatus;
 use crate::{hal::Hal, transport::Transport, Error, Result};
 
 /// Driver for a VirtIO network device.
@@ -41,7 +42,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
     }
 
     /// Acknowledge interrupt.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.inner.ack_interrupt()
     }
 

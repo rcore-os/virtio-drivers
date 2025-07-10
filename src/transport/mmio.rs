@@ -1,7 +1,7 @@
 //! MMIO transport for VirtIO.
 
 use super::{DeviceStatus, DeviceType, DeviceTypeError, Transport};
-use crate::{align_up, queue::Descriptor, Error, PhysAddr, PAGE_SIZE};
+use crate::{align_up, queue::Descriptor, transport::InterruptStatus, Error, PhysAddr, PAGE_SIZE};
 use core::{
     convert::{TryFrom, TryInto},
     mem::{align_of, size_of},
@@ -469,13 +469,13 @@ impl Transport for MmioTransport<'_> {
         }
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         let interrupt = field_shared!(self.header, interrupt_status).read();
         if interrupt != 0 {
             field!(self.header, interrupt_ack).write(interrupt);
-            true
+            InterruptStatus::from_bits_truncate(interrupt)
         } else {
-            false
+            InterruptStatus::empty()
         }
     }
 

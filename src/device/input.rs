@@ -4,7 +4,7 @@ use super::common::Feature;
 use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{InterruptStatus, Transport};
 use crate::Error;
 use alloc::{boxed::Box, string::String};
 use core::cmp::min;
@@ -62,7 +62,7 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
     }
 
     /// Acknowledge interrupt and process events.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 
