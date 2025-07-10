@@ -3,7 +3,7 @@
 use crate::config::{read_config, ReadOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, Result};
 use bitflags::bitflags;
 use log::info;
@@ -90,7 +90,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     /// Acknowledges a pending interrupt, if any.
     ///
     /// Returns true if there was an interrupt to acknowledge.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 

@@ -1,6 +1,10 @@
 //! Driver for VirtIO random number generator devices.
 use super::common::Feature;
-use crate::{queue::VirtQueue, transport::Transport, Hal, Result};
+use crate::{
+    queue::VirtQueue,
+    transport::{InterruptStatus, Transport},
+    Hal, Result,
+};
 
 // VirtioRNG only uses one queue
 const QUEUE_IDX: u16 = 0;
@@ -46,7 +50,7 @@ impl<H: Hal, T: Transport> VirtIORng<H, T> {
     }
 
     /// Acknowledge interrupt.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 }

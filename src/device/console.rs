@@ -6,7 +6,7 @@ mod embedded_io;
 use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
@@ -160,7 +160,8 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     ///
     /// Returns true if new data has been received.
     pub fn ack_interrupt(&mut self) -> Result<bool> {
-        if !self.transport.ack_interrupt() {
+        let status = self.transport.ack_interrupt();
+        if !status.contains(InterruptStatus::QUEUE_INTERRUPT) {
             return Ok(false);
         }
 

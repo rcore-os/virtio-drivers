@@ -3,7 +3,7 @@ use super::{MIN_BUFFER_LEN, NET_HDR_SIZE, QUEUE_RECEIVE, QUEUE_TRANSMIT, SUPPORT
 use crate::config::read_config;
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, Result};
 use log::{debug, info, warn};
 use zerocopy::IntoBytes;
@@ -58,7 +58,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     }
 
     /// Acknowledge interrupt.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 
