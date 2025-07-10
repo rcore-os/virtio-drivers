@@ -1,7 +1,7 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::{mmio::MmioTransport, pci::PciTransport, DeviceStatus, DeviceType, Transport};
-use crate::{PhysAddr, Result};
+use crate::{transport::InterruptStatus, PhysAddr, Result};
 
 /// A wrapper for an arbitrary VirtIO transport, either MMIO or PCI.
 #[derive(Debug)]
@@ -143,7 +143,7 @@ impl Transport for SomeTransport {
         }
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         match self {
             Self::Mmio(mmio) => mmio.ack_interrupt(),
             Self::Pci(pci) => pci.ack_interrupt(),

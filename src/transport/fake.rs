@@ -3,6 +3,7 @@
 use super::{DeviceStatus, DeviceTransport, DeviceType, Transport};
 use crate::{
     queue::{fake_read_write_queue, Descriptor},
+    transport::InterruptStatus,
     Error, PhysAddr,
 };
 use alloc::{sync::Arc, vec::Vec};
@@ -119,13 +120,14 @@ impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
         self.state.lock().unwrap().queues[queue as usize].descriptors != 0
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         let mut state = self.state.lock().unwrap();
         let pending = state.interrupt_pending;
         if pending {
             state.interrupt_pending = false;
+            return InterruptStatus::QUEUE_INTERRUPT;
         }
-        pending
+        InterruptStatus::empty()
     }
 
     fn read_config_generation(&self) -> u32 {

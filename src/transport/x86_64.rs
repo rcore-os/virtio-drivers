@@ -13,7 +13,7 @@ use super::{
     },
     DeviceStatus, DeviceType, Transport,
 };
-use crate::{hal::PhysAddr, Error};
+use crate::{hal::PhysAddr, transport::InterruptStatus, Error};
 pub use cam::HypCam;
 use hypercalls::HypIoRegion;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -236,13 +236,10 @@ impl Transport for HypPciTransport {
         queue_enable == 1
     }
 
-    fn ack_interrupt(&mut self) -> bool {
-        // Safe because the common config pointer is valid and we checked in get_bar_region that it
-        // was aligned.
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status: u8 = self.isr_status.read(0);
-        // TODO: Distinguish between queue interrupt and device configuration interrupt.
-        isr_status & 0x3 != 0
+        InterruptStatus::from_bits_truncate(isr_status.into())
     }
 
     fn read_config_generation(&self) -> u32 {

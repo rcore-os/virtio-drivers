@@ -4,6 +4,7 @@ use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     align_up,
     queue::Descriptor,
+    transport::InterruptStatus,
     volatile::{volread, volwrite, ReadOnly, Volatile, WriteOnly},
     Error, PhysAddr, PAGE_SIZE,
 };
@@ -484,15 +485,15 @@ impl Transport for MmioTransport {
         }
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         // SAFETY: `self.header` points to a valid VirtIO MMIO region.
         unsafe {
             let interrupt = volread!(self.header, interrupt_status);
             if interrupt != 0 {
                 volwrite!(self.header, interrupt_ack, interrupt);
-                true
+                InterruptStatus::from_bits_truncate(interrupt)
             } else {
-                false
+                InterruptStatus::empty()
             }
         }
     }

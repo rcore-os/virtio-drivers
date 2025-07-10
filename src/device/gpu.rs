@@ -3,7 +3,7 @@
 use crate::config::{read_config, ReadOnly, WriteOnly};
 use crate::hal::{BufferDirection, Dma, DmaMemory, Hal};
 use crate::queue::VirtQueue;
-use crate::transport::Transport;
+use crate::transport::{InterruptStatus, Transport};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
 use bitflags::bitflags;
@@ -81,7 +81,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     }
 
     /// Acknowledge interrupt.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 

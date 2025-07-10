@@ -7,7 +7,7 @@ use super::common::Feature;
 use crate::{
     config::{read_config, ReadOnly},
     queue::{owning::OwningQueue, VirtQueue},
-    transport::Transport,
+    transport::{InterruptStatus, Transport},
     Error, Hal, Result, PAGE_SIZE,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
@@ -158,7 +158,7 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
     }
 
     /// Acknowledge interrupt.
-    pub fn ack_interrupt(&mut self) -> bool {
+    pub fn ack_interrupt(&mut self) -> InterruptStatus {
         self.transport.ack_interrupt()
     }
 

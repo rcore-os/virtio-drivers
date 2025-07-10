@@ -9,6 +9,7 @@ use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
     nonnull_slice_from_raw_parts,
+    transport::InterruptStatus,
     volatile::{
         volread, volwrite, ReadOnly, Volatile, VolatileReadable, VolatileWritable, WriteOnly,
     },
@@ -317,13 +318,12 @@ impl Transport for PciTransport {
         }
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         // SAFETY: The common config pointer is valid and we checked in `get_bar_region` that it
         // was aligned.
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status = unsafe { self.isr_status.as_ptr().vread() };
-        // TODO: Distinguish between queue interrupt and device configuration interrupt.
-        isr_status & 0x3 != 0
+        InterruptStatus::from_bits_retain(isr_status.into())
     }
 
     fn read_config_generation(&self) -> u32 {

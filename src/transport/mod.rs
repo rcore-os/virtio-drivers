@@ -85,7 +85,7 @@ pub trait Transport {
     /// Acknowledges an interrupt.
     ///
     /// Returns true on success.
-    fn ack_interrupt(&mut self) -> bool;
+    fn ack_interrupt(&mut self) -> InterruptStatus;
 
     /// Begins initializing the device.
     ///
@@ -177,6 +177,22 @@ bitflags! {
         /// Indicates that the device has experienced an error from which it
         /// can’t recover.
         const DEVICE_NEEDS_RESET = 64;
+    }
+}
+
+/// The set of interrupts which were pending
+///
+/// Ref: 4.1.4.5 ISR status capability
+#[derive(Copy, Clone, Default, Eq, FromBytes, PartialEq)]
+pub struct InterruptStatus(u32);
+
+bitflags! {
+    impl InterruptStatus: u32 {
+        /// Indicates that a virtqueue buffer was used
+        const QUEUE_INTERRUPT = 1 << 0;
+
+        /// Indicates that a virtio device changed its configuration state
+        const DEVICE_CONFIGURATION_INTERRUPT = 1 << 1;
     }
 }
 
