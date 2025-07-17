@@ -8,6 +8,7 @@ use self::bus::{
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
     hal::{Hal, PhysAddr},
+    transport::InterruptStatus,
     Error,
 };
 use core::{
@@ -298,11 +299,10 @@ impl Transport for PciTransport {
         field_shared!(self.common_cfg, queue_enable).read() == 1
     }
 
-    fn ack_interrupt(&mut self) -> bool {
+    fn ack_interrupt(&mut self) -> InterruptStatus {
         // Reading the ISR status resets it to 0 and causes the device to de-assert the interrupt.
         let isr_status = self.isr_status.read();
-        // TODO: Distinguish between queue interrupt and device configuration interrupt.
-        isr_status & 0x3 != 0
+        InterruptStatus::from_bits_retain(isr_status.into())
     }
 
     fn read_config_generation(&self) -> u32 {
