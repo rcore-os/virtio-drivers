@@ -745,7 +745,9 @@ const EVENT_QUEUE_IDX: u16 = 1;
 const TX_QUEUE_IDX: u16 = 2;
 const RX_QUEUE_IDX: u16 = 3;
 
-const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC.union(Feature::RING_EVENT_IDX);
+const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC
+    .union(Feature::RING_EVENT_IDX)
+    .union(Feature::VERSION_1);
 
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]

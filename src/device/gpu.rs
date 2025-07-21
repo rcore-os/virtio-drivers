@@ -11,7 +11,9 @@ use log::info;
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 const QUEUE_SIZE: u16 = 2;
-const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX.union(Features::RING_INDIRECT_DESC);
+const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
+    .union(Features::RING_INDIRECT_DESC)
+    .union(Features::VERSION_1);
 
 /// A virtio based graphics adapter.
 ///
