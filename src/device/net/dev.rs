@@ -31,7 +31,7 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONet<H, T, QUEUE_SIZE> 
         const NONE_BUF: Option<RxBuffer> = None;
         let mut rx_buffers = [NONE_BUF; QUEUE_SIZE];
         for (i, rx_buf_place) in rx_buffers.iter_mut().enumerate() {
-            let mut rx_buf = RxBuffer::new(i, buf_len);
+            let mut rx_buf = RxBuffer::new(i, buf_len, inner.legacy_header);
             // SAFETY: The buffer lives as long as the queue.
             let token = unsafe { inner.receive_begin(rx_buf.as_bytes_mut())? };
             assert_eq!(token, i as u16);

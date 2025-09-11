@@ -1,4 +1,4 @@
-use super::{VirtioNetHdr, NET_HDR_SIZE};
+use super::{VirtioNetHdr, VirtioNetHdrLegacy};
 use alloc::{vec, vec::Vec};
 use core::{convert::TryInto, mem::size_of};
 use zerocopy::{FromBytes, IntoBytes};
@@ -11,6 +11,8 @@ pub struct RxBuffer {
     pub(crate) buf: Vec<usize>, // for alignment
     pub(crate) packet_len: usize,
     pub(crate) idx: u16,
+    /// Whether `num_buffers` is missing in the `virtio_net_hdr` struct.
+    legacy_header: bool,
 }
 
 impl TxBuffer {
@@ -37,11 +39,12 @@ impl TxBuffer {
 
 impl RxBuffer {
     /// Allocates a new buffer with length `buf_len`.
-    pub(crate) fn new(idx: usize, buf_len: usize) -> Self {
+    pub(crate) fn new(idx: usize, buf_len: usize, legacy_header: bool) -> Self {
         Self {
             buf: vec![0; buf_len / size_of::<usize>()],
             packet_len: 0,
             idx: idx.try_into().unwrap(),
+            legacy_header,
         }
     }
 
@@ -66,18 +69,36 @@ impl RxBuffer {
         self.buf.as_mut_bytes()
     }
 
-    /// Returns the reference of the header.
-    pub fn header(&self) -> &VirtioNetHdr {
-        FromBytes::ref_from_prefix(self.as_bytes()).unwrap().0
+    /// Returns a copy of the header.
+    pub fn header(&self) -> VirtioNetHdr {
+        if self.legacy_header {
+            VirtioNetHdrLegacy::ref_from_prefix(self.as_bytes())
+                .unwrap()
+                .0
+                .into()
+        } else {
+            *VirtioNetHdr::ref_from_prefix(self.as_bytes()).unwrap().0
+        }
     }
 
     /// Returns the network packet as a slice.
     pub fn packet(&self) -> &[u8] {
-        &self.buf.as_bytes()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
+        let hdr_size = if self.legacy_header {
+            size_of::<VirtioNetHdrLegacy>()
+        } else {
+            size_of::<VirtioNetHdr>()
+        };
+
+        &self.buf.as_bytes()[hdr_size..hdr_size + self.packet_len]
     }
 
     /// Returns the network packet as a mutable slice.
     pub fn packet_mut(&mut self) -> &mut [u8] {
-        &mut self.buf.as_mut_bytes()[NET_HDR_SIZE..NET_HDR_SIZE + self.packet_len]
+        let hdr_size = if self.legacy_header {
+            size_of::<VirtioNetHdrLegacy>()
+        } else {
+            size_of::<VirtioNetHdr>()
+        };
+        &mut self.buf.as_mut_bytes()[hdr_size..hdr_size + self.packet_len]
     }
 }

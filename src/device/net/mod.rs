@@ -16,7 +16,6 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const MAX_BUFFER_LEN: usize = 65535;
 const MIN_BUFFER_LEN: usize = 1526;
-const NET_HDR_SIZE: usize = core::mem::size_of::<VirtioNetHdr>();
 
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -119,6 +118,22 @@ type EthernetAddress = [u8; 6];
 /// In each case, the packet itself is preceded by a header.
 #[repr(C)]
 #[derive(Debug, Default, FromBytes, Immutable, IntoBytes, KnownLayout)]
+pub(crate) struct VirtioNetHdrLegacy {
+    flags: Flags,
+    gso_type: GsoType,
+    hdr_len: u16, // cannot rely on this
+    gso_size: u16,
+    csum_start: u16,
+    csum_offset: u16,
+}
+
+/// VirtIO 5.1.6 Device Operation:
+///
+/// Packets are transmitted by placing them in the transmitq1. . .transmitqN,
+/// and buffers for incoming packets are placed in the receiveq1. . .receiveqN.
+/// In each case, the packet itself is preceded by a header.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, FromBytes, Immutable, IntoBytes, KnownLayout)]
 pub struct VirtioNetHdr {
     flags: Flags,
     gso_type: GsoType,
@@ -126,8 +141,31 @@ pub struct VirtioNetHdr {
     gso_size: u16,
     csum_start: u16,
     csum_offset: u16,
-    // num_buffers: u16, // only available when the feature MRG_RXBUF is negotiated.
+    num_buffers: u16,
     // payload starts from here
+}
+
+impl From<&VirtioNetHdrLegacy> for VirtioNetHdr {
+    fn from(legacy: &VirtioNetHdrLegacy) -> Self {
+        let VirtioNetHdrLegacy {
+            flags,
+            gso_type,
+            hdr_len,
+            gso_size,
+            csum_start,
+            csum_offset,
+        } = *legacy;
+
+        Self {
+            flags,
+            gso_type,
+            hdr_len,
+            gso_size,
+            csum_start,
+            csum_offset,
+            num_buffers: 0,
+        }
+    }
 }
 
 #[derive(
