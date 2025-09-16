@@ -14,7 +14,8 @@ const QUEUE_SIZE: u16 = 16;
 const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
     .union(BlkFeature::FLUSH)
     .union(BlkFeature::RING_INDIRECT_DESC)
-    .union(BlkFeature::RING_EVENT_IDX);
+    .union(BlkFeature::RING_EVENT_IDX)
+    .union(BlkFeature::VERSION_1);
 
 /// Driver for a VirtIO block device.
 ///
