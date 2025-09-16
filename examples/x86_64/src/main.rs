@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(asm_const)]
 #![feature(abi_x86_interrupt)]
 
 #[macro_use]
