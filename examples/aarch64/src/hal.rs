@@ -48,5 +48,5 @@ unsafe impl Hal for HalImpl {
 }
 
 fn virt_to_phys(vaddr: usize) -> PhysAddr {
-    vaddr
+    vaddr as _
 }
