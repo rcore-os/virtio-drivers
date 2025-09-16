@@ -506,12 +506,6 @@ impl From<PciError> for VirtioPciError {
     }
 }
 
-// SAFETY: The `vaddr` field of `VirtioPciError::Misaligned` is only used for debug output.
-unsafe impl Send for VirtioPciError {}
-
-// SAFETY: The `vaddr` field of `VirtioPciError::Misaligned` is only used for debug output.
-unsafe impl Sync for VirtioPciError {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
