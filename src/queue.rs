@@ -443,7 +443,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 // `indirect_list` is owned by this function and is not accessed from any other threads.
                 unsafe {
                     H::unshare(
-                        paddr as usize,
+                        paddr,
                         indirect_list.as_mut_bytes().into(),
                         BufferDirection::DriverToDevice,
                     );
@@ -459,7 +459,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                     unsafe {
                         // Unshare the buffer (and perhaps copy its contents back to the original
                         // buffer).
-                        H::unshare(indirect_list[i].addr as usize, buffer, direction);
+                        H::unshare(indirect_list[i].addr, buffer, direction);
                     }
                 }
                 drop(indirect_list);
@@ -487,7 +487,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 // from which we got `paddr`.
                 unsafe {
                     // Unshare the buffer (and perhaps copy its contents back to the original buffer).
-                    H::unshare(paddr as usize, buffer, direction);
+                    H::unshare(paddr, buffer, direction);
                 }
             }
 
@@ -640,12 +640,12 @@ impl<H: Hal> VirtQueueLayout<H> {
         match self {
             Self::Legacy {
                 dma, avail_offset, ..
-            } => dma.paddr() + avail_offset,
+            } => dma.paddr() + *avail_offset as u64,
             Self::Modern {
                 driver_to_device_dma,
                 avail_offset,
                 ..
-            } => driver_to_device_dma.paddr() + avail_offset,
+            } => driver_to_device_dma.paddr() + *avail_offset as u64,
         }
     }
 
@@ -668,7 +668,7 @@ impl<H: Hal> VirtQueueLayout<H> {
         match self {
             Self::Legacy {
                 used_offset, dma, ..
-            } => dma.paddr() + used_offset,
+            } => dma.paddr() + *used_offset as u64,
             Self::Modern {
                 device_to_driver_dma,
                 ..
@@ -699,7 +699,7 @@ fn queue_part_sizes(queue_size: u16) -> (usize, usize, usize) {
         queue_size.is_power_of_two(),
         "queue size should be a power of 2"
     );
-    let queue_size = queue_size as usize;
+    let queue_size = usize::from(queue_size);
     let desc = size_of::<Descriptor>() * queue_size;
     let avail = size_of::<u16>() * (3 + queue_size);
     let used = size_of::<u16>() * 3 + size_of::<UsedElem>() * queue_size;
@@ -729,7 +729,7 @@ impl Descriptor {
     ) {
         // SAFETY: Our caller promises that the buffer is valid.
         unsafe {
-            self.addr = H::share(buf, direction) as u64;
+            self.addr = H::share(buf, direction);
         }
         self.len = buf.len().try_into().unwrap();
         self.flags = extra_flags

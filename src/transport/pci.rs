@@ -283,9 +283,9 @@ impl Transport for PciTransport {
     ) {
         field!(self.common_cfg, queue_select).write(queue);
         field!(self.common_cfg, queue_size).write(size as u16);
-        field!(self.common_cfg, queue_desc).write(descriptors as u64);
-        field!(self.common_cfg, queue_driver).write(driver_area as u64);
-        field!(self.common_cfg, queue_device).write(device_area as u64);
+        field!(self.common_cfg, queue_desc).write(descriptors);
+        field!(self.common_cfg, queue_driver).write(driver_area);
+        field!(self.common_cfg, queue_device).write(device_area);
         field!(self.common_cfg, queue_enable).write(1);
     }
 

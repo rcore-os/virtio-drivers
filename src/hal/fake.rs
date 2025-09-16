@@ -82,9 +82,9 @@ unsafe impl Hal for FakeHal {
 }
 
 fn virt_to_phys(vaddr: usize) -> PhysAddr {
-    vaddr
+    vaddr as _
 }
 
 fn phys_to_virt(paddr: PhysAddr) -> usize {
-    paddr
+    paddr as _
 }
