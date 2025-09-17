@@ -57,10 +57,9 @@ const FDT_BASE: u64 = 0x9990_0000;
 #[link(name = "startup", kind = "static")]
 unsafe extern "C" {
     fn _start();
-    fn _get_dtb_loc() -> u64;
 }
 #[unsafe(no_mangle)]
-extern "C" fn main() -> ! {
+extern "C" fn main(_dtb_loc: u64) -> ! {
     let mut uart =
         Uart::new(unsafe { UniqueMmioPointer::new(NonNull::new(UART_BASE_ADDRESS).unwrap()) });
     uart.enable(
@@ -80,15 +79,33 @@ extern "C" fn main() -> ! {
         SpinMutexGuard::leak(HEAP.try_lock().unwrap()).as_mut_slice(),
     );
 
-    let boot_dtb_loc = unsafe { _get_dtb_loc() };
+    info!("main() received _dtb_loc parameter: {:#018x}", _dtb_loc);
     let fdt_location: u64 = {
-        if boot_dtb_loc != 0 { boot_dtb_loc }
+        if _dtb_loc != 0 { _dtb_loc }
         else { FDT_BASE }
     };
-    info!("Loading FDT from {:#08x}", fdt_location);
+    info!("Loading FDT from {:#018x}", fdt_location);
     // Safe because the pointer is a valid pointer to unaliased memory.
-    let fdt = unsafe { Fdt::from_ptr(fdt_location as *const u8).unwrap() };
-    info!("Loaded FDT, {} bytes", fdt.total_size());
+    let fdt = match unsafe { Fdt::from_ptr(fdt_location as *const u8) } {
+        Ok(fdt) => {
+            info!("Loaded FDT, {} bytes", fdt.total_size());
+            fdt
+        }
+        Err(e) => {
+            error!("Failed to parse FDT at {:#018x}: {:?}", fdt_location, e);
+            info!("Trying fallback FDT_BASE location: {:#018x}", FDT_BASE);
+            match unsafe { Fdt::from_ptr(FDT_BASE as *const u8) } {
+                Ok(fdt) => {
+                    info!("Loaded FDT from fallback, {} bytes", fdt.total_size());
+                    fdt
+                }
+                Err(e2) => {
+                    error!("Failed to parse FDT at fallback location: {:?}", e2);
+                    panic!("Cannot load FDT from any location");
+                }
+            }
+        }
+    };
 
     for node in fdt.all_nodes() {
         // Dump information about the node for debugging.
