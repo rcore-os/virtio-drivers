@@ -66,6 +66,8 @@ pub use safe_mmio::UniqueMmioPointer;
 /// The page size in bytes supported by the library (4 KiB).
 pub const PAGE_SIZE: usize = 0x1000;
 
+const PAGE_SIZE_PHYS: PhysAddr = PAGE_SIZE as PhysAddr;
+
 /// The type returned by driver methods.
 pub type Result<T = ()> = core::result::Result<T, Error>;
 
@@ -117,6 +119,11 @@ impl From<alloc::string::FromUtf8Error> for Error {
 /// Align `size` up to a page.
 fn align_up(size: usize) -> usize {
     (size + PAGE_SIZE) & !(PAGE_SIZE - 1)
+}
+
+/// Align `size` up to a page.
+fn align_up_phys(size: PhysAddr) -> PhysAddr {
+    (size + PAGE_SIZE_PHYS) & !(PAGE_SIZE_PHYS - 1)
 }
 
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.

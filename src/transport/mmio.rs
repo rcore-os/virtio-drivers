@@ -1,7 +1,10 @@
 //! MMIO transport for VirtIO.
 
 use super::{DeviceStatus, DeviceType, DeviceTypeError, Transport};
-use crate::{align_up, queue::Descriptor, transport::InterruptStatus, Error, PhysAddr, PAGE_SIZE};
+use crate::{
+    align_up_phys, queue::Descriptor, transport::InterruptStatus, Error, PhysAddr, PAGE_SIZE,
+    PAGE_SIZE_PHYS,
+};
 use core::{
     convert::{TryFrom, TryInto},
     mem::{align_of, size_of},
@@ -403,18 +406,18 @@ impl Transport for MmioTransport<'_> {
             MmioVersion::Legacy => {
                 assert_eq!(
                     driver_area - descriptors,
-                    size_of::<Descriptor>() * size as usize
+                    size_of::<Descriptor>() as u64 * u64::from(size)
                 );
                 assert_eq!(
                     device_area - descriptors,
-                    align_up(
-                        size_of::<Descriptor>() * size as usize
-                            + size_of::<u16>() * (size as usize + 3)
+                    align_up_phys(
+                        size_of::<Descriptor>() as u64 * u64::from(size)
+                            + size_of::<u16>() as u64 * (u64::from(size) + 3)
                     )
                 );
                 let align = PAGE_SIZE as u32;
-                let pfn = (descriptors / PAGE_SIZE) as u32;
-                assert_eq!(pfn as usize * PAGE_SIZE, descriptors);
+                let pfn = (descriptors / PAGE_SIZE_PHYS).try_into().unwrap();
+                assert_eq!(u64::from(pfn) * PAGE_SIZE_PHYS, descriptors);
                 field!(self.header, queue_sel).write(queue.into());
                 field!(self.header, queue_num).write(size);
                 field!(self.header, legacy_queue_align).write(align);

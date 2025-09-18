@@ -185,7 +185,7 @@ impl<C: ConfigurationAccess> PciRoot<C> {
     }
 
     /// Gets an iterator over the capabilities of the given device function.
-    pub fn capabilities(&self, device_function: DeviceFunction) -> CapabilityIterator<C> {
+    pub fn capabilities(&self, device_function: DeviceFunction) -> CapabilityIterator<'_, C> {
         CapabilityIterator {
             configuration_access: &self.configuration_access,
             device_function,

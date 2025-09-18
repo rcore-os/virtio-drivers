@@ -43,7 +43,7 @@ pub fn cpuid_signature() -> [u8; 4] {
 }
 
 /// Asks the hypervisor to perform an IO read at the given physical address.
-pub fn hyp_io_read(address: usize, size: usize) -> u64 {
+pub fn hyp_io_read(address: u64, size: usize) -> u64 {
     let data;
 
     // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
@@ -66,7 +66,7 @@ pub fn hyp_io_read(address: usize, size: usize) -> u64 {
 }
 
 /// Asks the hypervisor to perform an IO write at the given physical address.
-pub fn hyp_io_write(address: usize, size: usize, data: u64) {
+pub fn hyp_io_write(address: u64, size: usize, data: u64) {
     // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
     // using a named argument in the inline asm for rbx would be more straightforward but when
     // "rbx" is used directly used LLVM complains that it is used internally.
@@ -90,7 +90,7 @@ pub fn hyp_io_write(address: usize, size: usize, data: u64) {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HypIoRegion {
     /// The physical address of the start of the IO region.
-    pub paddr: usize,
+    pub paddr: u64,
     /// The size of the IO region in bytes.
     pub size: usize,
 }
@@ -100,7 +100,7 @@ impl HypIoRegion {
         assert!(offset + size_of::<T>() <= self.size);
         assert!(size_of::<T>() <= HYP_IO_MAX);
 
-        let data = hyp_io_read(self.paddr + offset, size_of::<T>());
+        let data = hyp_io_read(self.paddr + offset as u64, size_of::<T>());
         T::read_from_prefix(data.as_bytes()).unwrap().0
     }
 
@@ -110,6 +110,6 @@ impl HypIoRegion {
 
         let mut data = 0;
         data.as_mut_bytes()[..size_of::<T>()].copy_from_slice(value.as_bytes());
-        hyp_io_write(self.paddr + offset, size_of::<T>(), data);
+        hyp_io_write(self.paddr + offset as u64, size_of::<T>(), data);
     }
 }

@@ -1,6 +1,6 @@
 use core::{
     ptr::NonNull,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 use lazy_static::lazy_static;
 use log::trace;
@@ -11,15 +11,14 @@ extern "C" {
 }
 
 lazy_static! {
-    static ref DMA_PADDR: AtomicUsize =
-        AtomicUsize::new(unsafe { &dma_region as *const u8 as usize });
+    static ref DMA_PADDR: AtomicU64 = AtomicU64::new(unsafe { &dma_region as *const u8 as u64 });
 }
 
 pub struct HalImpl;
 
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
-        let paddr = DMA_PADDR.fetch_add(PAGE_SIZE * pages, Ordering::SeqCst);
+        let paddr = DMA_PADDR.fetch_add((PAGE_SIZE * pages) as u64, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
         let vaddr = NonNull::new(paddr as _).unwrap();
         (paddr, vaddr)
@@ -47,5 +46,5 @@ unsafe impl Hal for HalImpl {
 }
 
 fn virt_to_phys(vaddr: usize) -> PhysAddr {
-    vaddr
+    vaddr as _
 }

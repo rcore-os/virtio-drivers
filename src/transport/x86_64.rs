@@ -220,9 +220,9 @@ impl Transport for HypPciTransport {
     ) {
         configwrite!(self.common_cfg, queue_select, queue);
         configwrite!(self.common_cfg, queue_size, size as u16);
-        configwrite!(self.common_cfg, queue_desc, descriptors as u64);
-        configwrite!(self.common_cfg, queue_driver, driver_area as u64);
-        configwrite!(self.common_cfg, queue_device, device_area as u64);
+        configwrite!(self.common_cfg, queue_desc, descriptors);
+        configwrite!(self.common_cfg, queue_driver, driver_area);
+        configwrite!(self.common_cfg, queue_device, device_area);
         configwrite!(self.common_cfg, queue_enable, 1u16);
     }
 
@@ -301,9 +301,9 @@ fn get_bar_region<T, C: ConfigurationAccess>(
         return Err(VirtioPciError::BarOffsetOutOfRange);
     }
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
-    if paddr % align_of::<T>() != 0 {
+    if paddr % (align_of::<T>() as u64) != 0 {
         return Err(VirtioPciError::Misaligned {
-            address: paddr,
+            address: paddr as usize,
             alignment: align_of::<T>(),
         });
     }

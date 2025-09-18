@@ -5,12 +5,12 @@ use crate::{Error, Result, PAGE_SIZE};
 use core::{marker::PhantomData, ptr::NonNull};
 
 /// A physical address as used for virtio.
-pub type PhysAddr = usize;
+pub type PhysAddr = u64;
 
 /// A region of contiguous physical memory used for DMA.
 #[derive(Debug)]
 pub struct Dma<H: Hal> {
-    paddr: usize,
+    paddr: PhysAddr,
     vaddr: NonNull<u8>,
     pages: usize,
     _hal: PhantomData<H>,
@@ -42,7 +42,7 @@ impl<H: Hal> Dma<H> {
     }
 
     /// Returns the physical address of the start of the DMA region, as seen by devices.
-    pub fn paddr(&self) -> usize {
+    pub fn paddr(&self) -> PhysAddr {
         self.paddr
     }
 
