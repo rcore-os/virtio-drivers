@@ -67,6 +67,13 @@ cd examples/riscv
 make qemu
 ```
 
+### [hexagon](./examples/hexagon)
+
+```bash
+cd examples/hexagon
+make qemu
+```
+
 You will see device info & GUI Window in qemu.
 
 <img decoding="async" src="https://github.com/rcore-os/virtio-drivers/raw/master/examples/riscv/virtio-test-gpu.png" width="50%">

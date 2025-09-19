@@ -1,0 +1,13 @@
+[build]
+target = "hexagon-unknown-none-elf"
+
+[target.hexagon-unknown-none-elf]
+linker = "ld.eld"
+rustflags = [
+    "-C", "link-arg=-Tlinker32.ld",
+    "-C", "link-arg=-G0",
+    "-C", "target-cpu=hexagonv65",
+]
+
+[unstable]
+build-std = ["core", "alloc"]

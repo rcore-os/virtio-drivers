@@ -1,0 +1,20 @@
+[package]
+name = "hexagon"
+version = "0.1.0"
+authors = ["Brian Cain <brian.cain@oss.qualcomm.com>"]
+edition = "2024"
+
+[dependencies]
+log = "0.4.27"
+virtio-drivers = { path = "../.." }
+zerocopy = { version = "0.8.24", features = [] }
+arm-pl011-uart = "0.3.0"
+safe-mmio = "0.2.4"
+spin = "0.10.0"
+buddy_system_allocator = { version = "0.11.0" }
+flat_device_tree = "3.1.1"
+
+
+[build-dependencies]
+cc = "1.0"
+
