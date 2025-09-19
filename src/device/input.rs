@@ -196,6 +196,16 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             Err(Error::IoError)
         }
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
 }
 
 // SAFETY: The config space can be accessed from any thread.
