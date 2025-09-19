@@ -1,9 +1,11 @@
+use alloc::sync::Arc;
+
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::{mmio::MmioTransport, pci::PciTransport, DeviceStatus, DeviceType, Transport};
 use crate::{transport::InterruptStatus, PhysAddr, Result};
 
-/// A wrapper for an arbitrary VirtIO transport, either MMIO or PCI.
+/// A wrapper for an arbitrary VirtIO transport, either MMIO, PCI, or Arc<SomeTransport>
 #[derive(Debug)]
 pub enum SomeTransport {
     /// An MMIO transport.
@@ -13,6 +15,8 @@ pub enum SomeTransport {
     /// An x86-64 pKVM PCI transport.
     #[cfg(target_arch = "x86_64")]
     HypPci(super::x86_64::HypPciTransport),
+    /// An `Arc` around one of the other transport types
+    Arc(Arc<SomeTransport>),
 }
 
 impl From<MmioTransport> for SomeTransport {
@@ -34,6 +38,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.device_type(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.device_type(),
+            Self::Arc(some) => some.device_type(),
         }
     }
 
@@ -43,6 +48,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.read_device_features(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.read_device_features(),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().read_device_features(),
         }
     }
 
@@ -52,6 +58,9 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.write_driver_features(driver_features),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.write_driver_features(driver_features),
+            Self::Arc(some) => Arc::get_mut(some)
+                .unwrap()
+                .write_driver_features(driver_features),
         }
     }
 
@@ -61,6 +70,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.max_queue_size(queue),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.max_queue_size(queue),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().max_queue_size(queue),
         }
     }
 
@@ -70,6 +80,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.notify(queue),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.notify(queue),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().notify(queue),
         }
     }
 
@@ -79,6 +90,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.get_status(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.get_status(),
+            Self::Arc(some) => some.get_status(),
         }
     }
 
@@ -88,6 +100,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.set_status(status),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.set_status(status),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().set_status(status),
         }
     }
 
@@ -97,6 +110,9 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.set_guest_page_size(guest_page_size),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.set_guest_page_size(guest_page_size),
+            Self::Arc(some) => Arc::get_mut(some)
+                .unwrap()
+                .set_guest_page_size(guest_page_size),
         }
     }
 
@@ -106,6 +122,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.requires_legacy_layout(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.requires_legacy_layout(),
+            Self::Arc(some) => some.requires_legacy_layout(),
         }
     }
 
@@ -122,6 +139,13 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.queue_set(queue, size, descriptors, driver_area, device_area),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.queue_set(queue, size, descriptors, driver_area, device_area),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().queue_set(
+                queue,
+                size,
+                descriptors,
+                driver_area,
+                device_area,
+            ),
         }
     }
 
@@ -131,6 +155,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.queue_unset(queue),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.queue_unset(queue),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().queue_unset(queue),
         }
     }
 
@@ -140,6 +165,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.queue_used(queue),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.queue_used(queue),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().queue_used(queue),
         }
     }
 
@@ -149,6 +175,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.ack_interrupt(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.ack_interrupt(),
+            Self::Arc(some) => Arc::get_mut(some).unwrap().ack_interrupt(),
         }
     }
 
@@ -158,6 +185,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.read_config_generation(),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.read_config_generation(),
+            Self::Arc(some) => some.read_config_generation(),
         }
     }
 
@@ -167,6 +195,7 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.read_config_space(offset),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.read_config_space(offset),
+            Self::Arc(some) => some.read_config_space(offset),
         }
     }
 
@@ -180,6 +209,9 @@ impl Transport for SomeTransport {
             Self::Pci(pci) => pci.write_config_space(offset, value),
             #[cfg(target_arch = "x86_64")]
             Self::HypPci(pci) => pci.write_config_space(offset, value),
+            Self::Arc(some) => Arc::get_mut(some)
+                .unwrap()
+                .write_config_space(offset, value),
         }
     }
 }
