@@ -624,7 +624,7 @@ impl<C: ConfigurationAccess> Iterator for BusDeviceIterator<C> {
 }
 
 /// An identifier for a PCI bus, device and function.
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct DeviceFunction {
     /// The PCI bus number, between 0 and 255.
     pub bus: u8,
