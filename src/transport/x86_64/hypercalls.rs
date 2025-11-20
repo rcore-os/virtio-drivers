@@ -9,9 +9,9 @@ const KVM_CPUID_SIGNATURE: u32 = 0x40000000;
 
 // See `include/uapi/linux/kvm_para.h`. (These hypercalls numbers can change depending on the
 // upstream progress.)
-const KVM_HC_PKVM_OP: u32 = 20;
-const PKVM_GHC_IOREAD: u32 = KVM_HC_PKVM_OP + 3;
-const PKVM_GHC_IOWRITE: u32 = KVM_HC_PKVM_OP + 4;
+const KVM_HC_PKVM_OP: u64 = 20;
+const PKVM_GHC_IOREAD: u64 = KVM_HC_PKVM_OP + 3;
+const PKVM_GHC_IOWRITE: u64 = KVM_HC_PKVM_OP + 4;
 
 /// The maximum number of bytes that can be read or written by a single IO hypercall.
 const HYP_IO_MAX: usize = 8;
@@ -42,48 +42,59 @@ pub fn cpuid_signature() -> [u8; 4] {
     signature.to_le_bytes()
 }
 
-/// Asks the hypervisor to perform an IO read at the given physical address.
-pub fn hyp_io_read(address: u64, size: usize) -> u64 {
-    let data;
+fn __vmcall_impl(hypcall: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
+    let ret: u64;
 
-    // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
-    // using a named argument in the inline asm for rbx would be more straightforward, but when
-    // "rbx" is used directly LLVM complains that it is used internally.
+    // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx, rdx and rsi.
+    // Ideally using a named argument in the inline asm for rbx would be more straightforward,
+    // but when "rbx" is used directly LLVM complains that it is used internally.
     //
-    // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx again.
+    // Therefore use temp register to store rbx content and restore it back afterwards.
     unsafe {
         asm!(
-            "push rbx",
-            "mov rbx, r8",
+            "xchg %rbx, {0:r}",
             "vmcall",
-            "pop rbx",
-            inout("rax") u64::from(PKVM_GHC_IOREAD) => data,
-            in("r8") address,
-            in("rcx") size,
+            "xchg %rbx, {0:r}",
+            in(reg) a1,
+            inout("rax") hypcall => ret,
+            in("rcx") a2,
+            in("rdx") a3,
+            in("rsi") a4,
+            options(att_syntax)
         );
-    }
-    data
+    };
+    ret
+}
+
+// This block uses inline assembly to perform a vmcall, interacting directly with the hypervisor.
+// The pKVM hypervisor can share RAX/RBX/RCX/RDX/RSI with pKVM host during hypercall
+// handling.
+macro_rules! vmcall {
+    ($hypcall:expr) => {
+        __vmcall_impl($hypcall, 0, 0, 0, 0)
+    };
+    ($hypcall:expr, $a1:expr) => {
+        __vmcall_impl($hypcall, $a1, 0, 0, 0)
+    };
+    ($hypcall:expr, $a1:expr, $a2:expr) => {
+        __vmcall_impl($hypcall, $a1, $a2, 0, 0)
+    };
+    ($hypcall:expr, $a1:expr, $a2:expr, $a3:expr) => {
+        __vmcall_impl($hypcall, $a1, $a2, $a3, 0)
+    };
+    ($hypcall:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr) => {
+        __vmcall_impl($hypcall, $a1, $a2, $a3, $a4)
+    };
+}
+
+/// Asks the hypervisor to perform an IO read at the given physical address.
+pub fn hyp_io_read(address: u64, size: usize) -> u64 {
+    vmcall!(PKVM_GHC_IOREAD, address, size as u64)
 }
 
 /// Asks the hypervisor to perform an IO write at the given physical address.
 pub fn hyp_io_write(address: u64, size: usize, data: u64) {
-    // SAFETY: Assembly call. Arguments for vmcall are passed via rax, rbx, rcx and rdx. Ideally
-    // using a named argument in the inline asm for rbx would be more straightforward but when
-    // "rbx" is used directly used LLVM complains that it is used internally.
-    //
-    // Therefore use r8 temporary, push rbx to the stack, perform proper call and pop rbx again.
-    unsafe {
-        asm!(
-            "push rbx",
-            "mov rbx, r8",
-            "vmcall",
-            "pop rbx",
-            in("rax") PKVM_GHC_IOWRITE,
-            in("r8") address,
-            in("rcx") size,
-            in("rdx") data,
-        );
-    }
+    vmcall!(PKVM_GHC_IOWRITE, address, size as u64, data);
 }
 
 /// A region of physical address space which may be accessed by IO read and/or write hypercalls.
