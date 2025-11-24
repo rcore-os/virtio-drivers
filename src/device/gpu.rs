@@ -183,6 +183,16 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         Ok(())
     }
 
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
+
     /// Send a request to the device and block for a response.
     fn request<Req: IntoBytes + Immutable, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
         req.write_to_prefix(&mut self.queue_buf_send).unwrap();
