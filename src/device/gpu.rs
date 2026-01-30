@@ -715,195 +715,125 @@ fn parse_edid_standard_timings(edid: &[u8; 1024], size: u32) -> alloc::vec::Vec<
 mod tests {
     use super::*;
 
-    /// Build a minimal 128-byte EDID with a Detailed Timing Descriptor
-    /// encoding the given resolution.
-    fn make_edid(width: u32, height: u32) -> [u8; 1024] {
+    /// Real EDID captured from QEMU virtio-GPU with `-device virtio-gpu,xres=1920,yres=1080`.
+    /// QEMU generates this EDID dynamically. The base block (bytes 0-127) contains:
+    /// - Manufacturer: "RHT" (Red Hat), product code 0x1234
+    /// - DTD1 preferred mode: 1920x1080 @ 60Hz
+    /// - 8 Standard Timings: 2048x1152, 1920x1080, 1920x1200, 1600x1200,
+    ///   1680x1050, 1440x900, 1280x1024, 1280x960
+    /// - CEA extension block (bytes 128-255) with SVDs for additional modes
+    /// Remaining bytes (256-1023) are zero-padded by the virtio-GPU device.
+    fn qemu_edid() -> [u8; 1024] {
         let mut edid = [0u8; 1024];
-        // EDID header (bytes 0-7)
-        edid[0] = 0x00;
-        edid[1] = 0xFF;
-        edid[2] = 0xFF;
-        edid[3] = 0xFF;
-        edid[4] = 0xFF;
-        edid[5] = 0xFF;
-        edid[6] = 0xFF;
-        edid[7] = 0x00;
-
-        // First Detailed Timing Descriptor at byte 54 (0x36)
-        // Pixel clock must be non-zero for a valid DTD
-        edid[0x36] = 0x01; // pixel clock low byte (non-zero)
-        edid[0x37] = 0x00; // pixel clock high byte
-
-        // Horizontal active: lower 8 bits at 0x38, upper 4 at high nibble of 0x3A
-        edid[0x38] = (width & 0xFF) as u8;
-        let h_blank: u32 = 0;
-        edid[0x39] = (h_blank & 0xFF) as u8;
-        edid[0x3A] = (((width >> 8) & 0x0F) << 4) as u8 | ((h_blank >> 8) & 0x0F) as u8;
-
-        // Vertical active: lower 8 bits at 0x3B, upper 4 at high nibble of 0x3D
-        edid[0x3B] = (height & 0xFF) as u8;
-        let v_blank: u32 = 0;
-        edid[0x3C] = (v_blank & 0xFF) as u8;
-        edid[0x3D] = (((height >> 8) & 0x0F) << 4) as u8 | ((v_blank >> 8) & 0x0F) as u8;
-
+        let data: [u8; 256] = [
+            // Base EDID block (128 bytes)
+            0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x49, 0x14, 0x34, 0x12, 0x00, 0x00,
+            0x00, 0x00, 0x2a, 0x18, 0x01, 0x04, 0xa5, 0x30, 0x1b, 0x78, 0x06, 0xee, 0x91, 0xa3,
+            0x54, 0x4c, 0x99, 0x26, 0x0f, 0x50, 0x54, 0x21, 0x08, 0x00, 0xe1, 0xc0, 0xd1, 0xc0,
+            0xd1, 0x00, 0xa9, 0x40, 0xb3, 0x00, 0x95, 0x00, 0x81, 0x80, 0x81, 0x40, 0xd2, 0x54,
+            0x80, 0xa0, 0x72, 0x38, 0x25, 0x40, 0xe0, 0x39, 0x55, 0x40, 0xe7, 0x12, 0x11, 0x00,
+            0x00, 0x18, 0x00, 0x00, 0x00, 0xf7, 0x00, 0x0a, 0x00, 0x40, 0x82, 0x00, 0x28, 0x20,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x32, 0x7d, 0x1e,
+            0xa0, 0xff, 0x01, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0xfc,
+            0x00, 0x51, 0x45, 0x4d, 0x55, 0x20, 0x4d, 0x6f, 0x6e, 0x69, 0x74, 0x6f, 0x72, 0x0a,
+            0x01, 0xb0, // CEA extension block (128 bytes)
+            0x02, 0x03, 0x0b, 0x00, 0x46, 0x7d, 0x65, 0x60, 0x59, 0x1f, 0x61, 0x00, 0x00, 0x00,
+            0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x2f,
+        ];
+        edid[..256].copy_from_slice(&data);
         edid
     }
 
     #[test]
-    fn parse_edid_1920x1080() {
-        let edid = make_edid(1920, 1080);
-        let (w, h) = parse_edid_preferred_resolution(&edid, 128).unwrap();
-        assert_eq!(w, 1920);
-        assert_eq!(h, 1080);
+    fn qemu_edid_preferred_resolution() {
+        let edid = qemu_edid();
+        let (w, h) = parse_edid_preferred_resolution(&edid, 256).unwrap();
+        assert_eq!((w, h), (1920, 1080));
     }
 
     #[test]
-    fn parse_edid_1280x800() {
-        let edid = make_edid(1280, 800);
-        let (w, h) = parse_edid_preferred_resolution(&edid, 128).unwrap();
-        assert_eq!(w, 1280);
-        assert_eq!(h, 800);
+    fn qemu_edid_standard_timings() {
+        let edid = qemu_edid();
+        let res = parse_edid_standard_timings(&edid, 256);
+        // QEMU advertises 8 standard timings, sorted by total pixel count (largest first).
+        // Note: 1600x1200 (1,920,000 px) > 1680x1050 (1,764,000 px) despite narrower width,
+        // and 1280x1024 (1,310,720 px) > 1440x900 (1,296,000 px) for the same reason.
+        assert_eq!(
+            res,
+            vec![
+                (2048, 1152), // 16:9,  2,359,296 px
+                (1920, 1200), // 16:10, 2,304,000 px
+                (1920, 1080), // 16:9,  2,073,600 px
+                (1600, 1200), // 4:3,   1,920,000 px
+                (1680, 1050), // 16:10, 1,764,000 px
+                (1280, 1024), // 5:4,   1,310,720 px
+                (1440, 900),  // 16:10, 1,296,000 px
+                (1280, 960),  // 4:3,   1,228,800 px
+            ]
+        );
     }
 
     #[test]
-    fn parse_edid_640x480() {
-        let edid = make_edid(640, 480);
-        let (w, h) = parse_edid_preferred_resolution(&edid, 128).unwrap();
-        assert_eq!(w, 640);
-        assert_eq!(h, 480);
+    fn qemu_edid_highest_resolution_is_2048x1152() {
+        let edid = qemu_edid();
+        let res = parse_edid_standard_timings(&edid, 256);
+        assert_eq!(res.first(), Some(&(2048, 1152)));
     }
 
     #[test]
-    fn parse_edid_2560x1440() {
-        let edid = make_edid(2560, 1440);
-        let (w, h) = parse_edid_preferred_resolution(&edid, 128).unwrap();
-        assert_eq!(w, 2560);
-        assert_eq!(h, 1440);
-    }
-
-    #[test]
-    fn parse_edid_3840x2160() {
-        let edid = make_edid(3840, 2160);
-        let (w, h) = parse_edid_preferred_resolution(&edid, 128).unwrap();
-        assert_eq!(w, 3840);
-        assert_eq!(h, 2160);
-    }
-
-    #[test]
-    fn parse_edid_too_short() {
+    fn preferred_resolution_too_short() {
         let edid = [0u8; 1024];
         assert!(parse_edid_preferred_resolution(&edid, 64).is_err());
     }
 
     #[test]
-    fn parse_edid_zero_resolution() {
-        let edid = make_edid(0, 0);
-        assert!(parse_edid_preferred_resolution(&edid, 128).is_err());
+    fn preferred_resolution_zeroed_active_pixels() {
+        // Zero out horizontal and vertical active pixels in DTD1
+        let mut edid = qemu_edid();
+        edid[0x38] = 0x00; // h_active low
+        edid[0x3A] &= 0x0F; // h_active high nibble = 0
+        edid[0x3B] = 0x00; // v_active low
+        edid[0x3D] &= 0x0F; // v_active high nibble = 0
+        assert!(parse_edid_preferred_resolution(&edid, 256).is_err());
     }
 
     #[test]
-    fn parse_edid_zero_width() {
-        let edid = make_edid(0, 1080);
-        assert!(parse_edid_preferred_resolution(&edid, 128).is_err());
-    }
-
-    #[test]
-    fn parse_edid_zero_height() {
-        let edid = make_edid(1920, 0);
-        assert!(parse_edid_preferred_resolution(&edid, 128).is_err());
-    }
-
-    /// Encode a standard timing entry: h_pixels and aspect ratio (0=16:10, 1=4:3, 2=5:4, 3=16:9).
-    fn encode_standard_timing(h_pixels: u32, aspect: u8, refresh: u8) -> [u8; 2] {
-        let b0 = (h_pixels / 8 - 31) as u8;
-        let b1 = ((aspect & 0x03) << 6) | ((refresh - 60) & 0x3F);
-        [b0, b1]
-    }
-
-    fn make_edid_with_standard_timings(timings: &[[u8; 2]]) -> [u8; 1024] {
-        let mut edid = [0u8; 1024];
-        // Valid EDID header
-        edid[0] = 0x00;
-        edid[1] = 0xFF;
-        edid[2] = 0xFF;
-        edid[3] = 0xFF;
-        edid[4] = 0xFF;
-        edid[5] = 0xFF;
-        edid[6] = 0xFF;
-        edid[7] = 0x00;
-        // Fill standard timings (bytes 38-53), unused slots = 0x0101
-        for i in 0..8 {
-            if i < timings.len() {
-                edid[38 + i * 2] = timings[i][0];
-                edid[38 + i * 2 + 1] = timings[i][1];
-            } else {
-                edid[38 + i * 2] = 0x01;
-                edid[38 + i * 2 + 1] = 0x01;
-            }
-        }
-        edid
-    }
-
-    #[test]
-    fn standard_timings_parses_1920x1080() {
-        let timings = [encode_standard_timing(1920, 3, 60)]; // 16:9
-        let edid = make_edid_with_standard_timings(&timings);
-        let res = parse_edid_standard_timings(&edid, 128);
-        assert_eq!(res, vec![(1920, 1080)]);
-    }
-
-    #[test]
-    fn standard_timings_parses_multiple_sorted_by_size() {
-        let timings = [
-            encode_standard_timing(1280, 1, 60), // 4:3 → 1280x960
-            encode_standard_timing(1920, 3, 60), // 16:9 → 1920x1080
-            encode_standard_timing(640, 1, 60),  // 4:3 → 640x480
-        ];
-        let edid = make_edid_with_standard_timings(&timings);
-        let res = parse_edid_standard_timings(&edid, 128);
-        assert_eq!(res, vec![(1920, 1080), (1280, 960), (640, 480)]);
-    }
-
-    #[test]
-    fn standard_timings_skips_unused_entries() {
-        let timings = [
-            encode_standard_timing(1920, 3, 60),
-            [0x01, 0x01], // unused
-            encode_standard_timing(1280, 1, 60),
-        ];
-        let edid = make_edid_with_standard_timings(&timings);
-        let res = parse_edid_standard_timings(&edid, 128);
-        assert_eq!(res, vec![(1920, 1080), (1280, 960)]);
+    fn standard_timings_too_short() {
+        let edid = [0u8; 1024];
+        let res = parse_edid_standard_timings(&edid, 32);
+        assert!(res.is_empty());
     }
 
     #[test]
     fn standard_timings_all_unused() {
-        let edid = make_edid_with_standard_timings(&[]);
-        let res = parse_edid_standard_timings(&edid, 128);
+        // Overwrite all standard timing slots with 0x0101 (unused marker)
+        let mut edid = qemu_edid();
+        for i in 0..8 {
+            edid[38 + i * 2] = 0x01;
+            edid[38 + i * 2 + 1] = 0x01;
+        }
+        let res = parse_edid_standard_timings(&edid, 256);
         assert!(res.is_empty());
     }
 
     #[test]
-    fn standard_timings_too_short_edid() {
-        let edid = [0u8; 1024];
-        let res = parse_edid_standard_timings(&edid, 64);
-        assert!(res.is_empty());
-    }
-
-    #[test]
-    fn standard_timings_aspect_ratios() {
-        let timings = [
-            encode_standard_timing(1920, 0, 60), // 16:10 → 1920x1200
-            encode_standard_timing(1920, 1, 60), // 4:3 → 1920x1440
-            encode_standard_timing(1280, 2, 60), // 5:4 → 1280x1024
-            encode_standard_timing(1920, 3, 60), // 16:9 → 1920x1080
-        ];
-        let edid = make_edid_with_standard_timings(&timings);
-        let res = parse_edid_standard_timings(&edid, 128);
-        // Sorted by pixel count: 1920x1440, 1920x1200, 1920x1080, 1280x1024
-        assert_eq!(
-            res,
-            vec![(1920, 1440), (1920, 1200), (1920, 1080), (1280, 1024)]
-        );
+    fn standard_timings_partial_entries() {
+        // Keep only the first two standard timing entries, mark rest unused
+        let mut edid = qemu_edid();
+        for i in 2..8 {
+            edid[38 + i * 2] = 0x01;
+            edid[38 + i * 2 + 1] = 0x01;
+        }
+        let res = parse_edid_standard_timings(&edid, 256);
+        // First two entries from QEMU: 2048x1152 (16:9) and 1920x1080 (16:9)
+        assert_eq!(res, vec![(2048, 1152), (1920, 1080)]);
     }
 }
