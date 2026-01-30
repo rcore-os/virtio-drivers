@@ -170,41 +170,10 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         Ok(buf)
     }
 
-    /// Setup framebuffer with an explicit resolution, ignoring the display info
-    /// reported by the device. This is useful when the device reports a default
-    /// resolution (e.g. 640x480 from UEFI firmware) but the caller wants a
-    /// specific resolution.
-    pub fn setup_framebuffer_with_resolution(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<&mut [u8]> {
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        };
-        self.rect = Some(rect);
-
-        self.resource_create_2d(RESOURCE_ID_FB, width, height)?;
-
-        let size = width * height * 4;
-        let frame_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
-
-        self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
-        self.set_scanout(rect, SCANOUT_ID, RESOURCE_ID_FB)?;
-
-        let buf = unsafe { frame_buffer_dma.raw_slice().as_mut() };
-        self.frame_buffer_dma = Some(frame_buffer_dma);
-        Ok(buf)
-    }
-
-    /// Change the framebuffer resolution at runtime. Tears down the existing
-    /// framebuffer resource and creates a new one at the specified dimensions.
+    /// Set or change the framebuffer resolution. If a framebuffer already exists,
+    /// tears down the existing resource before creating the new one. Can be called
+    /// before or after [`setup_framebuffer`] to set an explicit resolution.
     /// Returns a mutable slice to the new framebuffer memory.
-    ///
-    /// The old DMA allocation is freed after the new one is set up.
     pub fn change_resolution(&mut self, width: u32, height: u32) -> Result<&mut [u8]> {
         let rect = Rect {
             x: 0,
@@ -213,15 +182,13 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             height,
         };
 
-        // Disable scanout while we reconfigure
-        self.set_scanout(Rect::default(), SCANOUT_ID, 0)?;
-
-        // Detach and destroy old resource
-        self.resource_detach_backing(RESOURCE_ID_FB)?;
-        self.resource_unref(RESOURCE_ID_FB)?;
-
-        // Drop old DMA allocation
-        self.frame_buffer_dma = None;
+        // Tear down existing framebuffer if one exists
+        if self.frame_buffer_dma.is_some() {
+            self.set_scanout(Rect::default(), SCANOUT_ID, 0)?;
+            self.resource_detach_backing(RESOURCE_ID_FB)?;
+            self.resource_unref(RESOURCE_ID_FB)?;
+            self.frame_buffer_dma = None;
+        }
 
         // Create new resource at new size
         self.rect = Some(rect);
