@@ -726,6 +726,16 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             }
         })
     }
+
+    /// Get the underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Get the underlying transport.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
 }
 
 /// The status of the PCM stream.
