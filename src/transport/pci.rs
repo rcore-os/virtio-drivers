@@ -438,7 +438,7 @@ fn get_bar_region<H: Hal, T, C: ConfigurationAccess>(
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
     // SAFETY: The paddr and size describe a valid MMIO region, at least according to the PCI bus.
     let vaddr = unsafe { H::mmio_phys_to_virt(paddr, struct_info.length as usize) };
-    if vaddr.as_ptr() as usize % align_of::<T>() != 0 {
+    if !(vaddr.as_ptr() as usize).is_multiple_of(align_of::<T>()) {
         return Err(VirtioPciError::Misaligned {
             address: vaddr.as_ptr() as usize,
             alignment: align_of::<T>(),

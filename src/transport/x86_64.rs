@@ -305,7 +305,7 @@ fn get_bar_region<T, C: ConfigurationAccess>(
         return Err(VirtioPciError::BarOffsetOutOfRange);
     }
     let paddr = bar_address as PhysAddr + struct_info.offset as PhysAddr;
-    if paddr % (align_of::<T>() as u64) != 0 {
+    if !paddr.is_multiple_of(align_of::<T>() as u64) {
         return Err(VirtioPciError::Misaligned {
             address: paddr as usize,
             alignment: align_of::<T>(),

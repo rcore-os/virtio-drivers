@@ -494,7 +494,7 @@ impl Transport for MmioTransport<'_> {
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>()
         );
-        assert!(offset % align_of::<T>() == 0);
+        assert!(offset.is_multiple_of(align_of::<T>()));
 
         if self.config_space.len() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
@@ -524,7 +524,7 @@ impl Transport for MmioTransport<'_> {
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
             align_of::<T>()
         );
-        assert!(offset % align_of::<T>() == 0);
+        assert!(offset.is_multiple_of(align_of::<T>()));
 
         if self.config_space.len() < offset + size_of::<T>() {
             Err(Error::ConfigSpaceTooSmall)
