@@ -200,6 +200,13 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
         self.set_scanout(rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
+        // SAFETY: `Dma::new` guarantees that the pointer returned from
+        // `raw_slice` is non-null, aligned, and the allocation is zeroed. We
+        // store the `Dma` object in `self.frame_buffer_dma`, which prevents the
+        // allocation from being freed while `self` exists. The returned ptr
+        // borrows `self` mutably, which prevents other code from getting
+        // another reference to `frame_buffer_dma` while the returned slice is
+        // still in use.
         let buf = unsafe { frame_buffer_dma.raw_slice().as_mut() };
         self.frame_buffer_dma = Some(frame_buffer_dma);
         Ok(buf)
