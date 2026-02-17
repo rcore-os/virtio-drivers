@@ -1,11 +1,16 @@
 //! Driver for VirtIO GPU devices.
 
+mod edid;
+
+pub use self::edid::Edid;
+
 use crate::config::{read_config, ReadOnly, WriteOnly};
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use log::info;
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
@@ -101,9 +106,9 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Get the EDID data for the specified scanout.
     ///
-    /// Returns the EDID blob (up to 1024 bytes) and its actual size.
+    /// Returns an [`Edid`] struct wrapping the EDID blob.
     /// Requires the EDID feature to have been negotiated.
-    pub fn get_edid(&mut self, scanout: u32) -> Result<([u8; 1024], u32)> {
+    pub fn get_edid(&mut self, scanout: u32) -> Result<Edid> {
         if !self.has_edid {
             return Err(Error::Unsupported);
         }
@@ -113,7 +118,10 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             _padding: 0,
         })?;
         rsp.header.check_type(Command::OK_EDID)?;
-        Ok((rsp.edid, rsp.size))
+        Ok(Edid {
+            data: rsp.edid,
+            size: rsp.size,
+        })
     }
 
     /// Get the preferred resolution from the EDID data.
@@ -121,53 +129,24 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Parses the first Detailed Timing Descriptor in the EDID to extract
     /// the preferred display resolution. Returns (width, height).
     pub fn edid_preferred_resolution(&mut self) -> Result<(u32, u32)> {
-        let (edid, size) = self.get_edid(SCANOUT_ID)?;
-        parse_edid_preferred_resolution(&edid, size)
+        let edid = self.get_edid(SCANOUT_ID)?;
+        edid.preferred_resolution()
     }
 
     /// Get the list of supported resolutions from EDID data.
     ///
     /// Returns up to 8 resolutions from the Standard Timings block, sorted
     /// by total pixel count (largest first). Each entry is (width, height).
-    pub fn edid_supported_resolutions(&mut self) -> Result<alloc::vec::Vec<(u32, u32)>> {
-        let (edid, size) = self.get_edid(SCANOUT_ID)?;
-        Ok(parse_edid_standard_timings(&edid, size))
+    pub fn edid_supported_resolutions(&mut self) -> Result<Vec<(u32, u32)>> {
+        let edid = self.get_edid(SCANOUT_ID)?;
+        Ok(edid.standard_timings())
     }
 
-    /// Setup framebuffer
+    /// Setup framebuffer at the display's default resolution.
     pub fn setup_framebuffer(&mut self) -> Result<&mut [u8]> {
-        // get display info
         let display_info = self.get_display_info()?;
         info!("=> {:?}", display_info);
-        self.rect = Some(display_info.rect);
-
-        // create resource 2d
-        self.resource_create_2d(
-            RESOURCE_ID_FB,
-            display_info.rect.width,
-            display_info.rect.height,
-        )?;
-
-        // alloc continuous pages for the frame buffer
-        let size = display_info.rect.width * display_info.rect.height * 4;
-        let frame_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
-
-        // resource_attach_backing
-        self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
-
-        // map frame buffer to screen
-        self.set_scanout(display_info.rect, SCANOUT_ID, RESOURCE_ID_FB)?;
-
-        // SAFETY: `Dma::new` guarantees that the pointer returned from
-        // `raw_slice` is non-null, aligned, and the allocation is zeroed. We
-        // store the `Dma` object in `self.frame_buffer_dma`, which prevents the
-        // allocation from being freed while `self` exists. The returned ptr
-        // borrows `self` mutably, which prevents other code from getting
-        // another reference to `frame_buffer_dma` while the returned slice is
-        // still in use.
-        let buf = unsafe { frame_buffer_dma.raw_slice().as_mut() };
-        self.frame_buffer_dma = Some(frame_buffer_dma);
-        Ok(buf)
+        self.change_resolution(display_info.rect.width, display_info.rect.height)
     }
 
     /// Set or change the framebuffer resolution. If a framebuffer already exists,
@@ -190,7 +169,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             self.frame_buffer_dma = None;
         }
 
-        // Create new resource at new size
         self.rect = Some(rect);
         self.resource_create_2d(RESOURCE_ID_FB, width, height)?;
 
@@ -652,195 +630,3 @@ const CURSOR_RECT: Rect = Rect {
     width: 64,
     height: 64,
 };
-
-/// Parse the preferred resolution from an EDID blob.
-///
-/// Extracts the width and height from the first Detailed Timing Descriptor
-/// (bytes 54-71 of the base EDID block). Returns (width, height).
-///
-/// Reference: VESA Enhanced EDID Standard (E-EDID), Release A, Rev. 2,
-/// Section 3.10.2 "Detailed Timing Definitions".
-fn parse_edid_preferred_resolution(
-    edid: &[u8; 1024],
-    size: u32,
-) -> core::result::Result<(u32, u32), Error> {
-    if size < 128 {
-        return Err(Error::IoError);
-    }
-    // First Detailed Timing Descriptor starts at byte 54 (0x36).
-    // Horizontal active: lower 8 bits at byte 0x38, upper 4 bits at byte 0x3A high nibble.
-    // Vertical active: lower 8 bits at byte 0x3B, upper 4 bits at byte 0x3D high nibble.
-    let h_active = edid[0x38] as u32 | ((edid[0x3A] as u32 & 0xF0) << 4);
-    let v_active = edid[0x3B] as u32 | ((edid[0x3D] as u32 & 0xF0) << 4);
-    if h_active == 0 || v_active == 0 {
-        return Err(Error::IoError);
-    }
-    Ok((h_active, v_active))
-}
-
-/// Parse the Standard Timings block from an EDID blob.
-///
-/// Returns a list of (width, height) pairs sorted by total pixel count
-/// (largest first). EDID bytes 38-53 contain up to 8 standard timing entries,
-/// each 2 bytes. Unused entries are marked as 0x0101.
-///
-/// Each entry encodes horizontal pixels as `(byte0 + 31) * 8` and the aspect
-/// ratio in the top 2 bits of byte1: 0=16:10, 1=4:3, 2=5:4, 3=16:9.
-///
-/// Reference: VESA Enhanced EDID Standard (E-EDID), Release A, Rev. 2,
-/// Section 3.9 "Standard Timing Identification".
-fn parse_edid_standard_timings(edid: &[u8; 1024], size: u32) -> alloc::vec::Vec<(u32, u32)> {
-    let mut resolutions = alloc::vec::Vec::new();
-    if size < 128 {
-        return resolutions;
-    }
-    for i in 0..8 {
-        let b0 = edid[38 + i * 2];
-        let b1 = edid[38 + i * 2 + 1];
-        // 0x0101 = unused entry
-        if b0 == 0x01 && b1 == 0x01 {
-            continue;
-        }
-        let h_pixels = (b0 as u32 + 31) * 8;
-        let aspect = (b1 >> 6) & 0x03;
-        let v_pixels = match aspect {
-            0 => h_pixels * 10 / 16, // 16:10
-            1 => h_pixels * 3 / 4,   // 4:3
-            2 => h_pixels * 4 / 5,   // 5:4
-            3 => h_pixels * 9 / 16,  // 16:9
-            _ => unreachable!(),
-        };
-        if h_pixels > 0 && v_pixels > 0 {
-            resolutions.push((h_pixels, v_pixels));
-        }
-    }
-    resolutions.sort_by(|a, b| (b.0 as u64 * b.1 as u64).cmp(&(a.0 as u64 * a.1 as u64)));
-    resolutions
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Real EDID captured from QEMU virtio-GPU with `-device virtio-gpu,xres=1920,yres=1080`.
-    /// QEMU generates this EDID dynamically. The base block (bytes 0-127) contains:
-    /// - Manufacturer: "RHT" (Red Hat), product code 0x1234
-    /// - DTD1 preferred mode: 1920x1080 @ 60Hz
-    /// - 8 Standard Timings: 2048x1152, 1920x1080, 1920x1200, 1600x1200,
-    ///   1680x1050, 1440x900, 1280x1024, 1280x960
-    /// - CEA extension block (bytes 128-255) with SVDs for additional modes
-    /// Remaining bytes (256-1023) are zero-padded by the virtio-GPU device.
-    fn qemu_edid() -> [u8; 1024] {
-        let mut edid = [0u8; 1024];
-        let data: [u8; 256] = [
-            // Base EDID block (128 bytes)
-            0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x49, 0x14, 0x34, 0x12, 0x00, 0x00,
-            0x00, 0x00, 0x2a, 0x18, 0x01, 0x04, 0xa5, 0x30, 0x1b, 0x78, 0x06, 0xee, 0x91, 0xa3,
-            0x54, 0x4c, 0x99, 0x26, 0x0f, 0x50, 0x54, 0x21, 0x08, 0x00, 0xe1, 0xc0, 0xd1, 0xc0,
-            0xd1, 0x00, 0xa9, 0x40, 0xb3, 0x00, 0x95, 0x00, 0x81, 0x80, 0x81, 0x40, 0xd2, 0x54,
-            0x80, 0xa0, 0x72, 0x38, 0x25, 0x40, 0xe0, 0x39, 0x55, 0x40, 0xe7, 0x12, 0x11, 0x00,
-            0x00, 0x18, 0x00, 0x00, 0x00, 0xf7, 0x00, 0x0a, 0x00, 0x40, 0x82, 0x00, 0x28, 0x20,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x32, 0x7d, 0x1e,
-            0xa0, 0xff, 0x01, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0xfc,
-            0x00, 0x51, 0x45, 0x4d, 0x55, 0x20, 0x4d, 0x6f, 0x6e, 0x69, 0x74, 0x6f, 0x72, 0x0a,
-            0x01, 0xb0, // CEA extension block (128 bytes)
-            0x02, 0x03, 0x0b, 0x00, 0x46, 0x7d, 0x65, 0x60, 0x59, 0x1f, 0x61, 0x00, 0x00, 0x00,
-            0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x2f,
-        ];
-        edid[..256].copy_from_slice(&data);
-        edid
-    }
-
-    #[test]
-    fn qemu_edid_preferred_resolution() {
-        let edid = qemu_edid();
-        let (w, h) = parse_edid_preferred_resolution(&edid, 256).unwrap();
-        assert_eq!((w, h), (1920, 1080));
-    }
-
-    #[test]
-    fn qemu_edid_standard_timings() {
-        let edid = qemu_edid();
-        let res = parse_edid_standard_timings(&edid, 256);
-        // QEMU advertises 8 standard timings, sorted by total pixel count (largest first).
-        // Note: 1600x1200 (1,920,000 px) > 1680x1050 (1,764,000 px) despite narrower width,
-        // and 1280x1024 (1,310,720 px) > 1440x900 (1,296,000 px) for the same reason.
-        assert_eq!(
-            res,
-            vec![
-                (2048, 1152), // 16:9,  2,359,296 px
-                (1920, 1200), // 16:10, 2,304,000 px
-                (1920, 1080), // 16:9,  2,073,600 px
-                (1600, 1200), // 4:3,   1,920,000 px
-                (1680, 1050), // 16:10, 1,764,000 px
-                (1280, 1024), // 5:4,   1,310,720 px
-                (1440, 900),  // 16:10, 1,296,000 px
-                (1280, 960),  // 4:3,   1,228,800 px
-            ]
-        );
-    }
-
-    #[test]
-    fn qemu_edid_highest_resolution_is_2048x1152() {
-        let edid = qemu_edid();
-        let res = parse_edid_standard_timings(&edid, 256);
-        assert_eq!(res.first(), Some(&(2048, 1152)));
-    }
-
-    #[test]
-    fn preferred_resolution_too_short() {
-        let edid = [0u8; 1024];
-        assert!(parse_edid_preferred_resolution(&edid, 64).is_err());
-    }
-
-    #[test]
-    fn preferred_resolution_zeroed_active_pixels() {
-        // Zero out horizontal and vertical active pixels in DTD1
-        let mut edid = qemu_edid();
-        edid[0x38] = 0x00; // h_active low
-        edid[0x3A] &= 0x0F; // h_active high nibble = 0
-        edid[0x3B] = 0x00; // v_active low
-        edid[0x3D] &= 0x0F; // v_active high nibble = 0
-        assert!(parse_edid_preferred_resolution(&edid, 256).is_err());
-    }
-
-    #[test]
-    fn standard_timings_too_short() {
-        let edid = [0u8; 1024];
-        let res = parse_edid_standard_timings(&edid, 32);
-        assert!(res.is_empty());
-    }
-
-    #[test]
-    fn standard_timings_all_unused() {
-        // Overwrite all standard timing slots with 0x0101 (unused marker)
-        let mut edid = qemu_edid();
-        for i in 0..8 {
-            edid[38 + i * 2] = 0x01;
-            edid[38 + i * 2 + 1] = 0x01;
-        }
-        let res = parse_edid_standard_timings(&edid, 256);
-        assert!(res.is_empty());
-    }
-
-    #[test]
-    fn standard_timings_partial_entries() {
-        // Keep only the first two standard timing entries, mark rest unused
-        let mut edid = qemu_edid();
-        for i in 2..8 {
-            edid[38 + i * 2] = 0x01;
-            edid[38 + i * 2 + 1] = 0x01;
-        }
-        let res = parse_edid_standard_timings(&edid, 256);
-        // First two entries from QEMU: 2048x1152 (16:9) and 1920x1080 (16:9)
-        assert_eq!(res, vec![(2048, 1152), (1920, 1080)]);
-    }
-}
