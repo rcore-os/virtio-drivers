@@ -104,6 +104,17 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
         self.driver.guest_cid()
     }
 
+    /// Returns true if the given local port is currently in use.
+    pub fn is_local_port_used(&self, port: u32) -> bool {
+        if self.listening_ports.contains(&port) {
+            return true;
+        }
+
+        self.connections
+            .iter()
+            .any(|connection| connection.info.src_port == port)
+    }
+
     /// Returns true if a connection has been established, false otherwise
     pub fn is_connection_established(
         &mut self,
