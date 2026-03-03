@@ -11,7 +11,7 @@ default = ["tcp"]
 [dependencies]
 log = "0.4.29"
 spin = "0.10.0"
-x86_64 = { version = "0.14.12", default-features = false, features = [
+x86_64 = { version = "0.15.4", default-features = false, features = [
   "instructions",
   "abi_x86_interrupt",
 ] }

@@ -1,4 +1,5 @@
 use spin::mutex::{SpinMutex, SpinMutexGuard};
+use x86_64::registers::control::Cr2;
 use x86_64::set_general_handler;
 use x86_64::structures::idt::{ExceptionVector, InterruptDescriptorTable, InterruptStackFrame};
 
@@ -7,7 +8,7 @@ static IDT: SpinMutex<InterruptDescriptorTable> = SpinMutex::new(InterruptDescri
 fn trap_handler(isf: InterruptStackFrame, index: u8, error_code: Option<u64>) {
     match index {
         x if x == ExceptionVector::Page as u8 => {
-            let cr2 = x86_64::registers::control::Cr2::read();
+            let cr2 = Cr2::read_raw();
             panic!(
                 "#PF at {:#x}, fault_vaddr={:#x}, err_code={:#x?}",
                 isf.instruction_pointer, cr2, error_code
