@@ -9,6 +9,7 @@ extern crate alloc;
 extern crate opensbi_rt;
 
 use alloc::vec;
+use core::mem::size_of;
 use core::ptr::NonNull;
 use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
 use log::LevelFilter;
@@ -19,6 +20,7 @@ use virtio_drivers::{
         input::VirtIOInput,
         rng::VirtIORng,
         sound::{PcmFormat, PcmRate, VirtIOSound},
+        virtio_9p::VirtIO9p,
     },
     transport::{
         mmio::{MmioTransport, VirtIOHeader},
@@ -26,6 +28,10 @@ use virtio_drivers::{
     },
 };
 use virtio_impl::HalImpl;
+use zerocopy::{
+    byteorder::{LittleEndian, U16, U32},
+    FromBytes, Immutable, IntoBytes, KnownLayout,
+};
 
 mod virtio_impl;
 
@@ -92,6 +98,7 @@ fn virtio_device(transport: impl Transport) {
         DeviceType::Input => virtio_input(transport),
         DeviceType::Network => virtio_net(transport),
         DeviceType::Sound => virtio_sound(transport),
+        DeviceType::_9P => virtio_9p(transport),
         DeviceType::EntropySource => virtio_rng(transport),
         t => warn!("Unrecognized virtio device: {:?}", t),
     }
@@ -120,6 +127,96 @@ fn virtio_blk<T: Transport>(transport: T) {
         assert_eq!(input, output);
     }
     info!("virtio-blk test finished");
+}
+
+fn virtio_9p<T: Transport>(transport: T) {
+    const TVERSION: u8 = 100;
+    const RVERSION: u8 = 101;
+    const NOTAG: u16 = 0xffff;
+
+    #[repr(C, packed)]
+    #[derive(Clone, Copy, Debug, FromBytes, Immutable, IntoBytes, KnownLayout)]
+    struct P9Header {
+        size: U32<LittleEndian>,
+        message_type: u8,
+        tag: U16<LittleEndian>,
+    }
+
+    #[repr(C, packed)]
+    #[derive(Clone, Copy, Debug, FromBytes, Immutable, IntoBytes, KnownLayout)]
+    struct VersionBody {
+        msize: U32<LittleEndian>,
+        version_len: U16<LittleEndian>,
+    }
+
+    fn build_tversion_request(buf: &mut [u8], msize: u32, version: &str) -> Option<usize> {
+        let version_bytes = version.as_bytes();
+        if version_bytes.len() > u16::MAX as usize {
+            return None;
+        }
+
+        let size = size_of::<P9Header>() + size_of::<VersionBody>() + version_bytes.len();
+        if buf.len() < size {
+            return None;
+        }
+
+        let (header_bytes, body_and_name) = buf[..size].split_at_mut(size_of::<P9Header>());
+        let (body_bytes, name_bytes) = body_and_name.split_at_mut(size_of::<VersionBody>());
+
+        let header = P9Header {
+            size: (size as u32).into(),
+            message_type: TVERSION,
+            tag: NOTAG.into(),
+        };
+        let body = VersionBody {
+            msize: msize.into(),
+            version_len: (version_bytes.len() as u16).into(),
+        };
+
+        header_bytes.copy_from_slice(header.as_bytes());
+        body_bytes.copy_from_slice(body.as_bytes());
+        name_bytes.copy_from_slice(version_bytes);
+
+        Some(size)
+    }
+
+    fn parse_rversion_response(resp: &[u8]) -> Option<()> {
+        let (header, rest) = P9Header::read_from_prefix(resp).ok()?;
+        if header.message_type != RVERSION || u16::from(header.tag) != NOTAG {
+            return None;
+        }
+
+        let size = u32::from(header.size) as usize;
+        let min_size = size_of::<P9Header>() + size_of::<VersionBody>();
+        if size < min_size || size > resp.len() {
+            return None;
+        }
+
+        let payload_len = size - size_of::<P9Header>();
+        let payload = rest.get(..payload_len)?;
+        let (body, name_and_trailing) = VersionBody::read_from_prefix(payload).ok()?;
+
+        let msize = u32::from(body.msize);
+        let version_len = u16::from(body.version_len) as usize;
+        let version_bytes = name_and_trailing.get(..version_len)?;
+        let version = core::str::from_utf8(version_bytes).ok()?;
+
+        info!("virtio-9p rversion: msize={}, version={}", msize, version);
+        Some(())
+    }
+
+    let mut p9 = VirtIO9p::<HalImpl, T>::new(transport).expect("failed to create 9p driver");
+    info!("virtio-9p mount tag: {}", p9.mount_tag());
+
+    let mut req = [0u8; 128];
+    let mut resp = [0u8; 256];
+    let req_len = build_tversion_request(&mut req, 16384, "9P2000.L")
+        .expect("failed to build 9p Tversion request");
+    let resp_len = p9
+        .request(&req[..req_len], &mut resp)
+        .expect("failed to send 9p request") as usize;
+    parse_rversion_response(&resp[..resp_len]).expect("invalid 9p Rversion response");
+    info!("virtio-9p test finished");
 }
 
 fn virtio_gpu<T: Transport>(transport: T) {

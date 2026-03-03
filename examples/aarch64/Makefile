@@ -83,7 +83,9 @@ qemu: $(kernel_qemu_bin) $(img) $(vsock_server_bin)
 		-nic none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device vhost-vsock-device,id=virtiosocket0,guest-cid=102 \
+		-fsdev local,id=fsdev0,path=$(PWD),security_model=none \
 		-device virtio-blk-device,drive=x0 \
+		-device virtio-9p-device,fsdev=fsdev0,mount_tag=p9_tmp \
 		-device virtio-rng-device \
 		-device virtio-gpu-device \
 		-device virtio-serial,id=virtio-serial0 \

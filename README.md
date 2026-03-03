@@ -20,6 +20,7 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 | Socket  | ✅        |
 | Sound   | ✅        |
 | RNG     | ✅        |
+| 9P      | ✅        |
 | ...     | ❌        |
 
 ### Transports

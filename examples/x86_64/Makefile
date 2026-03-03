@@ -24,8 +24,10 @@ QEMU_ARGS += \
 	-machine q35 \
 	-serial mon:stdio \
 	-kernel $(kernel) \
+	-fsdev local,id=fsdev0,path=$(PWD),security_model=none \
 	-device virtio-gpu-pci -vga none \
 	-device virtio-blk-pci,drive=x0 -drive file=$(img),if=none,format=raw,id=x0 \
+	-device virtio-9p-pci,fsdev=fsdev0,mount_tag=p9_tmp \
 	-device virtio-rng-pci \
 	-device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::5555-:5555
 

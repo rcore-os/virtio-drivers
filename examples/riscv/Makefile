@@ -53,8 +53,10 @@ qemu-legacy: kernel $(img)
 		-serial mon:stdio \
 		-bios default \
 		-kernel $(kernel) \
+		-fsdev local,id=fsdev0,path=$(CURDIR),security_model=none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0 \
+		-device virtio-9p-device,fsdev=fsdev0,mount_tag=p9_tmp \
 		-device virtio-rng-device \
 		-device virtio-gpu-device \
 		-device virtio-mouse-device \
@@ -73,8 +75,10 @@ qemu: kernel $(img)
 		-bios default \
 		-kernel $(kernel) \
 		-global virtio-mmio.force-legacy=false \
+		-fsdev local,id=fsdev0,path=$(CURDIR),security_model=none \
 		-drive file=$(img),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0 \
+		-device virtio-9p-device,fsdev=fsdev0,mount_tag=p9_tmp \
 		-device virtio-rng-device \
 		-device virtio-gpu-device \
 		-device virtio-mouse-device \
