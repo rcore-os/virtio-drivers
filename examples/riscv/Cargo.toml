@@ -4,8 +4,6 @@ version = "0.1.0"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 tcp = ["smoltcp"]
 default = ["tcp"]
@@ -24,8 +22,12 @@ version = "0.9.1"
 optional = true
 default-features = false
 features = [
-  "alloc", "log",   # no std
+  "alloc",
+  "log",
   "medium-ethernet",
   "proto-ipv4",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",
+  "socket-raw",
+  "socket-icmp",
+  "socket-udp",
+  "socket-tcp",
 ]
