@@ -1,11 +1,11 @@
 //! Driver for VirtIO input devices.
 
 use super::common::Feature;
-use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
+use crate::Error;
+use crate::config::{ReadOnly, WriteOnly, read_config, write_config};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
-use crate::Error;
 use alloc::{boxed::Box, string::String};
 use core::cmp::min;
 use core::mem::{offset_of, size_of};
@@ -314,8 +314,8 @@ mod tests {
     use crate::{
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};

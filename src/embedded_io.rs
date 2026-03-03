@@ -1,6 +1,6 @@
 //! Implementation of `embedded-io::Error' trait for `Error`.
 
-use crate::{device::socket::SocketError, Error};
+use crate::{Error, device::socket::SocketError};
 use embedded_io::ErrorKind;
 
 impl embedded_io::Error for Error {

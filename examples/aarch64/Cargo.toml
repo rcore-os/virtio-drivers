@@ -2,7 +2,7 @@
 name = "aarch64"
 version = "0.1.0"
 authors = ["Andrew Walbran <qwandor@google.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 aarch64-rt = "0.1.0"

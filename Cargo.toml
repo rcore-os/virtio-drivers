@@ -8,7 +8,7 @@ authors = [
   "Yuekai Jia <equation618@gmail.com>",
   "Andrew Walbran <qwandor@google.com>",
 ]
-edition = "2021"
+edition = "2024"
 description = "VirtIO guest drivers."
 repository = "https://github.com/rcore-os/virtio-drivers"
 keywords = ["virtio"]

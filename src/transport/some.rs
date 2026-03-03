@@ -1,7 +1,7 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-use super::{mmio::MmioTransport, pci::PciTransport, DeviceStatus, DeviceType, Transport};
-use crate::{transport::InterruptStatus, PhysAddr, Result};
+use super::{DeviceStatus, DeviceType, Transport, mmio::MmioTransport, pci::PciTransport};
+use crate::{PhysAddr, Result, transport::InterruptStatus};
 
 /// A wrapper for an arbitrary VirtIO transport, either MMIO or PCI.
 #[derive(Debug)]

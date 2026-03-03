@@ -2,8 +2,8 @@
 
 use super::{DeviceStatus, DeviceType, DeviceTypeError, Transport};
 use crate::{
-    align_up_phys, queue::Descriptor, transport::InterruptStatus, Error, PhysAddr, PAGE_SIZE,
-    PAGE_SIZE_PHYS,
+    Error, PAGE_SIZE, PAGE_SIZE_PHYS, PhysAddr, align_up_phys, queue::Descriptor,
+    transport::InterruptStatus,
 };
 use core::{
     convert::{TryFrom, TryInto},
@@ -12,9 +12,8 @@ use core::{
     ptr::NonNull,
 };
 use safe_mmio::{
-    field, field_shared,
+    UniqueMmioPointer, field, field_shared,
     fields::{ReadPure, ReadPureWrite, WriteOnly},
-    UniqueMmioPointer,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -490,9 +489,11 @@ impl Transport for MmioTransport<'_> {
     }
 
     fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T, Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert!(offset % align_of::<T>() == 0);
 
         if self.config_space.len() < offset + size_of::<T>() {
@@ -518,9 +519,11 @@ impl Transport for MmioTransport<'_> {
         offset: usize,
         value: T,
     ) -> Result<(), Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert!(offset % align_of::<T>() == 0);
 
         if self.config_space.len() < offset + size_of::<T>() {

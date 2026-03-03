@@ -1,8 +1,8 @@
 use super::{
-    protocol::VsockAddr, vsock::ConnectionInfo, DisconnectReason, SocketError, VirtIOSocket,
-    VsockEvent, VsockEventType, DEFAULT_RX_BUFFER_SIZE,
+    DEFAULT_RX_BUFFER_SIZE, DisconnectReason, SocketError, VirtIOSocket, VsockEvent,
+    VsockEventType, protocol::VsockAddr, vsock::ConnectionInfo,
 };
-use crate::{transport::Transport, Hal, Result};
+use crate::{Hal, Result, transport::Transport};
 use alloc::{boxed::Box, vec::Vec};
 use core::cmp::min;
 use core::convert::TryInto;
@@ -420,12 +420,12 @@ mod tests {
             protocol::{
                 SocketType, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp,
             },
-            vsock::{VsockBufferStatus, QUEUE_SIZE, RX_QUEUE_IDX, TX_QUEUE_IDX},
+            vsock::{QUEUE_SIZE, RX_QUEUE_IDX, TX_QUEUE_IDX, VsockBufferStatus},
         },
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};

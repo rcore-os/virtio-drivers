@@ -5,10 +5,10 @@ mod fake;
 
 use super::common::Feature;
 use crate::{
-    config::{read_config, ReadOnly},
+    Error, Hal, PAGE_SIZE, Result,
+    config::{ReadOnly, read_config},
     queue::{OwningQueue, VirtQueue},
     transport::{InterruptStatus, Transport},
-    Error, Hal, Result, PAGE_SIZE,
 };
 use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 use bitflags::bitflags;
@@ -254,7 +254,9 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
         stream_count: u32,
     ) -> Result<Vec<VirtIOSndPcmInfo>> {
         if stream_start_id + stream_count > self.streams {
-            error!("stream_start_id + stream_count > streams! There are not enough streams to be queried!");
+            error!(
+                "stream_start_id + stream_count > streams! There are not enough streams to be queried!"
+            );
             return Err(Error::IoError);
         }
         let request_hdr = VirtIOSndHdr::from(ItemInformationRequestType::RPcmInfo);
@@ -1577,8 +1579,8 @@ mod tests {
         config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};

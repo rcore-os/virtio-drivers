@@ -4,16 +4,16 @@ mod cam;
 mod hypercalls;
 
 use super::{
-    pci::{
-        bus::{ConfigurationAccess, DeviceFunction, PciRoot, PCI_CAP_ID_VNDR},
-        device_type, CommonCfg, VirtioCapabilityInfo, VirtioPciError, CAP_BAR_OFFSET,
-        CAP_BAR_OFFSET_OFFSET, CAP_LENGTH_OFFSET, CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
-        VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_DEVICE_CFG, VIRTIO_PCI_CAP_ISR_CFG,
-        VIRTIO_PCI_CAP_NOTIFY_CFG, VIRTIO_VENDOR_ID,
-    },
     DeviceStatus, DeviceType, Transport,
+    pci::{
+        CAP_BAR_OFFSET, CAP_BAR_OFFSET_OFFSET, CAP_LENGTH_OFFSET, CAP_NOTIFY_OFF_MULTIPLIER_OFFSET,
+        CommonCfg, VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_DEVICE_CFG, VIRTIO_PCI_CAP_ISR_CFG,
+        VIRTIO_PCI_CAP_NOTIFY_CFG, VIRTIO_VENDOR_ID, VirtioCapabilityInfo, VirtioPciError,
+        bus::{ConfigurationAccess, DeviceFunction, PCI_CAP_ID_VNDR, PciRoot},
+        device_type,
+    },
 };
-use crate::{hal::PhysAddr, transport::InterruptStatus, Error};
+use crate::{Error, hal::PhysAddr, transport::InterruptStatus};
 pub use cam::HypCam;
 use hypercalls::HypIoRegion;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -248,9 +248,11 @@ impl Transport for HypPciTransport {
     }
 
     fn read_config_space<T: FromBytes>(&self, offset: usize) -> Result<T, Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert_eq!(offset % align_of::<T>(), 0);
 
         let config_space = self.config_space.ok_or(Error::ConfigSpaceMissing)?;
@@ -266,9 +268,11 @@ impl Transport for HypPciTransport {
         offset: usize,
         value: T,
     ) -> Result<(), Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert_eq!(offset % align_of::<T>(), 0);
 
         let config_space = self.config_space.ok_or(Error::ConfigSpaceMissing)?;

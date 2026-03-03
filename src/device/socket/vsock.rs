@@ -1,15 +1,15 @@
 //! Driver for VirtIO socket devices.
 
+use super::DEFAULT_RX_BUFFER_SIZE;
 use super::error::SocketError;
 use super::protocol::{
     Feature, StreamShutdown, VirtioVsockConfig, VirtioVsockHdr, VirtioVsockOp, VsockAddr,
 };
-use super::DEFAULT_RX_BUFFER_SIZE;
+use crate::Result;
 use crate::config::read_config;
 use crate::hal::Hal;
 use crate::queue::{OwningQueue, VirtQueue};
 use crate::transport::Transport;
-use crate::Result;
 use core::mem::size_of;
 use log::debug;
 use zerocopy::{FromBytes, IntoBytes};
@@ -466,8 +466,8 @@ mod tests {
         config::ReadOnly,
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};

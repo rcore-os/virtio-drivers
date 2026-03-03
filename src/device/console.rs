@@ -3,11 +3,11 @@
 #[cfg(feature = "embedded-io")]
 mod embedded_io;
 
-use crate::config::{read_config, write_config, ReadOnly, WriteOnly};
+use crate::config::{ReadOnly, WriteOnly, read_config, write_config};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
-use crate::{Error, Result, PAGE_SIZE};
+use crate::{Error, PAGE_SIZE, Result};
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::fmt::{self, Display, Formatter, Write};
@@ -174,25 +174,25 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
     /// Returns true if new data has been received.
     fn finish_receive(&mut self) -> Result<bool> {
         let mut flag = false;
-        if let Some(receive_token) = self.receive_token {
-            if self.receive_token == self.receiveq.peek_used() {
-                // SAFETY: We are passing the same buffer as we passed to `VirtQueue::add` in
-                // `poll_retrieve` and it is still valid.
-                let len = unsafe {
-                    self.receiveq.pop_used(
-                        receive_token,
-                        &[],
-                        &mut [self.queue_buf_rx.as_mut_slice()],
-                    )?
-                };
-                flag = true;
-                assert_ne!(len, 0);
-                self.cursor = 0;
-                self.pending_len = len as usize;
-                // Clear `receive_token` so that when the buffer is used up the next call to
-                // `poll_retrieve` will add a new pending request.
-                self.receive_token.take();
-            }
+        if let Some(receive_token) = self.receive_token
+            && self.receive_token == self.receiveq.peek_used()
+        {
+            // SAFETY: We are passing the same buffer as we passed to `VirtQueue::add` in
+            // `poll_retrieve` and it is still valid.
+            let len = unsafe {
+                self.receiveq.pop_used(
+                    receive_token,
+                    &[],
+                    &mut [self.queue_buf_rx.as_mut_slice()],
+                )?
+            };
+            flag = true;
+            assert_ne!(len, 0);
+            self.cursor = 0;
+            self.pending_len = len as usize;
+            // Clear `receive_token` so that when the buffer is used up the next call to
+            // `poll_retrieve` will add a new pending request.
+            self.receive_token.take();
         }
         Ok(flag)
     }
@@ -308,8 +308,8 @@ mod tests {
     use crate::{
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};

@@ -4,11 +4,11 @@ mod edid;
 
 pub use self::edid::Edid;
 
-use crate::config::{read_config, ReadOnly, WriteOnly};
+use crate::config::{ReadOnly, WriteOnly, read_config};
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
-use crate::{pages, Error, Result, PAGE_SIZE};
+use crate::{Error, PAGE_SIZE, Result, pages};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use bitflags::bitflags;

@@ -2,7 +2,7 @@
 //! provided by crosvm, and won't work with real hardware.
 
 use core::fmt::{self, Write};
-use safe_mmio::{fields::WriteOnly, UniqueMmioPointer};
+use safe_mmio::{UniqueMmioPointer, fields::WriteOnly};
 
 /// Minimal driver for an 8250 UART. This only implements enough to work with the emulated 8250
 /// provided by crosvm, and won't work with real hardware.

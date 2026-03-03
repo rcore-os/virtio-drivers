@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use log::warn;
 
 use super::common::Feature;
-use crate::{queue::VirtQueue, transport::Transport, Error, Hal, Result};
+use crate::{Error, Hal, Result, queue::VirtQueue, transport::Transport};
 
 const QUEUE: u16 = 0;
 const QUEUE_SIZE: usize = 16;
@@ -59,7 +59,9 @@ impl<H: Hal, T: Transport> VirtIO9p<H, T> {
 
         let size = u32::from_le_bytes([resp[0], resp[1], resp[2], resp[3]]);
         if size != used_len {
-            warn!("virtio-9p response size mismatch: size from header is {size} but used length is {used_len}");
+            warn!(
+                "virtio-9p response size mismatch: size from header is {size} but used length is {used_len}"
+            );
             return Err(Error::IoError);
         }
         Ok(used_len)

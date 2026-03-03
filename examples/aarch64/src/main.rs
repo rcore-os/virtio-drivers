@@ -14,7 +14,7 @@ mod uart8250;
 use uart8250 as uart;
 
 use aarch64_paging::paging::Attributes;
-use aarch64_rt::{entry, initial_pagetable, InitialPagetable};
+use aarch64_rt::{InitialPagetable, entry, initial_pagetable};
 #[cfg(platform = "qemu")]
 use arm_pl011_uart::{DataBits, LineConfig, PL011Registers, Parity, StopBits};
 use buddy_system_allocator::{Heap, LockedHeap};
@@ -23,13 +23,13 @@ use core::{
     panic::PanicInfo,
     ptr::{self, NonNull},
 };
-use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
+use flat_device_tree::{Fdt, node::FdtNode, standard_nodes::Compatible};
 use hal::HalImpl;
-use log::{debug, error, info, trace, warn, LevelFilter};
+use log::{LevelFilter, debug, error, info, trace, warn};
+use safe_mmio::UniqueMmioPointer;
 #[cfg(platform = "crosvm")]
 use safe_mmio::fields::WriteOnly;
-use safe_mmio::UniqueMmioPointer;
-use smccc::{psci::system_off, Hvc};
+use smccc::{Hvc, psci::system_off};
 use spin::mutex::{SpinMutex, SpinMutexGuard};
 use uart::Uart;
 use virtio_drivers::{
@@ -40,25 +40,26 @@ use virtio_drivers::{
         net::VirtIONetRaw,
         rng::VirtIORng,
         socket::{
-            VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType, VMADDR_CID_HOST,
+            VMADDR_CID_HOST, VirtIOSocket, VsockAddr, VsockConnectionManager, VsockEventType,
         },
         virtio_9p::VirtIO9p,
     },
     transport::{
+        DeviceType, Transport,
         mmio::{MmioTransport, VirtIOHeader},
         pci::{
+            PciTransport,
             bus::{
                 BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MemoryBarType, MmioCam,
                 PciRoot,
             },
-            virtio_device_type, PciTransport,
+            virtio_device_type,
         },
-        DeviceType, Transport,
     },
 };
 use zerocopy::{
-    byteorder::{LittleEndian, U16, U32},
     FromBytes, Immutable, IntoBytes, KnownLayout,
+    byteorder::{LittleEndian, U16, U32},
 };
 
 /// Base memory-mapped address of the primary PL011 UART device.
@@ -157,8 +158,7 @@ fn main(x0: u64, x1: u64, x2: u64, x3: u64) -> ! {
         for range in node.reg() {
             trace!(
                 "  {:#018x?}, length {:?}",
-                range.starting_address,
-                range.size
+                range.starting_address, range.size
             );
         }
 

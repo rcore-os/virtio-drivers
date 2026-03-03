@@ -1,6 +1,6 @@
 //! Types and macros for VirtIO device configuration space.
 
-use crate::{transport::Transport, Error};
+use crate::{Error, transport::Transport};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// A configuration space register from which the driver can only read.

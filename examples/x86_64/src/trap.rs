@@ -1,7 +1,8 @@
+use spin::mutex::{SpinMutex, SpinMutexGuard};
 use x86_64::set_general_handler;
 use x86_64::structures::idt::{ExceptionVector, InterruptDescriptorTable, InterruptStackFrame};
 
-static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
+static IDT: SpinMutex<InterruptDescriptorTable> = SpinMutex::new(InterruptDescriptorTable::new());
 
 fn trap_handler(isf: InterruptStackFrame, index: u8, error_code: Option<u64>) {
     match index {
@@ -22,8 +23,7 @@ fn trap_handler(isf: InterruptStackFrame, index: u8, error_code: Option<u64>) {
 }
 
 pub fn init() {
-    unsafe {
-        set_general_handler!(&mut IDT, trap_handler);
-        IDT.load();
-    }
+    let mut idt = IDT.lock();
+    set_general_handler!(&mut idt, trap_handler);
+    SpinMutexGuard::leak(idt).load();
 }

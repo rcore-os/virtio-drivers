@@ -4,6 +4,6 @@ fn main() {
     cc::Build::new()
         .file("src/startup.S")
         .compiler("hexagon-unknown-none-elf-clang")
-        .flags(["-G0", "-fno-PIC",])
+        .flags(["-G0", "-fno-PIC"])
         .compile("startup");
 }

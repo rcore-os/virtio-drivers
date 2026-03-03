@@ -11,7 +11,7 @@ extern crate opensbi_rt;
 use alloc::vec;
 use core::mem::size_of;
 use core::ptr::NonNull;
-use flat_device_tree::{node::FdtNode, standard_nodes::Compatible, Fdt};
+use flat_device_tree::{Fdt, node::FdtNode, standard_nodes::Compatible};
 use log::LevelFilter;
 use virtio_drivers::{
     device::{
@@ -23,14 +23,14 @@ use virtio_drivers::{
         virtio_9p::VirtIO9p,
     },
     transport::{
-        mmio::{MmioTransport, VirtIOHeader},
         DeviceType, Transport,
+        mmio::{MmioTransport, VirtIOHeader},
     },
 };
 use virtio_impl::HalImpl;
 use zerocopy::{
-    byteorder::{LittleEndian, U16, U32},
     FromBytes, Immutable, IntoBytes, KnownLayout,
+    byteorder::{LittleEndian, U16, U32},
 };
 
 mod virtio_impl;
@@ -40,7 +40,7 @@ mod tcp;
 
 const NET_QUEUE_SIZE: usize = 16;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn main(_hartid: usize, device_tree_paddr: usize) {
     log::set_max_level(LevelFilter::Info);
     init_dt(device_tree_paddr);

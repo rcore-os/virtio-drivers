@@ -9,7 +9,7 @@ use core::{
     ptr::NonNull,
 };
 use log::warn;
-use safe_mmio::{fields::ReadPureWrite, UniqueMmioPointer};
+use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
 use thiserror::Error;
 
 const INVALID_READ: u32 = 0xffffffff;

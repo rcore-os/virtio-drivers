@@ -80,10 +80,7 @@ extern "C" fn main(_dtb_loc: u64) -> ! {
     );
 
     info!("main() received _dtb_loc parameter: {:#018x}", _dtb_loc);
-    let fdt_location: u64 = {
-        if _dtb_loc != 0 { _dtb_loc }
-        else { FDT_BASE }
-    };
+    let fdt_location: u64 = { if _dtb_loc != 0 { _dtb_loc } else { FDT_BASE } };
     info!("Loading FDT from {:#018x}", fdt_location);
     // Safe because the pointer is a valid pointer to unaliased memory.
     let fdt = match unsafe { Fdt::from_ptr(fdt_location as *const u8) } {

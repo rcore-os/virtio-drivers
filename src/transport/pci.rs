@@ -3,13 +3,13 @@
 pub mod bus;
 
 use self::bus::{
-    ConfigurationAccess, DeviceFunction, DeviceFunctionInfo, PciError, PciRoot, PCI_CAP_ID_VNDR,
+    ConfigurationAccess, DeviceFunction, DeviceFunctionInfo, PCI_CAP_ID_VNDR, PciError, PciRoot,
 };
 use super::{DeviceStatus, DeviceType, Transport};
 use crate::{
+    Error,
     hal::{Hal, PhysAddr},
     transport::InterruptStatus,
-    Error,
 };
 use core::{
     mem::{align_of, size_of},
@@ -17,9 +17,8 @@ use core::{
     ptr::NonNull,
 };
 use safe_mmio::{
-    field, field_shared,
+    UniqueMmioPointer, field, field_shared,
     fields::{ReadOnly, ReadPure, ReadPureWrite, WriteOnly},
-    UniqueMmioPointer,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -312,9 +311,11 @@ impl Transport for PciTransport {
     }
 
     fn read_config_space<T: FromBytes + IntoBytes>(&self, offset: usize) -> Result<T, Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert_eq!(offset % align_of::<T>(), 0);
 
         let config_space = self
@@ -342,9 +343,11 @@ impl Transport for PciTransport {
         offset: usize,
         value: T,
     ) -> Result<(), Error> {
-        assert!(align_of::<T>() <= 4,
+        assert!(
+            align_of::<T>() <= 4,
             "Driver expected config space alignment of {} bytes, but VirtIO only guarantees 4 byte alignment.",
-            align_of::<T>());
+            align_of::<T>()
+        );
         assert_eq!(offset % align_of::<T>(), 0);
 
         let config_space = self
@@ -473,7 +476,9 @@ pub enum VirtioPciError {
     MissingNotifyConfig,
     /// `VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple
     /// of 2.
-    #[error("`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {0}")]
+    #[error(
+        "`VIRTIO_PCI_CAP_NOTIFY_CFG` capability has a `notify_off_multiplier` that is not a multiple of 2: {0}"
+    )]
     InvalidNotifyOffMultiplier(u32),
     /// No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.
     #[error("No valid `VIRTIO_PCI_CAP_ISR_CFG` capability was found.")]

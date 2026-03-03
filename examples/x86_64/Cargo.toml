@@ -2,7 +2,7 @@
 name = "x86_64"
 version = "0.1.0"
 authors = ["Yuekai Jia <equation618@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 [features]
 tcp = ["smoltcp"]
