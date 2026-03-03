@@ -4,8 +4,6 @@
 //! drivers provided (rather than implementing drivers for other devices) then you shouldn't need to
 //! use anything from this module.
 
-#![deny(unsafe_op_in_unsafe_fn)]
-
 #[cfg(feature = "alloc")]
 mod owning;
 

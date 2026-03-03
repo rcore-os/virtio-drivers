@@ -161,7 +161,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// [`transmit_complete`]: Self::transmit_complete
     pub unsafe fn transmit_begin(&mut self, tx_buf: &[u8]) -> Result<u16> {
         self.check_tx_buf_len(tx_buf)?;
-        let token = self.send_queue.add(&[tx_buf], &mut [])?;
+        // SAFETY: The caller promises that `tx_buf` is not accessed before the request completes.
+        let token = unsafe { self.send_queue.add(&[tx_buf], &mut [])? };
         if self.send_queue.should_notify() {
             self.transport.notify(QUEUE_TRANSMIT);
         }
@@ -185,7 +186,9 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     ///
     /// [`transmit_begin`]: Self::transmit_begin
     pub unsafe fn transmit_complete(&mut self, token: u16, tx_buf: &[u8]) -> Result<usize> {
-        let len = self.send_queue.pop_used(token, &[tx_buf], &mut [])?;
+        // SAFETY: The caller promises that `tx_buf` is the same one passed to the corresponding
+        // call to `transmit_begin`.
+        let len = unsafe { self.send_queue.pop_used(token, &[tx_buf], &mut [])? };
         Ok(len as usize)
     }
 
@@ -213,7 +216,8 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
     /// [`receive_complete`]: Self::receive_complete
     pub unsafe fn receive_begin(&mut self, rx_buf: &mut [u8]) -> Result<u16> {
         Self::check_rx_buf_len(rx_buf)?;
-        let token = self.recv_queue.add(&[], &mut [rx_buf])?;
+        // SAFETY: The caller promises that `rx_buf` is not accessed before the request completes.
+        let token = unsafe { self.recv_queue.add(&[], &mut [rx_buf])? };
         if self.recv_queue.should_notify() {
             self.transport.notify(QUEUE_RECEIVE);
         }
@@ -244,7 +248,9 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
         token: u16,
         rx_buf: &mut [u8],
     ) -> Result<(usize, usize)> {
-        let len = self.recv_queue.pop_used(token, &[], &mut [rx_buf])? as usize;
+        // SAFETY: The caller promises that `rx_buf` is the same one passed to the corresponding
+        // call to `receive_begin`.
+        let len = unsafe { self.recv_queue.pop_used(token, &[], &mut [rx_buf])? } as usize;
         let hdr_size = if self.legacy_header {
             size_of::<VirtioNetHdrLegacy>()
         } else {

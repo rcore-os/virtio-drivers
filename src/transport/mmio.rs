@@ -289,16 +289,19 @@ impl<'a> MmioTransport<'a> {
             return Err(MmioError::MmioRegionTooSmall);
         };
         let config_space = NonNull::slice_from_raw_parts(
-            header.cast::<u8>().byte_add(CONFIG_SPACE_OFFSET),
+            // SAFETY: CONFIG_SPACE_OFFSET is well within the range of `isize`. The memory range
+            // must be within the bounds of the allocation, because our caller promised that
+            // `header` was a valid VirtIO MMIO region including the config space after the header.
+            unsafe { header.cast::<u8>().byte_add(CONFIG_SPACE_OFFSET) },
             config_space_size,
         );
         // SAFETY: The caller promises that the config space following the header is an MMIO region
         // valid for `'a`.
         let config_space = unsafe { UniqueMmioPointer::new(config_space) };
 
-        // SAFETY: The caller promises that `header` is a properly aligned MMIO region  valid for
+        // SAFETY: The caller promises that `header` is a properly aligned MMIO region valid for
         // `'a`.
-        let header = UniqueMmioPointer::new(header);
+        let header = unsafe { UniqueMmioPointer::new(header) };
 
         Self::new_from_unique(header, config_space)
     }

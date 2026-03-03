@@ -43,7 +43,12 @@
 
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![deny(unused_must_use, missing_docs, clippy::undocumented_unsafe_blocks)]
+#![deny(
+    unsafe_op_in_unsafe_fn,
+    unused_must_use,
+    missing_docs,
+    clippy::undocumented_unsafe_blocks
+)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 

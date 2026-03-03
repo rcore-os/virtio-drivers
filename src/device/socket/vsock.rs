@@ -1,5 +1,4 @@
 //! Driver for VirtIO socket devices.
-#![deny(unsafe_op_in_unsafe_fn)]
 
 use super::error::SocketError;
 use super::protocol::{
