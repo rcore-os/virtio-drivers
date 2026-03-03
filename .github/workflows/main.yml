@@ -9,7 +9,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check code format
         uses: actions-rs/cargo@v1
         with:
@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build with no features
         uses: actions-rs/cargo@v1
         with:
@@ -66,7 +66,7 @@ jobs:
           - example: x86_64
             packages: qemu-system-x86
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install QEMU
         run: sudo apt update && sudo apt install ${{ matrix.packages }} && sudo chmod 666 /dev/vhost-vsock
       - name: Check code format
