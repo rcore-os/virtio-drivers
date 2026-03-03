@@ -55,7 +55,7 @@
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
 
-mod config;
+pub mod config;
 pub mod device;
 #[cfg(feature = "embedded-io")]
 mod embedded_io;
