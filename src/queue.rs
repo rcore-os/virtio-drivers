@@ -1,8 +1,16 @@
+//! Support for virt queues, the main mechanism for data transport on VirtIO devices.
+//!
+//! Types from this module are used to implement VirtIO device drivers. If you just want to use the
+//! drivers provided (rather than implementing drivers for other devices) then you shouldn't need to
+//! use anything from this module.
+
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(feature = "alloc")]
-pub mod owning;
+mod owning;
 
+#[cfg(feature = "alloc")]
+pub use self::owning::OwningQueue;
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::transport::Transport;
 use crate::{align_up, pages, Error, Result, PAGE_SIZE};

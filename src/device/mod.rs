@@ -18,4 +18,4 @@ pub mod sound;
 #[cfg(feature = "alloc")]
 pub mod virtio_9p;
 
-pub(crate) mod common;
+pub mod common;
