@@ -5,4 +5,4 @@ authors = ["Alice Wang <aliceywang@google.com>"]
 edition = "2024"
 
 [dependencies]
-vsock = "0.3.0"
+vsock = "0.5.3"

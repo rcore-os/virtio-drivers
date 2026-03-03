@@ -13,7 +13,7 @@ mod uart8250;
 #[cfg(platform = "crosvm")]
 use uart8250 as uart;
 
-use aarch64_paging::paging::Attributes;
+use aarch64_paging::descriptor::Attributes;
 use aarch64_rt::{InitialPagetable, entry, initial_pagetable};
 #[cfg(platform = "qemu")]
 use arm_pl011_uart::{DataBits, LineConfig, PL011Registers, Parity, StopBits};

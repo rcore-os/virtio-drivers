@@ -5,14 +5,14 @@ authors = ["Andrew Walbran <qwandor@google.com>"]
 edition = "2024"
 
 [dependencies]
-aarch64-rt = "0.1.0"
-aarch64-paging = "0.8.0"
-arm-pl011-uart = "0.3.0"
-buddy_system_allocator = "0.11.0"
+aarch64-rt = "0.4.3"
+aarch64-paging = "0.11.0"
+arm-pl011-uart = "0.4.0"
+buddy_system_allocator = "0.12.0"
 flat_device_tree = "3.1.1"
-log = "0.4.27"
-safe-mmio = "0.2.4"
-smccc = "0.2.0"
+log = "0.4.29"
+safe-mmio = "0.2.7"
+smccc = "0.2.2"
 spin = "0.10.0"
 virtio-drivers = { path = "../.." }
 zerocopy = { version = "0.8.40", features = ["derive"] }
