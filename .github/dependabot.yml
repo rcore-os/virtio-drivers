@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/examples/aarch64/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/examples/hexagon/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/examples/riscv/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/examples/vsock_server/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/examples/x86_64/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
