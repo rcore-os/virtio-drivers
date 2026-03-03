@@ -30,3 +30,7 @@ embedded-io = ["dep:embedded-io"]
 
 [dev-dependencies]
 zerocopy = { version = "0.8.24", features = ["alloc"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
