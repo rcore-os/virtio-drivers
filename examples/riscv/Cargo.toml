@@ -17,6 +17,7 @@ opensbi-rt = { git = "https://github.com/rcore-os/opensbi-rt.git", rev = "abdfeb
 flat_device_tree = "3.1.1"
 virtio-drivers = { path = "../.." }
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
+zerocopy = { version = "0.8.40", features = ["derive"] }
 
 [dependencies.smoltcp]
 version = "0.9.1"

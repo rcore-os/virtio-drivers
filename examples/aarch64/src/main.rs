@@ -335,7 +335,7 @@ fn virtio_9p<T: Transport>(transport: T) {
         .expect("failed to build 9p Tversion request");
     let resp_len = p9
         .request(&req[..req_len], &mut resp)
-        .expect("failed to send 9p request");
+        .expect("failed to send 9p request") as usize;
     parse_rversion_response(&resp[..resp_len]).expect("invalid 9p Rversion response");
     info!("virtio-9p test finished");
 }

@@ -2,7 +2,6 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use log::debug;
 
 use super::common::Feature;
 use crate::{queue::VirtQueue, transport::Transport, Error, Hal, Result};
@@ -58,32 +57,26 @@ impl<H: Hal, T: Transport> VirtIO9p<H, T> {
             .add_notify_wait_pop(&[req], &mut [resp], &mut self.transport)?;
 
         let size = u32::from_le_bytes([resp[0], resp[1], resp[2], resp[3]]);
-        if size > used_len {
-            debug!(
-                "virtio-9p resp length mismatch: used_len={}, payload_len={}",
-                used_len, size
-            );
+        if size != used_len {
+            return Err(Error::IoError);
         }
-        debug!(
-            "virtio-9p resp sizes: used_len={}, payload_len={}",
-            used_len, size
-        );
-        Ok(used_len.min(size).min(resp.len() as u32))
+        Ok(used_len)
     }
 }
 
 fn read_mount_tag<T: Transport>(transport: &T) -> Result<String> {
-    let tag_len: u16 = transport.read_config_space(0)?;
-    if tag_len == 0 {
-        return Err(Error::InvalidParam);
-    }
+    transport.read_consistent(|| {
+        let tag_len: u16 = transport.read_config_space(0)?;
+        if tag_len == 0 {
+            return Err(Error::InvalidParam);
+        }
 
-    let mut bytes = Vec::with_capacity(tag_len as usize);
-    for idx in 0..tag_len as usize {
-        let b: u8 = transport.read_config_space(2 + idx)?;
-        bytes.push(b);
-    }
+        let mut bytes = Vec::with_capacity(tag_len as usize);
+        for idx in 0..tag_len as usize {
+            let b: u8 = transport.read_config_space(2 + idx)?;
+            bytes.push(b);
+        }
 
-    Ok(String::from_utf8(bytes)?)
+        Ok(String::from_utf8(bytes)?)
+    })
 }
-
