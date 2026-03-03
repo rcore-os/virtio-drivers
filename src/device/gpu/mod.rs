@@ -149,9 +149,10 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         self.change_resolution(display_info.rect.width, display_info.rect.height)
     }
 
-    /// Set or change the framebuffer resolution. If a framebuffer already exists,
-    /// tears down the existing resource before creating the new one. Can be called
-    /// before or after [`setup_framebuffer`] to set an explicit resolution.
+    /// Set or change the framebuffer resolution. If a framebuffer already exists, tears down the
+    /// existing resource before creating the new one. Can be called before or after
+    /// [`setup_framebuffer`](Self::setup_framebuffer) to set an explicit resolution.
+    ///
     /// Returns a mutable slice to the new framebuffer memory.
     pub fn change_resolution(&mut self, width: u32, height: u32) -> Result<&mut [u8]> {
         let rect = Rect {
