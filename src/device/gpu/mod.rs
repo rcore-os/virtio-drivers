@@ -1,11 +1,16 @@
 //! Driver for VirtIO GPU devices.
 
+mod edid;
+
+pub use self::edid::Edid;
+
 use crate::config::{read_config, ReadOnly, WriteOnly};
 use crate::hal::{BufferDirection, Dma, Hal};
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
 use crate::{pages, Error, Result, PAGE_SIZE};
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use log::info;
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
@@ -13,7 +18,8 @@ use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 const QUEUE_SIZE: u16 = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
     .union(Features::RING_INDIRECT_DESC)
-    .union(Features::VERSION_1);
+    .union(Features::VERSION_1)
+    .union(Features::EDID);
 
 /// A virtio based graphics adapter.
 ///
@@ -37,6 +43,8 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     queue_buf_send: Box<[u8]>,
     /// Recv buffer for queue.
     queue_buf_recv: Box<[u8]>,
+    /// Whether EDID feature was negotiated.
+    has_edid: bool,
 }
 
 impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
@@ -70,6 +78,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
         transport.finish_init();
 
+        let has_edid = negotiated_features.contains(Features::EDID);
+
         Ok(VirtIOGpu {
             transport,
             frame_buffer_dma: None,
@@ -79,6 +89,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             cursor_queue,
             queue_buf_send,
             queue_buf_recv,
+            has_edid,
         })
     }
 
@@ -93,29 +104,80 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         Ok((display_info.rect.width, display_info.rect.height))
     }
 
-    /// Setup framebuffer
+    /// Get the EDID data for the specified scanout.
+    ///
+    /// Returns an [`Edid`] struct wrapping the EDID blob.
+    /// Requires the EDID feature to have been negotiated.
+    pub fn get_edid(&mut self, scanout: u32) -> Result<Edid> {
+        if !self.has_edid {
+            return Err(Error::Unsupported);
+        }
+        let rsp: RespEdid = self.request(CmdGetEdid {
+            header: CtrlHeader::with_type(Command::GET_EDID),
+            scanout,
+            _padding: 0,
+        })?;
+        rsp.header.check_type(Command::OK_EDID)?;
+        Ok(Edid {
+            data: rsp.edid,
+            size: rsp.size,
+        })
+    }
+
+    /// Get the preferred resolution from the EDID data.
+    ///
+    /// Parses the first Detailed Timing Descriptor in the EDID to extract
+    /// the preferred display resolution. Returns (width, height).
+    pub fn edid_preferred_resolution(&mut self) -> Result<(u32, u32)> {
+        let edid = self.get_edid(SCANOUT_ID)?;
+        edid.preferred_resolution()
+    }
+
+    /// Get the list of supported resolutions from EDID data.
+    ///
+    /// Returns up to 8 resolutions from the Standard Timings block, sorted
+    /// by total pixel count (largest first). Each entry is (width, height).
+    pub fn edid_supported_resolutions(&mut self) -> Result<Vec<(u32, u32)>> {
+        let edid = self.get_edid(SCANOUT_ID)?;
+        Ok(edid.standard_timings())
+    }
+
+    /// Setup framebuffer at the display's default resolution.
     pub fn setup_framebuffer(&mut self) -> Result<&mut [u8]> {
-        // get display info
         let display_info = self.get_display_info()?;
         info!("=> {:?}", display_info);
-        self.rect = Some(display_info.rect);
+        self.change_resolution(display_info.rect.width, display_info.rect.height)
+    }
 
-        // create resource 2d
-        self.resource_create_2d(
-            RESOURCE_ID_FB,
-            display_info.rect.width,
-            display_info.rect.height,
-        )?;
+    /// Set or change the framebuffer resolution. If a framebuffer already exists, tears down the
+    /// existing resource before creating the new one. Can be called before or after
+    /// [`setup_framebuffer`](Self::setup_framebuffer) to set an explicit resolution.
+    ///
+    /// Returns a mutable slice to the new framebuffer memory.
+    pub fn change_resolution(&mut self, width: u32, height: u32) -> Result<&mut [u8]> {
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
 
-        // alloc continuous pages for the frame buffer
-        let size = display_info.rect.width * display_info.rect.height * 4;
+        // Tear down existing framebuffer if one exists
+        if self.frame_buffer_dma.is_some() {
+            self.set_scanout(Rect::default(), SCANOUT_ID, 0)?;
+            self.resource_detach_backing(RESOURCE_ID_FB)?;
+            self.resource_unref(RESOURCE_ID_FB)?;
+            self.frame_buffer_dma = None;
+        }
+
+        self.rect = Some(rect);
+        self.resource_create_2d(RESOURCE_ID_FB, width, height)?;
+
+        let size = width * height * 4;
         let frame_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
 
-        // resource_attach_backing
         self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
-
-        // map frame buffer to screen
-        self.set_scanout(display_info.rect, SCANOUT_ID, RESOURCE_ID_FB)?;
+        self.set_scanout(rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
         // SAFETY: `Dma::new` guarantees that the pointer returned from
         // `raw_slice` is non-null, aligned, and the allocation is zeroed. We
@@ -261,6 +323,24 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             nr_entries: 1,
             addr: paddr,
             length,
+            _padding: 0,
+        })?;
+        rsp.check_type(Command::OK_NODATA)
+    }
+
+    fn resource_detach_backing(&mut self, resource_id: u32) -> Result {
+        let rsp: CtrlHeader = self.request(ResourceDetachBacking {
+            header: CtrlHeader::with_type(Command::RESOURCE_DETACH_BACKING),
+            resource_id,
+            _padding: 0,
+        })?;
+        rsp.check_type(Command::OK_NODATA)
+    }
+
+    fn resource_unref(&mut self, resource_id: u32) -> Result {
+        let rsp: CtrlHeader = self.request(ResourceUnref {
+            header: CtrlHeader::with_type(Command::RESOURCE_UNREF),
+            resource_id,
             _padding: 0,
         })?;
         rsp.check_type(Command::OK_NODATA)
@@ -432,6 +512,23 @@ struct RespDisplayInfo {
 
 #[repr(C)]
 #[derive(Debug, Immutable, IntoBytes, KnownLayout)]
+struct CmdGetEdid {
+    header: CtrlHeader,
+    scanout: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, FromBytes, Immutable, KnownLayout)]
+struct RespEdid {
+    header: CtrlHeader,
+    size: u32,
+    _padding: u32,
+    edid: [u8; 1024],
+}
+
+#[repr(C)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
 struct ResourceCreate2D {
     header: CtrlHeader,
     resource_id: u32,
@@ -454,6 +551,22 @@ struct ResourceAttachBacking {
     nr_entries: u32, // always 1
     addr: u64,
     length: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
+struct ResourceDetachBacking {
+    header: CtrlHeader,
+    resource_id: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Immutable, IntoBytes, KnownLayout)]
+struct ResourceUnref {
+    header: CtrlHeader,
+    resource_id: u32,
     _padding: u32,
 }
 
