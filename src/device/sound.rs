@@ -6,7 +6,7 @@ mod fake;
 use super::common::Feature;
 use crate::{
     config::{read_config, ReadOnly},
-    queue::{owning::OwningQueue, VirtQueue},
+    queue::{OwningQueue, VirtQueue},
     transport::{InterruptStatus, Transport},
     Error, Hal, Result, PAGE_SIZE,
 };

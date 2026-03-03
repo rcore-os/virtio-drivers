@@ -8,7 +8,7 @@ use super::protocol::{
 use super::DEFAULT_RX_BUFFER_SIZE;
 use crate::config::read_config;
 use crate::hal::Hal;
-use crate::queue::{owning::OwningQueue, VirtQueue};
+use crate::queue::{OwningQueue, VirtQueue};
 use crate::transport::Transport;
 use crate::Result;
 use core::mem::size_of;
