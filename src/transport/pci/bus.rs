@@ -9,7 +9,7 @@ use core::{
     ptr::NonNull,
 };
 use log::warn;
-use safe_mmio::{fields::ReadPureWrite, UniqueMmioPointer};
+use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
 use thiserror::Error;
 
 const INVALID_READ: u32 = 0xffffffff;
@@ -381,10 +381,14 @@ impl MmioCam<'_> {
     pub unsafe fn new(mmio_base: *mut u8, cam: Cam) -> Self {
         assert!(mmio_base as usize & 0x3 == 0);
         Self {
-            mmio: UniqueMmioPointer::new(NonNull::slice_from_raw_parts(
-                NonNull::new(mmio_base as *mut ReadPureWrite<u32>).unwrap(),
-                cam.size() as usize / size_of::<u32>(),
-            )),
+            // SAFETY: The caller promised that `mmio_base` is a valid pointer to an MMIO region of
+            // sufficient size and lifetime.
+            mmio: unsafe {
+                UniqueMmioPointer::new(NonNull::slice_from_raw_parts(
+                    NonNull::new(mmio_base as *mut ReadPureWrite<u32>).unwrap(),
+                    cam.size() as usize / size_of::<u32>(),
+                ))
+            },
             cam,
         }
     }
@@ -408,7 +412,12 @@ impl ConfigurationAccess for MmioCam<'_> {
 
     unsafe fn unsafe_clone(&self) -> Self {
         Self {
-            mmio: UniqueMmioPointer::new(NonNull::new(self.mmio.ptr().cast_mut()).unwrap()),
+            // SAFETY: Although we're constructing a `UniqueMmioPointer`, the caller promises that
+            // that this will only be used to read read-only fields. The underlying pointer must be
+            // valid because it came from our `UniqueMmioPointer`.
+            mmio: unsafe {
+                UniqueMmioPointer::new(NonNull::new(self.mmio.ptr().cast_mut()).unwrap())
+            },
             cam: self.cam,
         }
     }

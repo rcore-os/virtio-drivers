@@ -1,8 +1,8 @@
 use super::VirtQueue;
-use crate::{transport::Transport, Error, Hal, Result};
+use crate::{Error, Hal, Result, transport::Transport};
 use alloc::boxed::Box;
 use core::convert::TryInto;
-use core::ptr::{null_mut, NonNull};
+use core::ptr::{NonNull, null_mut};
 use zerocopy::FromZeros;
 
 /// A wrapper around [`VirtQueue`] that owns all the buffers that are passed to the queue.

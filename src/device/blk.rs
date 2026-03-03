@@ -1,6 +1,6 @@
 //! Driver for VirtIO block devices.
 
-use crate::config::{read_config, ReadOnly};
+use crate::config::{ReadOnly, read_config};
 use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
@@ -258,9 +258,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self
-            .queue
-            .add(&[req.as_bytes()], &mut [buf, resp.as_mut_bytes()])?;
+        // SAFETY: The caller promises that `req`, `buf` and `resp` are not accessed before the
+        // request is completed.
+        let token = unsafe {
+            self.queue
+                .add(&[req.as_bytes()], &mut [buf, resp.as_mut_bytes()])?
+        };
         if self.queue.should_notify() {
             self.transport.notify(QUEUE);
         }
@@ -271,8 +274,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to `read_blocks_nb` when it returned
-    /// the token.
+    /// The same buffers (`req`, `buf` and `resp`) must be passed in again as were passed to
+    /// `read_blocks_nb` when it returned the token.
     pub unsafe fn complete_read_blocks(
         &mut self,
         token: u16,
@@ -280,8 +283,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         buf: &mut [u8],
         resp: &mut BlkResp,
     ) -> Result<()> {
-        self.queue
-            .pop_used(token, &[req.as_bytes()], &mut [buf, resp.as_mut_bytes()])?;
+        // SAFETY: The caller promises that `req`, `buf` and `resp` are the same that were passed to
+        // the corresponding `read_blocks_nb` call which added them to the queue.
+        unsafe {
+            self.queue
+                .pop_used(token, &[req.as_bytes()], &mut [buf, resp.as_mut_bytes()])?;
+        }
         resp.status.into()
     }
 
@@ -340,9 +347,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             reserved: 0,
             sector: block_id as u64,
         };
-        let token = self
-            .queue
-            .add(&[req.as_bytes(), buf], &mut [resp.as_mut_bytes()])?;
+        // SAFETY: The caller promises that `req`, `buf` and `resp` are not accessed before the
+        // request is completed.
+        let token = unsafe {
+            self.queue
+                .add(&[req.as_bytes(), buf], &mut [resp.as_mut_bytes()])?
+        };
         if self.queue.should_notify() {
             self.transport.notify(QUEUE);
         }
@@ -353,8 +363,8 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
     ///
     /// # Safety
     ///
-    /// The same buffers must be passed in again as were passed to `write_blocks_nb` when it
-    /// returned the token.
+    /// The same buffers (`req`, `buf` and `resp`) must be passed in again as were passed to
+    /// `write_blocks_nb` when it returned the token.
     pub unsafe fn complete_write_blocks(
         &mut self,
         token: u16,
@@ -362,8 +372,12 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
         buf: &[u8],
         resp: &mut BlkResp,
     ) -> Result<()> {
-        self.queue
-            .pop_used(token, &[req.as_bytes(), buf], &mut [resp.as_mut_bytes()])?;
+        // SAFETY: The caller promises that `req`, `buf` and `resp` are the same that were passed to
+        // the corresponding `write_blocks_nb` call which added them to the queue.
+        unsafe {
+            self.queue
+                .pop_used(token, &[req.as_bytes(), buf], &mut [resp.as_mut_bytes()])?;
+        }
         resp.status.into()
     }
 
@@ -556,8 +570,8 @@ mod tests {
     use crate::{
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
     use alloc::{sync::Arc, vec};
@@ -630,31 +644,33 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            assert!(state
-                .lock()
-                .unwrap()
-                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
-                    assert_eq!(
-                        request,
-                        BlkReq {
-                            type_: ReqType::In,
-                            reserved: 0,
-                            sector: 42
-                        }
-                        .as_bytes()
-                    );
+            assert!(
+                state
+                    .lock()
+                    .unwrap()
+                    .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                        assert_eq!(
+                            request,
+                            BlkReq {
+                                type_: ReqType::In,
+                                reserved: 0,
+                                sector: 42
+                            }
+                            .as_bytes()
+                        );
 
-                    let mut response = vec![0; SECTOR_SIZE];
-                    response[0..9].copy_from_slice(b"Test data");
-                    response.extend_from_slice(
-                        BlkResp {
-                            status: RespStatus::OK,
-                        }
-                        .as_bytes(),
-                    );
+                        let mut response = vec![0; SECTOR_SIZE];
+                        response[0..9].copy_from_slice(b"Test data");
+                        response.extend_from_slice(
+                            BlkResp {
+                                status: RespStatus::OK,
+                            }
+                            .as_bytes(),
+                        );
 
-                    response
-                }));
+                        response
+                    })
+            );
         });
 
         // Read a block from the device.
@@ -699,33 +715,35 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            assert!(state
-                .lock()
-                .unwrap()
-                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
-                    assert_eq!(
-                        &request[0..size_of::<BlkReq>()],
-                        BlkReq {
-                            type_: ReqType::Out,
-                            reserved: 0,
-                            sector: 42
-                        }
-                        .as_bytes()
-                    );
-                    let data = &request[size_of::<BlkReq>()..];
-                    assert_eq!(data.len(), SECTOR_SIZE);
-                    assert_eq!(&data[0..9], b"Test data");
+            assert!(
+                state
+                    .lock()
+                    .unwrap()
+                    .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                        assert_eq!(
+                            &request[0..size_of::<BlkReq>()],
+                            BlkReq {
+                                type_: ReqType::Out,
+                                reserved: 0,
+                                sector: 42
+                            }
+                            .as_bytes()
+                        );
+                        let data = &request[size_of::<BlkReq>()..];
+                        assert_eq!(data.len(), SECTOR_SIZE);
+                        assert_eq!(&data[0..9], b"Test data");
 
-                    let mut response = Vec::new();
-                    response.extend_from_slice(
-                        BlkResp {
-                            status: RespStatus::OK,
-                        }
-                        .as_bytes(),
-                    );
+                        let mut response = Vec::new();
+                        response.extend_from_slice(
+                            BlkResp {
+                                status: RespStatus::OK,
+                            }
+                            .as_bytes(),
+                        );
 
-                    response
-                }));
+                        response
+                    })
+            );
         });
 
         // Write a block to the device.
@@ -773,30 +791,32 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            assert!(state
-                .lock()
-                .unwrap()
-                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
-                    assert_eq!(
-                        request,
-                        BlkReq {
-                            type_: ReqType::Flush,
-                            reserved: 0,
-                            sector: 0,
-                        }
-                        .as_bytes()
-                    );
+            assert!(
+                state
+                    .lock()
+                    .unwrap()
+                    .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                        assert_eq!(
+                            request,
+                            BlkReq {
+                                type_: ReqType::Flush,
+                                reserved: 0,
+                                sector: 0,
+                            }
+                            .as_bytes()
+                        );
 
-                    let mut response = Vec::new();
-                    response.extend_from_slice(
-                        BlkResp {
-                            status: RespStatus::OK,
-                        }
-                        .as_bytes(),
-                    );
+                        let mut response = Vec::new();
+                        response.extend_from_slice(
+                            BlkResp {
+                                status: RespStatus::OK,
+                            }
+                            .as_bytes(),
+                        );
 
-                    response
-                }));
+                        response
+                    })
+            );
         });
 
         // Request to flush.
@@ -839,31 +859,33 @@ mod tests {
             State::wait_until_queue_notified(&state, QUEUE);
             println!("Transmit queue was notified.");
 
-            assert!(state
-                .lock()
-                .unwrap()
-                .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
-                    assert_eq!(
-                        request,
-                        BlkReq {
-                            type_: ReqType::GetId,
-                            reserved: 0,
-                            sector: 0,
-                        }
-                        .as_bytes()
-                    );
+            assert!(
+                state
+                    .lock()
+                    .unwrap()
+                    .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+                        assert_eq!(
+                            request,
+                            BlkReq {
+                                type_: ReqType::GetId,
+                                reserved: 0,
+                                sector: 0,
+                            }
+                            .as_bytes()
+                        );
 
-                    let mut response = Vec::new();
-                    response.extend_from_slice(b"device_id\0\0\0\0\0\0\0\0\0\0\0");
-                    response.extend_from_slice(
-                        BlkResp {
-                            status: RespStatus::OK,
-                        }
-                        .as_bytes(),
-                    );
+                        let mut response = Vec::new();
+                        response.extend_from_slice(b"device_id\0\0\0\0\0\0\0\0\0\0\0");
+                        response.extend_from_slice(
+                            BlkResp {
+                                status: RespStatus::OK,
+                            }
+                            .as_bytes(),
+                        );
 
-                    response
-                }));
+                        response
+                    })
+            );
         });
 
         let mut id = [0; 20];

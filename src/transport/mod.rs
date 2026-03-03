@@ -8,8 +8,8 @@ mod some;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
-use crate::{PhysAddr, Result, PAGE_SIZE};
-use bitflags::{bitflags, Flags};
+use crate::{PAGE_SIZE, PhysAddr, Result};
+use bitflags::{Flags, bitflags};
 use core::{
     fmt::{self, Debug, Formatter},
     ops::BitAnd,
@@ -93,7 +93,10 @@ pub trait Transport {
             if device_feature_bits & Feature::VERSION_1.bits() > 0 {
                 // > 6.1 Driver Requirements: Reserved Feature Bits
                 // > A driver MUST accept VIRTIO_F_VERSION_1 if it is offered.
-                debug_assert!(negotiated_features.bits() & Feature::VERSION_1.bits() > 0, "Driver must accept VIRTIO_F_VERSION_1 in supported features because it is offered by the device.");
+                debug_assert!(
+                    negotiated_features.bits() & Feature::VERSION_1.bits() > 0,
+                    "Driver must accept VIRTIO_F_VERSION_1 in supported features because it is offered by the device."
+                );
             }
         }
         self.write_driver_features(negotiated_features.bits());

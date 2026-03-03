@@ -9,7 +9,7 @@ static mut HEAP: [u64; HEAP_SIZE / 8] = [0; HEAP_SIZE / 8];
 
 pub fn init_heap() {
     unsafe {
-        let heap_start = HEAP.as_ptr() as *mut u8;
+        let heap_start = &raw mut HEAP as *mut u8;
         ALLOCATOR.lock().init(heap_start, HEAP_SIZE);
     }
 }

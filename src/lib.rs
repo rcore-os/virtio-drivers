@@ -42,14 +42,20 @@
 //! ```
 
 #![cfg_attr(not(test), no_std)]
-#![deny(unused_must_use, missing_docs, clippy::undocumented_unsafe_blocks)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![deny(
+    unsafe_op_in_unsafe_fn,
+    unused_must_use,
+    missing_docs,
+    clippy::undocumented_unsafe_blocks
+)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
 
-mod config;
+pub mod config;
 pub mod device;
 #[cfg(feature = "embedded-io")]
 mod embedded_io;

@@ -10,7 +10,7 @@ use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 use smoltcp::{socket::tcp, time::Instant};
 use virtio_drivers::device::net::{RxBuffer, VirtIONet};
-use virtio_drivers::{transport::Transport, Error};
+use virtio_drivers::{Error, transport::Transport};
 
 use super::{HalImpl, NET_QUEUE_SIZE};
 

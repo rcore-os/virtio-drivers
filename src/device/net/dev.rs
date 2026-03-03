@@ -3,7 +3,7 @@ use alloc::vec;
 use super::net_buf::{RxBuffer, TxBuffer};
 use super::{EthernetAddress, VirtIONetRaw};
 use crate::transport::InterruptStatus;
-use crate::{hal::Hal, transport::Transport, Error, Result};
+use crate::{Error, Result, hal::Hal, transport::Transport};
 
 /// Driver for a VirtIO network device.
 ///

@@ -8,8 +8,8 @@ use core::{
     fmt,
 };
 use zerocopy::{
-    byteorder::{LittleEndian, U16, U32, U64},
     FromBytes, Immutable, IntoBytes, KnownLayout,
+    byteorder::{LittleEndian, U16, U32, U64},
 };
 
 /// Well-known CID for the host.

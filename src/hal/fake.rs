@@ -1,8 +1,6 @@
 //! Fake HAL implementation for tests.
 
-#![deny(unsafe_op_in_unsafe_fn)]
-
-use crate::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
+use crate::{BufferDirection, Hal, PAGE_SIZE, PhysAddr};
 use alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
 use core::{
     alloc::Layout,

@@ -1,7 +1,7 @@
 //! Implementation of `embedded-io` traits for `VirtIOConsole`.
 
 use super::VirtIOConsole;
-use crate::{transport::Transport, Error, Hal};
+use crate::{Error, Hal, transport::Transport};
 use core::cmp::min;
 use embedded_io::{BufRead, ErrorType, Read, ReadReady, Write};
 
@@ -67,11 +67,11 @@ mod tests {
 
     use crate::{
         config::{ReadOnly, WriteOnly},
-        device::console::{Config, VirtIOConsole, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE},
+        device::console::{Config, QUEUE_RECEIVEQ_PORT_0, QUEUE_SIZE, VirtIOConsole},
         hal::fake::FakeHal,
         transport::{
-            fake::{FakeTransport, QueueStatus, State},
             DeviceType,
+            fake::{FakeTransport, QueueStatus, State},
         },
     };
 

@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     time::Duration,
 };
-use vsock::{VsockAddr, VsockListener, VMADDR_CID_HOST};
+use vsock::{VMADDR_CID_HOST, VsockAddr, VsockListener};
 
 const PORT: u32 = 1221;
 

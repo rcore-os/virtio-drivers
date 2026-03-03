@@ -1,9 +1,9 @@
 //! Driver for VirtIO random number generator devices.
 use super::common::Feature;
 use crate::{
+    Hal, Result,
     queue::VirtQueue,
     transport::{InterruptStatus, Transport},
-    Hal, Result,
 };
 
 // VirtioRNG only uses one queue

@@ -20,16 +20,17 @@ use core::mem::size_of;
 use virtio_drivers::{
     device::{blk::VirtIOBlk, gpu::VirtIOGpu, rng::VirtIORng, virtio_9p::VirtIO9p},
     transport::{
-        pci::{
-            bus::{BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MmioCam, PciRoot},
-            virtio_device_type, PciTransport,
-        },
         DeviceType, Transport,
+        pci::{
+            PciTransport,
+            bus::{BarInfo, Cam, Command, ConfigurationAccess, DeviceFunction, MmioCam, PciRoot},
+            virtio_device_type,
+        },
     },
 };
 use zerocopy::{
-    byteorder::{LittleEndian, U16, U32},
     FromBytes, Immutable, IntoBytes, KnownLayout,
+    byteorder::{LittleEndian, U16, U32},
 };
 
 /// Memory mapped address space to access PCI configuration.
@@ -51,7 +52,7 @@ fn system_off() -> ! {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn main(_mbi: *const u8) -> ! {
     logger::init(log::LevelFilter::Info).unwrap();
     info!("virtio-drivers example started.");

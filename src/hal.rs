@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod fake;
 
-use crate::{Error, Result, PAGE_SIZE};
+use crate::{Error, PAGE_SIZE, Result};
 use core::{marker::PhantomData, ptr::NonNull};
 
 /// A physical address as used for virtio.

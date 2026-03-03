@@ -4,9 +4,9 @@ use core::{
 };
 use lazy_static::lazy_static;
 use log::trace;
-use virtio_drivers::{BufferDirection, Hal, PhysAddr, PAGE_SIZE};
+use virtio_drivers::{BufferDirection, Hal, PAGE_SIZE, PhysAddr};
 
-extern "C" {
+unsafe extern "C" {
     fn end();
 }
 

@@ -7,7 +7,9 @@ use thiserror::Error;
 #[derive(Copy, Clone, Debug, Eq, Error, PartialEq)]
 pub enum SocketError {
     /// There is an existing connection.
-    #[error("There is an existing connection. Please close the current connection before attempting to connect again.")]
+    #[error(
+        "There is an existing connection. Please close the current connection before attempting to connect again."
+    )]
     ConnectionExists,
     /// The device is not connected to any peer.
     #[error("The device is not connected to any peer. Please connect it to a peer first.")]
