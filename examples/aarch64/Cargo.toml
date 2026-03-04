@@ -11,7 +11,7 @@ arm-pl011-uart = "0.4.0"
 buddy_system_allocator = "0.12.0"
 flat_device_tree = "3.1.1"
 log = "0.4.29"
-safe-mmio = "0.2.7"
+safe-mmio = "0.3.0"
 smccc = "0.2.2"
 spin = "0.10.0"
 virtio-drivers = { path = "../.." }
