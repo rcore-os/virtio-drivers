@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 aarch64-rt = "0.4.3"
-aarch64-paging = "0.11.0"
+aarch64-paging = "0.12.0"
 arm-pl011-uart = "0.5.0"
 buddy_system_allocator = "0.12.0"
 flat_device_tree = "3.1.1"
