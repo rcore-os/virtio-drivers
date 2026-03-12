@@ -77,7 +77,7 @@ bitflags! {
         const RING_INDIRECT_DESC = 1 << 28;
         const RING_EVENT_IDX = 1 << 29;
         const VERSION_1 = 1 << 32; // legacy
-        
+        // since virtio v1.1
         const ACCESS_PLATFORM = 1 << 33;
     }
 }
