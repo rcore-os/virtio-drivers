@@ -21,7 +21,8 @@ const EVENT_QUEUE_IDX: u16 = 2;
 pub(crate) const QUEUE_SIZE: usize = 8;
 const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX
     .union(Feature::RING_INDIRECT_DESC)
-    .union(Feature::VERSION_1);
+    .union(Feature::VERSION_1)
+    .union(Feature::ACCESS_PLATFORM);
 
 /// Information about a particular vsock connection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

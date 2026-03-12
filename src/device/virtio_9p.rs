@@ -12,7 +12,8 @@ const QUEUE_SIZE: usize = 16;
 const P9_HEADER_SIZE: usize = 7; // size (4) + type (1) + tag (2)
 const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC
     .union(Feature::RING_EVENT_IDX)
-    .union(Feature::VERSION_1);
+    .union(Feature::VERSION_1)
+    .union(Feature::ACCESS_PLATFORM);
 
 /// Driver for a VirtIO 9p device.
 pub struct VirtIO9p<H: Hal, T: Transport> {

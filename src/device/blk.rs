@@ -15,7 +15,8 @@ const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
     .union(BlkFeature::FLUSH)
     .union(BlkFeature::RING_INDIRECT_DESC)
     .union(BlkFeature::RING_EVENT_IDX)
-    .union(BlkFeature::VERSION_1);
+    .union(BlkFeature::VERSION_1)
+    .union(BlkFeature::ACCESS_PLATFORM);
 
 /// Driver for a VirtIO block device.
 ///
