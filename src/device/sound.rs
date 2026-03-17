@@ -75,24 +75,28 @@ impl<H: Hal, T: Transport> VirtIOSound<H, T> {
             CONTROL_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         let event_queue = OwningQueue::new(VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?)?;
         let tx_queue = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         let rx_queue = VirtQueue::new(
             &mut transport,
             RX_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
 
         // read configuration space
@@ -753,7 +757,8 @@ const RX_QUEUE_IDX: u16 = 3;
 
 const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC
     .union(Feature::RING_EVENT_IDX)
-    .union(Feature::VERSION_1);
+    .union(Feature::VERSION_1)
+    .union(Feature::ACCESS_PLATFORM);
 
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]

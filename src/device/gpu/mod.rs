@@ -19,6 +19,7 @@ const QUEUE_SIZE: u16 = 2;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
     .union(Features::RING_INDIRECT_DESC)
     .union(Features::VERSION_1)
+    .union(Features::ACCESS_PLATFORM)
     .union(Features::EDID);
 
 /// A virtio based graphics adapter.
@@ -45,6 +46,8 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     queue_buf_recv: Box<[u8]>,
     /// Whether EDID feature was negotiated.
     has_edid: bool,
+    /// Whether `VIRTIO_F_ACCESS_PLATFORM` was negotiated.
+    access_platform: bool,
 }
 
 impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
@@ -60,17 +63,21 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             events_read, num_scanouts
         );
 
+        let access_platform = negotiated_features.contains(Features::ACCESS_PLATFORM);
+
         let control_queue = VirtQueue::new(
             &mut transport,
             QUEUE_TRANSMIT,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            access_platform,
         )?;
         let cursor_queue = VirtQueue::new(
             &mut transport,
             QUEUE_CURSOR,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            access_platform,
         )?;
 
         let queue_buf_send = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
@@ -90,6 +97,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             queue_buf_send,
             queue_buf_recv,
             has_edid,
+            access_platform,
         })
     }
 
@@ -174,7 +182,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         self.resource_create_2d(RESOURCE_ID_FB, width, height)?;
 
         let size = width * height * 4;
-        let frame_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
+        let frame_buffer_dma = Dma::new(
+            pages(size as usize),
+            BufferDirection::DriverToDevice,
+            self.access_platform,
+        )?;
 
         self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
         self.set_scanout(rect, SCANOUT_ID, RESOURCE_ID_FB)?;
@@ -214,7 +226,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         if cursor_image.len() != size as usize {
             return Err(Error::InvalidParam);
         }
-        let cursor_buffer_dma = Dma::new(pages(size as usize), BufferDirection::DriverToDevice)?;
+        let cursor_buffer_dma = Dma::new(
+            pages(size as usize),
+            BufferDirection::DriverToDevice,
+            self.access_platform,
+        )?;
 
         // SAFETY: `Dma::new` guarantees that the pointer returned from
         // `raw_slice` is non-null, aligned, and the allocation is zeroed. The

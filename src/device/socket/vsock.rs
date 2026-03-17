@@ -21,7 +21,8 @@ const EVENT_QUEUE_IDX: u16 = 2;
 pub(crate) const QUEUE_SIZE: usize = 8;
 const SUPPORTED_FEATURES: Feature = Feature::RING_EVENT_IDX
     .union(Feature::RING_INDIRECT_DESC)
-    .union(Feature::VERSION_1);
+    .union(Feature::VERSION_1)
+    .union(Feature::ACCESS_PLATFORM);
 
 /// Information about a particular vsock connection.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -262,18 +263,21 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
             RX_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         let tx = VirtQueue::new(
             &mut transport,
             TX_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         let event = VirtQueue::new(
             &mut transport,
             EVENT_QUEUE_IDX,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
 
         let rx = OwningQueue::new(rx)?;

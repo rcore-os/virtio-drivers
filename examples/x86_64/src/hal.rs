@@ -17,14 +17,25 @@ lazy_static! {
 pub struct HalImpl;
 
 unsafe impl Hal for HalImpl {
-    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
+    fn dma_alloc(
+        pages: usize,
+        _direction: BufferDirection,
+        access_platform: bool,
+    ) -> (PhysAddr, NonNull<u8>) {
+        assert!(!access_platform);
         let paddr = DMA_PADDR.fetch_add((PAGE_SIZE * pages) as u64, Ordering::SeqCst);
         trace!("alloc DMA: paddr={:#x}, pages={}", paddr, pages);
         let vaddr = NonNull::new(paddr as _).unwrap();
         (paddr, vaddr)
     }
 
-    unsafe fn dma_dealloc(paddr: PhysAddr, _vaddr: NonNull<u8>, pages: usize) -> i32 {
+    unsafe fn dma_dealloc(
+        paddr: PhysAddr,
+        _vaddr: NonNull<u8>,
+        pages: usize,
+        access_platform: bool,
+    ) -> i32 {
+        assert!(!access_platform);
         trace!("dealloc DMA: paddr={:#x}, pages={}", paddr, pages);
         0
     }
@@ -33,13 +44,24 @@ unsafe impl Hal for HalImpl {
         NonNull::new(paddr as _).unwrap()
     }
 
-    unsafe fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
+    unsafe fn share(
+        buffer: NonNull<[u8]>,
+        _direction: BufferDirection,
+        access_platform: bool,
+    ) -> PhysAddr {
+        assert!(!access_platform);
         let vaddr = buffer.as_ptr() as *mut u8 as usize;
         // Nothing to do, as the host already has access to all memory.
         virt_to_phys(vaddr)
     }
 
-    unsafe fn unshare(_paddr: PhysAddr, _buffer: NonNull<[u8]>, _direction: BufferDirection) {
+    unsafe fn unshare(
+        _paddr: PhysAddr,
+        _buffer: NonNull<[u8]>,
+        _direction: BufferDirection,
+        access_platform: bool,
+    ) {
+        assert!(!access_platform);
         // Nothing to do, as the host already has access to all memory and we didn't copy the buffer
         // anywhere else.
     }

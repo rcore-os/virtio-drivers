@@ -13,7 +13,11 @@ pub struct FakeHal;
 
 /// Fake HAL implementation for use in unit tests.
 unsafe impl Hal for FakeHal {
-    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
+    fn dma_alloc(
+        pages: usize,
+        _direction: BufferDirection,
+        _access_platform: bool,
+    ) -> (PhysAddr, NonNull<u8>) {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
         // Safe because the size and alignment of the layout are non-zero.
@@ -25,7 +29,12 @@ unsafe impl Hal for FakeHal {
         }
     }
 
-    unsafe fn dma_dealloc(_paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
+    unsafe fn dma_dealloc(
+        _paddr: PhysAddr,
+        vaddr: NonNull<u8>,
+        pages: usize,
+        _access_platform: bool,
+    ) -> i32 {
         assert_ne!(pages, 0);
         let layout = Layout::from_size_align(pages * PAGE_SIZE, PAGE_SIZE).unwrap();
         // Safe because the layout is the same as was used when the memory was allocated by
@@ -40,7 +49,11 @@ unsafe impl Hal for FakeHal {
         NonNull::new(paddr as _).unwrap()
     }
 
-    unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr {
+    unsafe fn share(
+        buffer: NonNull<[u8]>,
+        direction: BufferDirection,
+        _access_platform: bool,
+    ) -> PhysAddr {
         assert_ne!(buffer.len(), 0);
         // To ensure that the driver is handling and unsharing buffers properly, allocate a new
         // buffer and copy to it if appropriate.
@@ -58,7 +71,12 @@ unsafe impl Hal for FakeHal {
         virt_to_phys(vaddr)
     }
 
-    unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection) {
+    unsafe fn unshare(
+        paddr: PhysAddr,
+        buffer: NonNull<[u8]>,
+        direction: BufferDirection,
+        _access_platform: bool,
+    ) {
         assert_ne!(buffer.len(), 0);
         assert_ne!(paddr, 0);
         let vaddr = phys_to_virt(paddr);

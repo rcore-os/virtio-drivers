@@ -42,12 +42,14 @@ impl<H: Hal, T: Transport, const QUEUE_SIZE: usize> VirtIONetRaw<H, T, QUEUE_SIZ
             QUEUE_TRANSMIT,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            negotiated_features.contains(Features::ACCESS_PLATFORM),
         )?;
         let recv_queue = VirtQueue::new(
             &mut transport,
             QUEUE_RECEIVE,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            negotiated_features.contains(Features::ACCESS_PLATFORM),
         )?;
 
         transport.finish_init();
