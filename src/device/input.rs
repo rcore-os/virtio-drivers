@@ -35,12 +35,14 @@ impl<H: Hal, T: Transport> VirtIOInput<H, T> {
             QUEUE_EVENT,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         let status_queue = VirtQueue::new(
             &mut transport,
             QUEUE_STATUS,
             negotiated_features.contains(Feature::RING_INDIRECT_DESC),
             negotiated_features.contains(Feature::RING_EVENT_IDX),
+            negotiated_features.contains(Feature::ACCESS_PLATFORM),
         )?;
         for (i, event) in event_buf.as_mut().iter_mut().enumerate() {
             // SAFETY: The buffer lasts as long as the queue.

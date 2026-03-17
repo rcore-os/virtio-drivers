@@ -32,6 +32,7 @@ impl<H: Hal, T: Transport> VirtIO9p<H, T> {
             QUEUE,
             features.contains(Feature::RING_INDIRECT_DESC),
             features.contains(Feature::RING_EVENT_IDX),
+            features.contains(Feature::ACCESS_PLATFORM),
         )?;
         transport.finish_init();
 

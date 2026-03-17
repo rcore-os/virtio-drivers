@@ -13,6 +13,7 @@ pub struct Dma<H: Hal> {
     paddr: PhysAddr,
     vaddr: NonNull<u8>,
     pages: usize,
+    access_platform: bool,
     _hal: PhantomData<H>,
 }
 
@@ -28,8 +29,8 @@ impl<H: Hal> Dma<H> {
     /// the given direction.
     ///
     /// The pages will be zeroed.
-    pub fn new(pages: usize, direction: BufferDirection) -> Result<Self> {
-        let (paddr, vaddr) = H::dma_alloc(pages, direction);
+    pub fn new(pages: usize, direction: BufferDirection, access_platform: bool) -> Result<Self> {
+        let (paddr, vaddr) = H::dma_alloc(pages, direction, access_platform);
         if paddr == 0 {
             return Err(Error::DmaError);
         }
@@ -37,6 +38,7 @@ impl<H: Hal> Dma<H> {
             paddr,
             vaddr,
             pages,
+            access_platform,
             _hal: PhantomData,
         })
     }
@@ -64,7 +66,8 @@ impl<H: Hal> Drop for Dma<H> {
     fn drop(&mut self) {
         // SAFETY: The memory was previously allocated by `dma_alloc` in `Dma::new`,
         // not yet deallocated, and we are passing the values from then.
-        let err = unsafe { H::dma_dealloc(self.paddr, self.vaddr, self.pages) };
+        let err =
+            unsafe { H::dma_dealloc(self.paddr, self.vaddr, self.pages, self.access_platform) };
         assert_eq!(err, 0, "failed to deallocate DMA");
     }
 }
@@ -88,7 +91,11 @@ pub unsafe trait Hal {
     /// [_valid_](https://doc.rust-lang.org/std/ptr/index.html#safety) pointer, aligned to
     /// [`PAGE_SIZE`], and won't alias any other allocations or references in the program until it
     /// is deallocated by `dma_dealloc`. The pages must be zeroed.
-    fn dma_alloc(pages: usize, direction: BufferDirection) -> (PhysAddr, NonNull<u8>);
+    fn dma_alloc(
+        pages: usize,
+        direction: BufferDirection,
+        access_platform: bool,
+    ) -> (PhysAddr, NonNull<u8>);
 
     /// Deallocates the given contiguous physical DMA memory pages.
     ///
@@ -97,7 +104,12 @@ pub unsafe trait Hal {
     /// The memory must have been allocated by `dma_alloc` on the same `Hal` implementation, and not
     /// yet deallocated. `pages` must be the same number passed to `dma_alloc` originally, and both
     /// `paddr` and `vaddr` must be the values returned by `dma_alloc`.
-    unsafe fn dma_dealloc(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32;
+    unsafe fn dma_dealloc(
+        paddr: PhysAddr,
+        vaddr: NonNull<u8>,
+        pages: usize,
+        access_platform: bool,
+    ) -> i32;
 
     /// Converts a physical address used for MMIO to a virtual address which the driver can access.
     ///
@@ -127,7 +139,11 @@ pub unsafe trait Hal {
     ///
     /// The buffer must be a valid pointer to a non-empty memory range which will not be accessed by
     /// any other thread for the duration of this method call.
-    unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr;
+    unsafe fn share(
+        buffer: NonNull<[u8]>,
+        direction: BufferDirection,
+        access_platform: bool,
+    ) -> PhysAddr;
 
     /// Unshares the given memory range from the device and (if necessary) copies it back to the
     /// original buffer.
@@ -137,7 +153,12 @@ pub unsafe trait Hal {
     /// The buffer must be a valid pointer to a non-empty memory range which will not be accessed by
     /// any other thread for the duration of this method call. The `paddr` must be the value
     /// previously returned by the corresponding `share` call.
-    unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection);
+    unsafe fn unshare(
+        paddr: PhysAddr,
+        buffer: NonNull<[u8]>,
+        direction: BufferDirection,
+        access_platform: bool,
+    );
 }
 
 /// The direction in which a buffer is passed.

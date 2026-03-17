@@ -29,6 +29,7 @@ impl<H: Hal, T: Transport> VirtIORng<H, T> {
             QUEUE_IDX,
             feat.contains(Feature::RING_INDIRECT_DESC),
             feat.contains(Feature::RING_EVENT_IDX),
+            feat.contains(Feature::ACCESS_PLATFORM),
         )?;
         transport.finish_init();
         Ok(Self { transport, queue })

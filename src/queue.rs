@@ -64,6 +64,8 @@ pub struct VirtQueue<H: Hal, const SIZE: usize> {
     last_used_idx: u16,
     /// Whether the `VIRTIO_F_EVENT_IDX` feature has been negotiated.
     event_idx: bool,
+    /// Whether the `VIRTIO_F_ACCESS_PLATFORM` feature has been negotiated.
+    access_platform: bool,
     #[cfg(feature = "alloc")]
     indirect: bool,
     #[cfg(feature = "alloc")]
@@ -85,6 +87,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         idx: u16,
         indirect: bool,
         event_idx: bool,
+        access_platform: bool,
     ) -> Result<Self> {
         #[allow(clippy::let_unit_value)]
         let _ = Self::SIZE_OK;
@@ -98,9 +101,9 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         let size = SIZE as u16;
 
         let layout = if transport.requires_legacy_layout() {
-            VirtQueueLayout::allocate_legacy(size)?
+            VirtQueueLayout::allocate_legacy(size, access_platform)?
         } else {
-            VirtQueueLayout::allocate_flexible(size)?
+            VirtQueueLayout::allocate_flexible(size, access_platform)?
         };
 
         transport.queue_set(
@@ -141,6 +144,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             avail_idx: 0,
             last_used_idx: 0,
             event_idx,
+            access_platform,
             #[cfg(feature = "alloc")]
             indirect,
             #[cfg(feature = "alloc")]
@@ -229,7 +233,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             // SAFETY: Our caller promises that the buffers live at least until `pop_used`
             // returns them.
             unsafe {
-                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT, self.access_platform);
             }
             last = self.free_head;
             self.free_head = desc.next;
@@ -264,7 +268,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
             // SAFETY: Our caller promises that the buffers live at least until `pop_used`
             // returns them.
             unsafe {
-                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT);
+                desc.set_buf::<H>(buffer, direction, DescFlags::NEXT, self.access_platform);
             }
             desc.next = (i + 1) as u16;
         }
@@ -294,6 +298,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 Box::leak(indirect_list).as_bytes().into(),
                 BufferDirection::DriverToDevice,
                 DescFlags::INDIRECT,
+                self.access_platform,
             );
         }
         self.write_desc(head);
@@ -452,6 +457,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                         paddr,
                         indirect_list.as_mut_bytes().into(),
                         BufferDirection::DriverToDevice,
+                        self.access_platform,
                     );
                 }
 
@@ -465,7 +471,12 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                     unsafe {
                         // Unshare the buffer (and perhaps copy its contents back to the original
                         // buffer).
-                        H::unshare(indirect_list[i].addr, buffer, direction);
+                        H::unshare(
+                            indirect_list[i].addr,
+                            buffer,
+                            direction,
+                            self.access_platform,
+                        );
                     }
                 }
                 drop(indirect_list);
@@ -493,7 +504,7 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 // from which we got `paddr`.
                 unsafe {
                     // Unshare the buffer (and perhaps copy its contents back to the original buffer).
-                    H::unshare(paddr, buffer, direction);
+                    H::unshare(paddr, buffer, direction, self.access_platform);
                 }
             }
 
@@ -591,11 +602,11 @@ impl<H: Hal> VirtQueueLayout<H> {
     /// required by legacy interfaces.
     ///
     /// Ref: 2.6.2 Legacy Interfaces: A Note on Virtqueue Layout
-    fn allocate_legacy(queue_size: u16) -> Result<Self> {
+    fn allocate_legacy(queue_size: u16, access_platform: bool) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
         let size = align_up(desc + avail) + align_up(used);
         // Allocate contiguous pages.
-        let dma = Dma::new(size / PAGE_SIZE, BufferDirection::Both)?;
+        let dma = Dma::new(size / PAGE_SIZE, BufferDirection::Both, access_platform)?;
         Ok(Self::Legacy {
             dma,
             avail_offset: desc,
@@ -608,10 +619,18 @@ impl<H: Hal> VirtQueueLayout<H> {
     ///
     /// This is preferred over `allocate_legacy` where possible as it reduces memory fragmentation
     /// and allows the HAL to know which DMA regions are used in which direction.
-    fn allocate_flexible(queue_size: u16) -> Result<Self> {
+    fn allocate_flexible(queue_size: u16, access_platform: bool) -> Result<Self> {
         let (desc, avail, used) = queue_part_sizes(queue_size);
-        let driver_to_device_dma = Dma::new(pages(desc + avail), BufferDirection::DriverToDevice)?;
-        let device_to_driver_dma = Dma::new(pages(used), BufferDirection::DeviceToDriver)?;
+        let driver_to_device_dma = Dma::new(
+            pages(desc + avail),
+            BufferDirection::DriverToDevice,
+            access_platform,
+        )?;
+        let device_to_driver_dma = Dma::new(
+            pages(used),
+            BufferDirection::DeviceToDriver,
+            access_platform,
+        )?;
         Ok(Self::Modern {
             driver_to_device_dma,
             device_to_driver_dma,
@@ -732,10 +751,11 @@ impl Descriptor {
         buf: NonNull<[u8]>,
         direction: BufferDirection,
         extra_flags: DescFlags,
+        access_platform: bool,
     ) {
         // SAFETY: Our caller promises that the buffer is valid.
         unsafe {
-            self.addr = H::share(buf, direction);
+            self.addr = H::share(buf, direction, access_platform);
         }
         self.len = buf.len().try_into().unwrap();
         self.flags = extra_flags
@@ -1016,7 +1036,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false).unwrap_err(),
+            VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false, false).unwrap_err(),
             Error::InvalidParam
         );
     }
@@ -1029,9 +1049,9 @@ mod tests {
             UniqueMmioPointer::from([].as_mut_slice()),
         )
         .unwrap();
-        VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
         assert_eq!(
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap_err(),
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap_err(),
             Error::AlreadyUsed
         );
     }
@@ -1044,7 +1064,8 @@ mod tests {
             UniqueMmioPointer::from([].as_mut_slice()),
         )
         .unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
         assert_eq!(
             unsafe { queue.add(&[], &mut []) }.unwrap_err(),
             Error::InvalidParam
@@ -1059,7 +1080,8 @@ mod tests {
             UniqueMmioPointer::from([].as_mut_slice()),
         )
         .unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
         assert_eq!(
             unsafe { queue.add(&[&[], &[], &[]], &mut [&mut [], &mut []]) }.unwrap_err(),
@@ -1075,7 +1097,8 @@ mod tests {
             UniqueMmioPointer::from([].as_mut_slice()),
         )
         .unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
         // Add a buffer chain consisting of two device-readable parts followed by two
@@ -1142,7 +1165,8 @@ mod tests {
             UniqueMmioPointer::from([].as_mut_slice()),
         )
         .unwrap();
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false, false).unwrap();
         assert_eq!(queue.available_desc(), 4);
 
         // Add a buffer chain consisting of two device-readable parts followed by two
@@ -1198,7 +1222,8 @@ mod tests {
             device_features: 0,
             state: state.clone(),
         };
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
 
         // Check that the avail ring's flag is zero by default.
         assert_eq!(
@@ -1234,7 +1259,8 @@ mod tests {
             device_features: 0,
             state: state.clone(),
         };
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
 
         // Add a buffer chain with a single device-readable part.
         unsafe { queue.add(&[&[42]], &mut []) }.unwrap();
@@ -1264,7 +1290,8 @@ mod tests {
             device_features: Feature::RING_EVENT_IDX.bits(),
             state: state.clone(),
         };
-        let mut queue = VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, true).unwrap();
+        let mut queue =
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, true, false).unwrap();
 
         // Add a buffer chain with a single device-readable part.
         assert_eq!(unsafe { queue.add(&[&[42]], &mut []) }.unwrap(), 0);

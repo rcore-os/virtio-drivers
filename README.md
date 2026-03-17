@@ -38,7 +38,7 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 | `VIRTIO_F_INDIRECT_DESC`     | ✅        | Indirect descriptors                    |
 | `VIRTIO_F_EVENT_IDX`         | ✅        | `avail_event` and `used_event` fields   |
 | `VIRTIO_F_VERSION_1`         | TODO      | VirtIO version 1 compliance             |
-| `VIRTIO_F_ACCESS_PLATFORM`   | ❌        | Limited device access to memory         |
+| `VIRTIO_F_ACCESS_PLATFORM`   | ✅        | Limited device access to memory         |
 | `VIRTIO_F_RING_PACKED`       | ❌        | Packed virtqueue layout                 |
 | `VIRTIO_F_IN_ORDER`          | ❌        | Optimisations for in-order buffer usage |
 | `VIRTIO_F_ORDER_PLATFORM`    | ❌        | Platform ordering for memory access     |

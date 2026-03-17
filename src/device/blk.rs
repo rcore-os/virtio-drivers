@@ -68,6 +68,7 @@ impl<H: Hal, T: Transport> VirtIOBlk<H, T> {
             QUEUE,
             negotiated_features.contains(BlkFeature::RING_INDIRECT_DESC),
             negotiated_features.contains(BlkFeature::RING_EVENT_IDX),
+            negotiated_features.contains(BlkFeature::ACCESS_PLATFORM),
         )?;
         transport.finish_init();
 

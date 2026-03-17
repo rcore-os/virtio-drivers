@@ -98,12 +98,14 @@ impl<H: Hal, T: Transport> VirtIOConsole<H, T> {
             QUEUE_RECEIVEQ_PORT_0,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            negotiated_features.contains(Features::ACCESS_PLATFORM),
         )?;
         let transmitq = VirtQueue::new(
             &mut transport,
             QUEUE_TRANSMITQ_PORT_0,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
+            negotiated_features.contains(Features::ACCESS_PLATFORM),
         )?;
 
         // Safe because no alignment or initialisation is required for [u8], the DMA buffer is
