@@ -11,7 +11,8 @@ const QUEUE_IDX: u16 = 0;
 const QUEUE_SIZE: usize = 8;
 const SUPPORTED_FEATURES: Feature = Feature::RING_INDIRECT_DESC
     .union(Feature::RING_EVENT_IDX)
-    .union(Feature::VERSION_1);
+    .union(Feature::VERSION_1)
+    .union(Feature::ACCESS_PLATFORM);
 
 /// Driver for a VirtIO random number generator device.
 pub struct VirtIORng<H: Hal, T: Transport> {
