@@ -96,7 +96,8 @@ pub enum PciError {
 /// The root complex of a PCI bus.
 #[derive(Debug)]
 pub struct PciRoot<C: ConfigurationAccess> {
-    pub(crate) configuration_access: C,
+    /// The [`ConfigurationAccess`] implementation.
+    pub configuration_access: C,
 }
 
 /// A PCI Configuration Access Mechanism.
