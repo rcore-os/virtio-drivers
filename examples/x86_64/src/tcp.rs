@@ -2,17 +2,15 @@
 //!
 //! Ref: <https://github.com/smoltcp-rs/smoltcp/blob/master/examples/server.rs>
 
+use super::{HalImpl, NET_QUEUE_SIZE};
 use alloc::{borrow::ToOwned, rc::Rc, vec, vec::Vec};
-use core::{cell::RefCell, str::FromStr};
-
+use core::{arch::x86_64::_rdtsc, cell::RefCell, str::FromStr};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 use smoltcp::{socket::tcp, time::Instant};
 use virtio_drivers::device::net::{RxBuffer, VirtIONet};
 use virtio_drivers::{Error, transport::Transport};
-
-use super::{HalImpl, NET_QUEUE_SIZE};
 
 type DeviceImpl<T> = VirtIONet<HalImpl, T, NET_QUEUE_SIZE>;
 
@@ -76,7 +74,7 @@ struct VirtioTxToken<T: Transport>(Rc<RefCell<DeviceImpl<T>>>);
 impl<T: Transport> RxToken for VirtioRxToken<T> {
     fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&[u8]) -> R,
     {
         let mut rx_buf = self.1;
         trace!(
@@ -104,17 +102,18 @@ impl<T: Transport> TxToken for VirtioTxToken<T> {
     }
 }
 
+fn now() -> Instant {
+    unsafe { Instant::from_micros_const(_rdtsc() as i64 / 2_500) }
+}
+
 pub fn test_echo_server<T: Transport>(dev: DeviceImpl<T>) {
     let mut device = DeviceWrapper::new(dev);
 
     // Create interface
-    let mut config = Config::new();
+    let mut config = Config::new(device.mac_address().into());
     config.random_seed = 0x2333;
-    if device.capabilities().medium == Medium::Ethernet {
-        config.hardware_addr = Some(device.mac_address().into());
-    }
 
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::from_str(IP).unwrap(), 24))
@@ -137,8 +136,7 @@ pub fn test_echo_server<T: Transport>(dev: DeviceImpl<T>) {
     info!("start a reverse echo server...");
     let mut tcp_active = false;
     loop {
-        let timestamp =
-            unsafe { Instant::from_micros_const(core::arch::x86_64::_rdtsc() as i64 / 2_500) };
+        let timestamp = now();
         iface.poll(timestamp, &mut device, &mut sockets);
 
         // tcp:PORT: echo with reverse
