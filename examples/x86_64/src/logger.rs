@@ -3,21 +3,21 @@
 use core::fmt::Write;
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 use spin::mutex::SpinMutex;
-use uart_16550::SerialPort;
+use uart_16550::{Config, Uart16550Tty, backend::PioBackend};
 
 static LOGGER: Logger = Logger {
     uart: SpinMutex::new(None),
 };
 
 struct Logger {
-    uart: SpinMutex<Option<SerialPort>>,
+    uart: SpinMutex<Option<Uart16550Tty<PioBackend>>>,
 }
 
 /// Initialises UART logger.
 pub fn init(max_level: LevelFilter) -> Result<(), SetLoggerError> {
     // Safe because `0x3f8` is COM1 I/O port.
-    let mut uart = unsafe { SerialPort::new(0x3f8) };
-    uart.init();
+    let uart = unsafe { Uart16550Tty::new_port(0x3f8, Config::default()) }
+        .expect("Error initialising UART");
     LOGGER.uart.lock().replace(uart);
 
     log::set_logger(&LOGGER)?;
