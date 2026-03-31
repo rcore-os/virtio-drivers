@@ -11,7 +11,7 @@ zerocopy = { version = "0.8.40", features = [] }
 arm-pl011-uart = "0.5.0"
 safe-mmio = "0.3.0"
 spin = "0.10.0"
-buddy_system_allocator = { version = "0.12.0" }
+buddy_system_allocator = { version = "0.13.0" }
 flat_device_tree = "3.1.1"
 
 [build-dependencies]
