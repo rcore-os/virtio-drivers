@@ -15,7 +15,7 @@ keywords = ["virtio"]
 categories = ["hardware-support", "no-std"]
 
 [dependencies]
-log = "0.4.29"
+log = "0.4"
 bitflags = "2.11.0"
 enumn = "0.1.14"
 embedded-io = { version = "0.7.1", optional = true }
