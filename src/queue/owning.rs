@@ -83,13 +83,24 @@ impl<H: Hal, const SIZE: usize, const BUFFER_SIZE: usize> OwningQueue<H, SIZE, B
 
         // SAFETY: The device has told us it has finished using the buffer, and there are no other
         // references to it.
-        let buffer = unsafe { self.buffers[usize::from(token)].as_mut() };
+        let buffer = unsafe {
+            self.buffers
+                .get_mut(usize::from(token))
+                .ok_or(Error::WrongToken)?
+                .as_mut()
+        };
         // SAFETY: We maintain a consistent mapping of tokens to buffers, so we pass the same buffer
         // to `pop_used` as we previously passed to `add` for the token. Once we add the buffer back
         // to the RX queue then we don't access it again until next time it is popped.
         let len = unsafe { self.queue.pop_used(token, &[], &mut [buffer])? }
             .try_into()
             .unwrap();
+
+        // The device reports how many bytes it wrote; reject if it claims more than the buffer
+        // size.
+        if len > BUFFER_SIZE {
+            return Err(Error::IoError);
+        }
 
         Ok(Some((&buffer[0..len], token)))
     }
