@@ -13,6 +13,6 @@ flat_device_tree = "3.1.1"
 log = "0.4.29"
 safe-mmio = "0.3.0"
 smccc = "0.2.2"
-spin = "0.10.0"
+spin = "0.11.0"
 virtio-drivers = { path = "../.." }
 zerocopy = { version = "0.8.40", features = ["derive"] }
