@@ -96,6 +96,12 @@ impl<H: Hal, const SIZE: usize, const BUFFER_SIZE: usize> OwningQueue<H, SIZE, B
             .try_into()
             .unwrap();
 
+        // The device reports how many bytes it wrote; reject if it claims more than the buffer
+        // size.
+        if len > BUFFER_SIZE {
+            return Err(Error::IoError);
+        }
+
         Ok(Some((&buffer[0..len], token)))
     }
 
