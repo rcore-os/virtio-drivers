@@ -58,6 +58,7 @@ pub struct VsockConnectionManager<
 struct Connection {
     info: ConnectionInfo,
     buffer: RingBuffer,
+    established: bool,
     /// The peer sent a SHUTDOWN request, but we haven't yet responded with a RST because there is
     /// still data in the buffer.
     peer_requested_shutdown: bool,
@@ -70,6 +71,7 @@ impl Connection {
         Self {
             info,
             buffer: RingBuffer::new(buffer_capacity.try_into().unwrap()),
+            established: false,
             peer_requested_shutdown: false,
         }
     }
@@ -100,6 +102,28 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// Returns the CID which has been assigned to this guest.
     pub fn guest_cid(&self) -> u64 {
         self.driver.guest_cid()
+    }
+
+    /// Returns true if the given local port is currently in use.
+    pub fn is_local_port_used(&self, port: u32) -> bool {
+        if self.listening_ports.contains(&port) {
+            return true;
+        }
+
+        self.connections
+            .iter()
+            .any(|connection| connection.info.src_port == port)
+    }
+
+    /// Returns true if a connection has been established, false otherwise
+    pub fn is_connection_established(
+        &mut self,
+        destination: VsockAddr,
+        src_port: u32,
+    ) -> Result<bool> {
+        let (_, connection) = get_connection(&mut self.connections, destination, src_port)?;
+
+        Ok(connection.established)
     }
 
     /// Allows incoming connections on the given port number.
@@ -138,6 +162,9 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// Sends the buffer to the destination.
     pub fn send(&mut self, destination: VsockAddr, src_port: u32, buffer: &[u8]) -> Result {
         let (_, connection) = get_connection(&mut self.connections, destination, src_port)?;
+        if connection.peer_requested_shutdown {
+            return Err(SocketError::PeerSocketShutdown.into());
+        }
 
         self.driver.send(buffer, &mut connection.info)
     }
@@ -197,6 +224,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
             VsockEventType::ConnectionRequest => {
                 if self.listening_ports.contains(&event.destination.port) {
                     self.driver.accept(&connection.info)?;
+                    connection.established = true;
                 } else {
                     // Reject the connection request and remove it from our list.
                     self.driver.force_close(&connection.info)?;
@@ -206,7 +234,9 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
                     return Ok(None);
                 }
             }
-            VsockEventType::Connected => {}
+            VsockEventType::Connected => {
+                connection.established = true;
+            }
             VsockEventType::Disconnected { reason } => {
                 // Wait until client reads all data before removing connection.
                 if connection.buffer.is_empty() {
@@ -264,6 +294,10 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// Sends a credit update to the given peer.
     pub fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
         let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        if connection.peer_requested_shutdown {
+            return Err(SocketError::PeerSocketShutdown.into());
+        }
+
         self.driver.credit_update(&connection.info)
     }
 
