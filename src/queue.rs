@@ -1021,194 +1021,202 @@ mod tests {
         transport::{
             DeviceType,
             fake::{FakeTransport, QueueStatus, State},
-            mmio::{MODERN_VERSION, MmioTransport, VirtIOHeader},
         },
     };
-    use safe_mmio::UniqueMmioPointer;
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn queue_too_big() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        assert_eq!(
-            VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false, false).unwrap_err(),
-            Error::InvalidParam
-        );
-    }
+    #[cfg(feature = "mmio")]
+    mod with_mmio {
 
-    #[test]
-    fn queue_already_used() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
-        assert_eq!(
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap_err(),
-            Error::AlreadyUsed
-        );
-    }
+        use super::*;
+        use crate::transport::mmio::{MODERN_VERSION, MmioTransport, VirtIOHeader};
+        use safe_mmio::UniqueMmioPointer;
 
-    #[test]
-    fn add_empty() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        let mut queue =
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
-        assert_eq!(
-            unsafe { queue.add(&[], &mut []) }.unwrap_err(),
-            Error::InvalidParam
-        );
-    }
-
-    #[test]
-    fn add_too_many() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        let mut queue =
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
-        assert_eq!(queue.available_desc(), 4);
-        assert_eq!(
-            unsafe { queue.add(&[&[], &[], &[]], &mut [&mut [], &mut []]) }.unwrap_err(),
-            Error::QueueFull
-        );
-    }
-
-    #[test]
-    fn add_buffers() {
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        let mut queue =
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
-        assert_eq!(queue.available_desc(), 4);
-
-        // Add a buffer chain consisting of two device-readable parts followed by two
-        // device-writable parts.
-        let token = unsafe { queue.add(&[&[1, 2], &[3]], &mut [&mut [0, 0], &mut [0]]) }.unwrap();
-
-        assert_eq!(queue.available_desc(), 0);
-        assert!(!queue.can_pop());
-
-        // Safe because the various parts of the queue are properly aligned, dereferenceable and
-        // initialised, and nothing else is accessing them at the same time.
-        unsafe {
-            let first_descriptor_index = (*queue.avail.as_ptr()).ring[0];
-            assert_eq!(first_descriptor_index, token);
+        #[test]
+        fn queue_too_big() {
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
             assert_eq!(
-                (*queue.desc.as_ptr())[first_descriptor_index as usize].len,
-                2
-            );
-            assert_eq!(
-                (*queue.desc.as_ptr())[first_descriptor_index as usize].flags,
-                DescFlags::NEXT
-            );
-            let second_descriptor_index =
-                (*queue.desc.as_ptr())[first_descriptor_index as usize].next;
-            assert_eq!(
-                (*queue.desc.as_ptr())[second_descriptor_index as usize].len,
-                1
-            );
-            assert_eq!(
-                (*queue.desc.as_ptr())[second_descriptor_index as usize].flags,
-                DescFlags::NEXT
-            );
-            let third_descriptor_index =
-                (*queue.desc.as_ptr())[second_descriptor_index as usize].next;
-            assert_eq!(
-                (*queue.desc.as_ptr())[third_descriptor_index as usize].len,
-                2
-            );
-            assert_eq!(
-                (*queue.desc.as_ptr())[third_descriptor_index as usize].flags,
-                DescFlags::NEXT | DescFlags::WRITE
-            );
-            let fourth_descriptor_index =
-                (*queue.desc.as_ptr())[third_descriptor_index as usize].next;
-            assert_eq!(
-                (*queue.desc.as_ptr())[fourth_descriptor_index as usize].len,
-                1
-            );
-            assert_eq!(
-                (*queue.desc.as_ptr())[fourth_descriptor_index as usize].flags,
-                DescFlags::WRITE
+                VirtQueue::<FakeHal, 8>::new(&mut transport, 0, false, false, false).unwrap_err(),
+                Error::InvalidParam
             );
         }
-    }
 
-    #[cfg(feature = "alloc")]
-    #[test]
-    fn add_buffers_indirect() {
-        use core::ptr::slice_from_raw_parts;
-
-        let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
-        let mut transport = MmioTransport::new_from_unique(
-            UniqueMmioPointer::from(&mut header),
-            UniqueMmioPointer::from([].as_mut_slice()),
-        )
-        .unwrap();
-        let mut queue =
-            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false, false).unwrap();
-        assert_eq!(queue.available_desc(), 4);
-
-        // Add a buffer chain consisting of two device-readable parts followed by two
-        // device-writable parts.
-        let token = unsafe { queue.add(&[&[1, 2], &[3]], &mut [&mut [0, 0], &mut [0]]) }.unwrap();
-
-        assert_eq!(queue.available_desc(), 4);
-        assert!(!queue.can_pop());
-
-        // Safe because the various parts of the queue are properly aligned, dereferenceable and
-        // initialised, and nothing else is accessing them at the same time.
-        unsafe {
-            let indirect_descriptor_index = (*queue.avail.as_ptr()).ring[0];
-            assert_eq!(indirect_descriptor_index, token);
+        #[test]
+        fn queue_already_used() {
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
+            VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
             assert_eq!(
-                (*queue.desc.as_ptr())[indirect_descriptor_index as usize].len as usize,
-                4 * size_of::<Descriptor>()
+                VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap_err(),
+                Error::AlreadyUsed
             );
-            assert_eq!(
-                (*queue.desc.as_ptr())[indirect_descriptor_index as usize].flags,
-                DescFlags::INDIRECT
-            );
+        }
 
-            let indirect_descriptors = slice_from_raw_parts(
-                (*queue.desc.as_ptr())[indirect_descriptor_index as usize].addr
-                    as *const Descriptor,
-                4,
-            );
-            assert_eq!((*indirect_descriptors)[0].len, 2);
-            assert_eq!((*indirect_descriptors)[0].flags, DescFlags::NEXT);
-            assert_eq!((*indirect_descriptors)[0].next, 1);
-            assert_eq!((*indirect_descriptors)[1].len, 1);
-            assert_eq!((*indirect_descriptors)[1].flags, DescFlags::NEXT);
-            assert_eq!((*indirect_descriptors)[1].next, 2);
-            assert_eq!((*indirect_descriptors)[2].len, 2);
+        #[test]
+        fn add_empty() {
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
+            let mut queue =
+                VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
             assert_eq!(
-                (*indirect_descriptors)[2].flags,
-                DescFlags::NEXT | DescFlags::WRITE
+                unsafe { queue.add(&[], &mut []) }.unwrap_err(),
+                Error::InvalidParam
             );
-            assert_eq!((*indirect_descriptors)[2].next, 3);
-            assert_eq!((*indirect_descriptors)[3].len, 1);
-            assert_eq!((*indirect_descriptors)[3].flags, DescFlags::WRITE);
+        }
+
+        #[test]
+        fn add_too_many() {
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
+            let mut queue =
+                VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
+            assert_eq!(queue.available_desc(), 4);
+            assert_eq!(
+                unsafe { queue.add(&[&[], &[], &[]], &mut [&mut [], &mut []]) }.unwrap_err(),
+                Error::QueueFull
+            );
+        }
+
+        #[test]
+        fn add_buffers() {
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
+            let mut queue =
+                VirtQueue::<FakeHal, 4>::new(&mut transport, 0, false, false, false).unwrap();
+            assert_eq!(queue.available_desc(), 4);
+
+            // Add a buffer chain consisting of two device-readable parts followed by two
+            // device-writable parts.
+            let token =
+                unsafe { queue.add(&[&[1, 2], &[3]], &mut [&mut [0, 0], &mut [0]]) }.unwrap();
+
+            assert_eq!(queue.available_desc(), 0);
+            assert!(!queue.can_pop());
+
+            // Safe because the various parts of the queue are properly aligned, dereferenceable and
+            // initialised, and nothing else is accessing them at the same time.
+            unsafe {
+                let first_descriptor_index = (*queue.avail.as_ptr()).ring[0];
+                assert_eq!(first_descriptor_index, token);
+                assert_eq!(
+                    (*queue.desc.as_ptr())[first_descriptor_index as usize].len,
+                    2
+                );
+                assert_eq!(
+                    (*queue.desc.as_ptr())[first_descriptor_index as usize].flags,
+                    DescFlags::NEXT
+                );
+                let second_descriptor_index =
+                    (*queue.desc.as_ptr())[first_descriptor_index as usize].next;
+                assert_eq!(
+                    (*queue.desc.as_ptr())[second_descriptor_index as usize].len,
+                    1
+                );
+                assert_eq!(
+                    (*queue.desc.as_ptr())[second_descriptor_index as usize].flags,
+                    DescFlags::NEXT
+                );
+                let third_descriptor_index =
+                    (*queue.desc.as_ptr())[second_descriptor_index as usize].next;
+                assert_eq!(
+                    (*queue.desc.as_ptr())[third_descriptor_index as usize].len,
+                    2
+                );
+                assert_eq!(
+                    (*queue.desc.as_ptr())[third_descriptor_index as usize].flags,
+                    DescFlags::NEXT | DescFlags::WRITE
+                );
+                let fourth_descriptor_index =
+                    (*queue.desc.as_ptr())[third_descriptor_index as usize].next;
+                assert_eq!(
+                    (*queue.desc.as_ptr())[fourth_descriptor_index as usize].len,
+                    1
+                );
+                assert_eq!(
+                    (*queue.desc.as_ptr())[fourth_descriptor_index as usize].flags,
+                    DescFlags::WRITE
+                );
+            }
+        }
+
+        #[cfg(feature = "alloc")]
+        #[test]
+        fn add_buffers_indirect() {
+            use core::ptr::slice_from_raw_parts;
+
+            let mut header = VirtIOHeader::make_fake_header(MODERN_VERSION, 1, 0, 0, 4);
+            let mut transport = MmioTransport::new_from_unique(
+                UniqueMmioPointer::from(&mut header),
+                UniqueMmioPointer::from([].as_mut_slice()),
+            )
+            .unwrap();
+            let mut queue =
+                VirtQueue::<FakeHal, 4>::new(&mut transport, 0, true, false, false).unwrap();
+            assert_eq!(queue.available_desc(), 4);
+
+            // Add a buffer chain consisting of two device-readable parts followed by two
+            // device-writable parts.
+            let token =
+                unsafe { queue.add(&[&[1, 2], &[3]], &mut [&mut [0, 0], &mut [0]]) }.unwrap();
+
+            assert_eq!(queue.available_desc(), 4);
+            assert!(!queue.can_pop());
+
+            // Safe because the various parts of the queue are properly aligned, dereferenceable and
+            // initialised, and nothing else is accessing them at the same time.
+            unsafe {
+                let indirect_descriptor_index = (*queue.avail.as_ptr()).ring[0];
+                assert_eq!(indirect_descriptor_index, token);
+                assert_eq!(
+                    (*queue.desc.as_ptr())[indirect_descriptor_index as usize].len as usize,
+                    4 * size_of::<Descriptor>()
+                );
+                assert_eq!(
+                    (*queue.desc.as_ptr())[indirect_descriptor_index as usize].flags,
+                    DescFlags::INDIRECT
+                );
+
+                let indirect_descriptors = slice_from_raw_parts(
+                    (*queue.desc.as_ptr())[indirect_descriptor_index as usize].addr
+                        as *const Descriptor,
+                    4,
+                );
+                assert_eq!((*indirect_descriptors)[0].len, 2);
+                assert_eq!((*indirect_descriptors)[0].flags, DescFlags::NEXT);
+                assert_eq!((*indirect_descriptors)[0].next, 1);
+                assert_eq!((*indirect_descriptors)[1].len, 1);
+                assert_eq!((*indirect_descriptors)[1].flags, DescFlags::NEXT);
+                assert_eq!((*indirect_descriptors)[1].next, 2);
+                assert_eq!((*indirect_descriptors)[2].len, 2);
+                assert_eq!(
+                    (*indirect_descriptors)[2].flags,
+                    DescFlags::NEXT | DescFlags::WRITE
+                );
+                assert_eq!((*indirect_descriptors)[2].next, 3);
+                assert_eq!((*indirect_descriptors)[3].len, 1);
+                assert_eq!((*indirect_descriptors)[3].flags, DescFlags::WRITE);
+            }
         }
     }
 

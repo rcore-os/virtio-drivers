@@ -2,10 +2,13 @@
 
 #[cfg(test)]
 pub mod fake;
+#[cfg(feature = "mmio")]
 pub mod mmio;
+#[cfg(feature = "pci")]
 pub mod pci;
+#[cfg(any(feature = "mmio", feature = "pci"))]
 mod some;
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", feature = "pci"))]
 pub mod x86_64;
 
 use crate::{PAGE_SIZE, PhysAddr, Result};
@@ -15,6 +18,7 @@ use core::{
     ops::BitAnd,
 };
 use log::debug;
+#[cfg(any(feature = "mmio", feature = "pci"))]
 pub use some::SomeTransport;
 use thiserror::Error;
 use zerocopy::{FromBytes, Immutable, IntoBytes};

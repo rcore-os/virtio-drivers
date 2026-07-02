@@ -11,6 +11,8 @@
 //! discovered from the device tree):
 //!
 //! ```
+//! # #[cfg(feature = "mmio")]
+//! # mod __wrapper {
 //! use core::ptr::NonNull;
 //! use virtio_drivers::transport::mmio::{MmioTransport, VirtIOHeader};
 //!
@@ -18,12 +20,13 @@
 //! let header = NonNull::new(mmio_device_address as *mut VirtIOHeader).unwrap();
 //! let transport = unsafe { MmioTransport::new(header, mmio_size) }.unwrap();
 //! # }
+//! # }
 //! ```
 //!
 //! You can then check what kind of VirtIO device it is and construct the appropriate driver:
 //!
 //! ```
-//! # #[cfg(all(feature = "alloc", feature = "console"))]
+//! # #[cfg(all(feature = "alloc", feature = "console", feature = "mmio"))]
 //! # mod __wrapper {
 //! # use virtio_drivers::Hal;
 //! use virtio_drivers::{

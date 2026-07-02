@@ -1,37 +1,55 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-use super::{DeviceStatus, DeviceType, Transport, mmio::MmioTransport, pci::PciTransport};
+use super::{DeviceStatus, DeviceType, Transport};
+
+#[cfg(feature = "mmio")]
+use super::mmio::MmioTransport;
+#[cfg(feature = "pci")]
+use super::pci::PciTransport;
+
+use core::marker::PhantomData;
+
 use crate::{PhysAddr, Result, transport::InterruptStatus};
 
 /// A wrapper for an arbitrary VirtIO transport, either MMIO or PCI.
 #[derive(Debug)]
 pub enum SomeTransport<'a> {
     /// An MMIO transport.
+    #[cfg(feature = "mmio")]
     Mmio(MmioTransport<'a>),
     /// A PCI transport.
+    #[cfg(feature = "pci")]
     Pci(PciTransport),
     /// An x86-64 pKVM PCI transport.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "pci"))]
     HypPci(super::x86_64::HypPciTransport),
+    /// Phantom variant to hold the lifetime parameter.
+    #[doc(hidden)]
+    _Phantom(PhantomData<&'a ()>),
 }
 
 macro_rules! dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
+            #[cfg(feature = "mmio")]
             Self::Mmio(t) => t.$method($($arg),*),
+            #[cfg(feature = "pci")]
             Self::Pci(t) => t.$method($($arg),*),
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(all(target_arch = "x86_64", feature = "pci"))]
             Self::HypPci(t) => t.$method($($arg),*),
+            Self::_Phantom(..) => unreachable!(),
         }
     };
 }
 
+#[cfg(feature = "mmio")]
 impl<'a> From<MmioTransport<'a>> for SomeTransport<'a> {
     fn from(mmio: MmioTransport<'a>) -> Self {
         Self::Mmio(mmio)
     }
 }
 
+#[cfg(feature = "pci")]
 impl From<PciTransport> for SomeTransport<'_> {
     fn from(pci: PciTransport) -> Self {
         Self::Pci(pci)
@@ -83,7 +101,15 @@ impl Transport for SomeTransport<'_> {
         driver_area: PhysAddr,
         device_area: PhysAddr,
     ) {
-        dispatch!(self, queue_set, queue, size, descriptors, driver_area, device_area)
+        dispatch!(
+            self,
+            queue_set,
+            queue,
+            size,
+            descriptors,
+            driver_area,
+            device_area
+        )
     }
 
     fn queue_unset(&mut self, queue: u16) {

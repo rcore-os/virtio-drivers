@@ -24,7 +24,7 @@ thiserror = { version = "2.0.18", default-features = false }
 zerocopy = { version = "0.8.40", features = ["derive"] }
 
 [features]
-default = ["alloc", "embedded-io", "all-drivers"]
+default = ["alloc", "embedded-io", "all-drivers", "all-transports"]
 alloc = ["zerocopy/alloc"]
 embedded-io = ["dep:embedded-io"]
 all-drivers = [
@@ -49,6 +49,9 @@ rtc = []
 socket = []
 sound = []
 virtio_9p = []
+all-transports = ["pci", "mmio"]
+pci = []
+mmio = []
 
 
 [dev-dependencies]
