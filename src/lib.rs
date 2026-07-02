@@ -24,14 +24,14 @@
 //!
 //! ```
 //! # use virtio_drivers::Hal;
-//! # #[cfg(feature = "alloc")]
+//! # #[cfg(all(feature = "alloc", feature = "console"))]
 //! use virtio_drivers::{
 //!     device::console::VirtIOConsole,
 //!     transport::{mmio::MmioTransport, DeviceType, Transport},
 //! };
 
 //!
-//! # #[cfg(feature = "alloc")]
+//! # #[cfg(all(feature = "alloc", feature = "console"))]
 //! # fn example<HalImpl: Hal>(transport: MmioTransport) {
 //! if transport.device_type() == DeviceType::Console {
 //!     let mut console = VirtIOConsole::<HalImpl, _>::new(transport).unwrap();
@@ -63,6 +63,7 @@ mod hal;
 pub mod queue;
 pub mod transport;
 
+#[cfg(feature = "socket")]
 use device::socket::SocketError;
 use thiserror::Error;
 
@@ -111,6 +112,7 @@ pub enum Error {
     #[error("The device doesn't have any config space, but the driver expects some")]
     ConfigSpaceMissing,
     /// Error from the socket device.
+    #[cfg(feature = "socket")]
     #[error("Error from the socket device: {0}")]
     SocketDeviceError(#[from] SocketError),
 }

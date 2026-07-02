@@ -1,6 +1,6 @@
 //! Implementation of `embedded-io::Error' trait for `Error`.
 
-use crate::{Error, device::socket::SocketError};
+use crate::Error;
 use embedded_io::ErrorKind;
 
 impl embedded_io::Error for Error {
@@ -9,20 +9,8 @@ impl embedded_io::Error for Error {
             Error::InvalidParam => ErrorKind::InvalidInput,
             Error::DmaError => ErrorKind::OutOfMemory,
             Error::Unsupported => ErrorKind::Unsupported,
-            Error::SocketDeviceError(e) => match e {
-                &SocketError::ConnectionExists => ErrorKind::AddrInUse,
-                SocketError::NotConnected => ErrorKind::NotConnected,
-                SocketError::PeerSocketShutdown => ErrorKind::ConnectionAborted,
-                SocketError::BufferTooShort => ErrorKind::InvalidInput,
-                SocketError::OutputBufferTooShort(_) => ErrorKind::InvalidInput,
-                SocketError::BufferTooLong(_, _) => ErrorKind::InvalidInput,
-                SocketError::InsufficientBufferSpaceInPeer => ErrorKind::WriteZero,
-                SocketError::UnknownOperation(_)
-                | SocketError::InvalidOperation
-                | SocketError::InvalidNumber
-                | SocketError::UnexpectedDataInPacket
-                | SocketError::RecycledWrongBuffer => ErrorKind::Other,
-            },
+            #[cfg(feature = "socket")]
+            Error::SocketDeviceError(e) => socket_error_kind(e),
             Error::QueueFull
             | Error::NotReady
             | Error::WrongToken
@@ -31,5 +19,25 @@ impl embedded_io::Error for Error {
             | Error::ConfigSpaceTooSmall
             | Error::ConfigSpaceMissing => ErrorKind::Other,
         }
+    }
+}
+
+#[cfg(feature = "socket")]
+fn socket_error_kind(e: &crate::device::socket::SocketError) -> ErrorKind {
+    use crate::device::socket::SocketError;
+
+    match e {
+        &SocketError::ConnectionExists => ErrorKind::AddrInUse,
+        SocketError::NotConnected => ErrorKind::NotConnected,
+        SocketError::PeerSocketShutdown => ErrorKind::ConnectionAborted,
+        SocketError::BufferTooShort => ErrorKind::InvalidInput,
+        SocketError::OutputBufferTooShort(_) => ErrorKind::InvalidInput,
+        SocketError::BufferTooLong(_, _) => ErrorKind::InvalidInput,
+        SocketError::InsufficientBufferSpaceInPeer => ErrorKind::WriteZero,
+        SocketError::UnknownOperation(_)
+        | SocketError::InvalidOperation
+        | SocketError::InvalidNumber
+        | SocketError::UnexpectedDataInPacket
+        | SocketError::RecycledWrongBuffer => ErrorKind::Other,
     }
 }

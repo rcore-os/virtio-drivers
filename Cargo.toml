@@ -24,9 +24,32 @@ thiserror = { version = "2.0.18", default-features = false }
 zerocopy = { version = "0.8.40", features = ["derive"] }
 
 [features]
-default = ["alloc", "embedded-io"]
+default = ["alloc", "embedded-io", "all-drivers"]
 alloc = ["zerocopy/alloc"]
 embedded-io = ["dep:embedded-io"]
+all-drivers = [
+  "blk",
+  "console",
+  "gpu",
+  "input",
+  "net",
+  "rng",
+  "rtc",
+  "socket",
+  "sound",
+  "virtio_9p",
+]
+blk = []
+console = []
+gpu = []
+input = []
+net = []
+rng = []
+rtc = []
+socket = []
+sound = []
+virtio_9p = []
+
 
 [dev-dependencies]
 zerocopy = { version = "0.8.40", features = ["alloc"] }
