@@ -58,7 +58,7 @@ clean:
 
 qemu: kernel $(img)
 # Wait a few seconds, then try to open a connection to the VM so it can test its networking.
-	( sleep 4 && echo "hello" | nc localhost 5555 -N -v) &
+	( sleep 4 && echo "hello" | nc localhost 5555 -4 -w 1 -v) &
 	qemu-system-$(arch) $(QEMU_ARGS)
 
 $(img):
