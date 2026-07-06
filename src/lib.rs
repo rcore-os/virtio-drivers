@@ -23,21 +23,21 @@
 //! You can then check what kind of VirtIO device it is and construct the appropriate driver:
 //!
 //! ```
-//! # use virtio_drivers::Hal;
 //! # #[cfg(all(feature = "alloc", feature = "console"))]
+//! # mod __wrapper {
+//! # use virtio_drivers::Hal;
 //! use virtio_drivers::{
 //!     device::console::VirtIOConsole,
 //!     transport::{mmio::MmioTransport, DeviceType, Transport},
 //! };
-
 //!
-//! # #[cfg(all(feature = "alloc", feature = "console"))]
 //! # fn example<HalImpl: Hal>(transport: MmioTransport) {
 //! if transport.device_type() == DeviceType::Console {
 //!     let mut console = VirtIOConsole::<HalImpl, _>::new(transport).unwrap();
 //!     // Send a byte to the console.
 //!     console.send(b'H').unwrap();
 //! }
+//! # }
 //! # }
 //! ```
 
