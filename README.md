@@ -45,6 +45,31 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 | `VIRTIO_F_SR_IOV`            | ❌        | Single root I/O virtualization          |
 | `VIRTIO_F_NOTIFICATION_DATA` | ❌        | Extra data in device notifications      |
 
+## Cargo features
+
+All features are enabled by default. Individual device drivers and transports
+can be selected independently via `--no-default-features` to minimize the build
+footprint.
+
+| Feature          | Description                                                                            |
+| -------          | -----------                                                                            |
+| `alloc`          | Use memory allocation features, requires global allocator                              |
+| `embedded-io`    | Implement `embedded-io` traits for console, depends on the `embedded-io` crate.        |
+| `all-drivers`    | Enable all device drivers, see below                                                   |
+| `blk`            | Enable block device driver                                                             |
+| `console`        | Enable console device driver (requires `alloc`)                                        |
+| `gpu`            | Enable GPU device driver (requires `alloc`)                                            |
+| `input`          | Enable input device driver (requires `alloc`)                                          |
+| `net`            | Enable network device driver                                                           |
+| `rng`            | Enable random number generator device driver                                           |
+| `rtc`            | Enable real time clock device driver                                                   |
+| `socket`         | Enable vsock device driver                                                             |
+| `sound`          | Enable sound device driver (requires `alloc`)                                          |
+| `virtio_9p`      | Enable virtio 9p driver (requires `alloc`)                                             |
+| `all-transports` | Enable all transports, see below                                                       |
+| `mmio`           | Enable MMIO transport                                                                  |
+| `pci`            | Enable PCI transport                                                                   |
+
 ## Examples & Tests
 
 ### [x86_64](./examples/x86_64)
