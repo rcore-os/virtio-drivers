@@ -11,6 +11,7 @@ mod hal;
 mod heap;
 mod logger;
 mod trap;
+mod virgl;
 
 #[cfg(feature = "tcp")]
 mod tcp;
@@ -195,6 +196,17 @@ fn virtio_9p<T: Transport>(transport: T) {
 
 fn virtio_gpu<T: Transport>(transport: T) {
     let mut gpu = VirtIOGpu::<HalImpl, T>::new(transport).expect("failed to create gpu driver");
+
+    // Run the virgl 3D tests if the host exposed a GL context (`make run gl=on`).
+    // On a plain 2D device the VIRGL feature is not negotiated, so we skip.
+    if gpu.has_virgl() {
+        info!("VIRGL negotiated — running 3D tests");
+        virgl::run(&mut gpu);
+        info!("virtio-gpu 3D (virgl) tests passed");
+    } else {
+        info!("VIRGL not available — skipping 3D tests (use `make run gl=on`)");
+    }
+
     let (width, height) = gpu.resolution().expect("failed to get resolution");
     let width = width as usize;
     let height = height as usize;
