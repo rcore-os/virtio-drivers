@@ -206,7 +206,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             self.access_platform,
         )?;
 
-        self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr() as u64, size)?;
+        self.resource_attach_backing(RESOURCE_ID_FB, frame_buffer_dma.paddr(), size)?;
         self.set_scanout(rect, SCANOUT_ID, RESOURCE_ID_FB)?;
 
         // SAFETY: `Dma::new` guarantees that the pointer returned from
@@ -258,7 +258,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         buf.copy_from_slice(cursor_image);
 
         self.resource_create_2d(RESOURCE_ID_CURSOR, CURSOR_RECT.width, CURSOR_RECT.height)?;
-        self.resource_attach_backing(RESOURCE_ID_CURSOR, cursor_buffer_dma.paddr() as u64, size)?;
+        self.resource_attach_backing(RESOURCE_ID_CURSOR, cursor_buffer_dma.paddr(), size)?;
         self.transfer_to_host_2d(CURSOR_RECT, 0, RESOURCE_ID_CURSOR)?;
         self.update_cursor(
             RESOURCE_ID_CURSOR,
