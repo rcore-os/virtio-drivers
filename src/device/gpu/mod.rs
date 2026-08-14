@@ -5,7 +5,7 @@ mod edid;
 pub use self::edid::Edid;
 
 use crate::config::{ReadOnly, WriteOnly, read_config};
-use crate::hal::{BufferDirection, Dma, Hal};
+use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, PAGE_SIZE, Result, pages};
@@ -52,8 +52,6 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     /// Queue for sending cursor commands.
     cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    /// Send buffer for queue.
-    queue_buf_send: Box<[u8]>,
     /// Recv buffer for queue.
     queue_buf_recv: Box<[u8]>,
     /// Whether EDID feature was negotiated.
@@ -98,7 +96,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             access_platform,
         )?;
 
-        let queue_buf_send = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
         let queue_buf_recv = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
 
         transport.finish_init();
@@ -119,7 +116,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             rect: None,
             control_queue,
             cursor_queue,
-            queue_buf_send,
             queue_buf_recv,
             has_edid,
             access_platform,
@@ -289,27 +285,34 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     }
 
     /// Send a request to the device and block for a response.
+    ///
+    /// The call is synchronous: `req` lives on the stack until the device has
+    /// consumed it (the used ring entry is popped below), so `req.as_bytes()`
+    /// can be handed to the queue directly without copying.
     fn request<Req: IntoBytes + Immutable, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
-        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
-        // Only hand the device the bytes actually written, NOT the whole
-        // 4096-byte queue_buf_send.  The device parses the command strictly
-        // by the header's size field; trailing zero padding would shift
-        // every subsequent scatter-gather buffer (e.g. SUBMIT_3D payload).
-        let send = &self.queue_buf_send[..size_of::<Req>()];
-        self.control_queue.add_notify_wait_pop(
-            &[send],
+        Ok(self.request_with_len(req)?.0)
+    }
+
+    /// Like `request`, but also returns how many bytes the device wrote to the
+    /// receive buffer (from the used ring entry). Needed by `get_capset` to
+    /// slice the trailing capset data precisely.
+    fn request_with_len<Req: IntoBytes + Immutable, Rsp: FromBytes>(
+        &mut self,
+        req: Req,
+    ) -> Result<(Rsp, usize)> {
+        let used_len = self.control_queue.add_notify_wait_pop(
+            &[req.as_bytes()],
             &mut [&mut self.queue_buf_recv],
             &mut self.transport,
-        )?;
-        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap().0)
+        )? as usize;
+        let rsp = Rsp::read_from_prefix(&self.queue_buf_recv).unwrap().0;
+        Ok((rsp, used_len))
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
     fn cursor_request<Req: IntoBytes + Immutable>(&mut self, req: Req) -> Result {
-        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
-        let send = &self.queue_buf_send[..size_of::<Req>()];
         self.cursor_queue
-            .add_notify_wait_pop(&[send], &mut [], &mut self.transport)?;
+            .add_notify_wait_pop(&[req.as_bytes()], &mut [], &mut self.transport)?;
         Ok(())
     }
 
@@ -321,17 +324,15 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         req: Req,
         data: &[u8],
     ) -> Result<Rsp> {
-        req.write_to_prefix(&mut self.queue_buf_send).unwrap();
-        let send = &self.queue_buf_send[..size_of::<Req>()];
         if data.is_empty() {
             self.control_queue.add_notify_wait_pop(
-                &[send],
+                &[req.as_bytes()],
                 &mut [&mut self.queue_buf_recv],
                 &mut self.transport,
             )?;
         } else {
             self.control_queue.add_notify_wait_pop(
-                &[send, data],
+                &[req.as_bytes(), data],
                 &mut [&mut self.queue_buf_recv],
                 &mut self.transport,
             )?;
@@ -348,8 +349,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Create a 2D resource with the given dimensions.
     ///
-    /// Format is always `B8G8R8A8UNORM`. Use [`resource_attach_backing`]
-    /// to give the resource guest-visible memory, and [`set_scanout`] to
+    /// Format is always `B8G8R8A8UNORM`. Use [`VirtIOGpu::resource_attach_backing`]
+    /// to give the resource guest-visible memory, and [`VirtIOGpu::set_scanout`] to
     /// bind it as the display output.
     pub fn resource_create_2d(&mut self, resource_id: u32, width: u32, height: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceCreate2D {
@@ -401,8 +402,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Attach a single DMA-backed memory region to a resource.
     ///
     /// The host uses `paddr` to read/write guest memory for the resource.
-    /// This must be called after [`resource_create_2d`] and before any
-    /// [`transfer_to_host_2d`] or [`set_scanout`].
+    /// This must be called after [`VirtIOGpu::resource_create_2d`] and before any
+    /// [`VirtIOGpu::transfer_to_host_2d`] or [`VirtIOGpu::set_scanout`].
     pub fn resource_attach_backing(&mut self, resource_id: u32, paddr: u64, length: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceAttachBacking {
             header: CtrlHeader::with_type(Command::RESOURCE_ATTACH_BACKING),
@@ -417,7 +418,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Detach the backing memory from a resource.
     ///
-    /// Call this before [`resource_unref`] to release the host's mapping
+    /// Call this before [`VirtIOGpu::resource_unref`] to release the host's mapping
     /// of the guest memory region.
     pub fn resource_detach_backing(&mut self, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceDetachBacking {
@@ -524,19 +525,18 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         if size as usize > self.queue_buf_recv.len() - size_of::<CtrlHeader>() {
             return Err(Error::IoError);
         }
-        let _: CtrlHeader = self.request(CmdGetCapset {
+        // The response is a CtrlHeader (24 bytes) followed by the capset data,
+        // all written back into queue_buf_recv. `size` is only an upper bound:
+        // slice by the bytes the device actually wrote (`used_len`) so no
+        // stale receive-buffer bytes leak into the returned blob.
+        let (hdr, used_len): (CtrlHeader, usize) = self.request_with_len(CmdGetCapset {
             header: CtrlHeader::with_type(Command::GET_CAPSET),
             capset_id,
             capset_version: version,
         })?;
-        // The response is a CtrlHeader (24 bytes) followed by `size` bytes of
-        // capset data, both placed back in queue_buf_recv.
-        let hdr = CtrlHeader::read_from_prefix(&self.queue_buf_recv)
-            .unwrap()
-            .0;
         hdr.check_type(Command::OK_CAPSET)?;
         let start = size_of::<CtrlHeader>();
-        let end = start + size as usize;
+        let end = used_len.clamp(start, start + size as usize);
         Ok(self.queue_buf_recv[start..end].to_vec())
     }
 
@@ -549,17 +549,18 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Linux: `vfpriv->context_init` → `cmd_p->context_init` in the wire command.
     pub fn ctx_create(&mut self, ctx_id: u32, name: &str, context_init: u32) -> Result {
         self.require_virgl()?;
-        let mut debug_name = [0u8; 64];
+        let mut cmd = CmdCtxCreate {
+            header: CtrlHeader::with_type_and_ctx(Command::CTX_CREATE, ctx_id),
+            nlen: 0,
+            context_init,
+            debug_name: [0u8; 64],
+        };
         let bytes = name.as_bytes();
         let nlen = bytes.len().min(64);
-        debug_name[..nlen].copy_from_slice(&bytes[..nlen]);
+        cmd.debug_name[..nlen].copy_from_slice(&bytes[..nlen]);
+        cmd.nlen = nlen as u32;
 
-        let rsp: CtrlHeader = self.request(CmdCtxCreate {
-            header: CtrlHeader::with_type_and_ctx(Command::CTX_CREATE, ctx_id),
-            nlen: nlen as u32,
-            context_init,
-            debug_name,
-        })?;
+        let rsp: CtrlHeader = self.request(cmd)?;
         rsp.check_type(Command::OK_NODATA)
     }
 
@@ -697,7 +698,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         // The virgl command stream is a sequence of 32-bit dwords; the host
         // passes `size / 4` dwords to `virgl_renderer_submit_cmd`, so a length
         // that is not a multiple of 4 would be silently truncated.
-        if cmds.len() % 4 != 0 {
+        if !cmds.len().is_multiple_of(4) {
             return Err(Error::InvalidParam);
         }
         let size = u32::try_from(cmds.len()).map_err(|_| Error::IoError)?;
@@ -714,21 +715,35 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Create a blob resource (host-visible memory / dma-buf sharing).
     ///
-    /// Requires `VIRTIO_GPU_F_RESOURCE_BLOB` (see [`has_resource_blob`]).
+    /// Requires `VIRTIO_GPU_F_RESOURCE_BLOB` (see [`VirtIOGpu::has_resource_blob`]).
     ///
     /// - `blob_mem`: `VIRTIO_GPU_BLOB_MEM_GUEST (0x1)`, `HOST3D (0x2)` or
     ///   `HOST3D_GUEST (0x3)`.
     /// - `blob_flags`: `VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE (0x1)` etc.
     /// - `size`: resource size in bytes.
-    /// - `blob_id`: opaque host-side id (0 unless assigning one).
-    /// - `mem_entries`: guest backing `(addr, len)` pairs, only for GUEST /
+    /// - `blob_id`: for HOST3D blobs, the id of a host-side resource already
+    ///   created on this context via virgl (a bare `resource_create_blob`
+    ///   cannot create it); for GUEST/HOST3D_GUEST blobs, 0 unless assigning one.
+    /// - `mem_entries`: guest backing `(PhysAddr, len)` pairs, only for GUEST /
     ///   HOST3D_GUEST. **HOST3D must pass an empty slice** — QEMU ignores
     ///   backing entries for HOST3D blobs, and virglrenderer rejects blobs
     ///   with a nonzero `num_iovs`.
     ///
+    /// # Safety
+    ///
+    /// For GUEST and HOST3D_GUEST blobs the device reads/writes the guest
+    /// memory at the physical addresses in `mem_entries`. The caller must
+    /// guarantee that every range is valid, device-accessible memory and
+    /// stays allocated and free of concurrent access (no aliasing/UB) for
+    /// as long as the blob resource exists — i.e. until the matching
+    /// [`VirtIOGpu::resource_unref`]. The ranges must also cover `size` bytes
+    /// in total: a blob larger than its backing lets the device access guest
+    /// memory past the end of the provided ranges.
+    ///
     /// Mirrors Linux `virtio_gpu_cmd_resource_create_blob` (`virtgpu_vq.c`).
     /// Responds with OK_NODATA.
-    pub fn resource_create_blob(
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn resource_create_blob(
         &mut self,
         ctx_id: u32,
         resource_id: u32,
@@ -736,7 +751,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         blob_flags: u32,
         size: u64,
         blob_id: u64,
-        mem_entries: &[(u64, u32)],
+        mem_entries: &[(PhysAddr, usize)],
     ) -> Result {
         self.require_virgl()?;
         if !self.has_resource_blob {
@@ -745,10 +760,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         let nr_entries = u32::try_from(mem_entries.len()).map_err(|_| Error::IoError)?;
         let mut data = Vec::with_capacity(mem_entries.len() * core::mem::size_of::<MemEntry>());
         for (addr, len) in mem_entries {
+            let length = u32::try_from(*len).map_err(|_| Error::InvalidParam)?;
             data.extend_from_slice(
                 MemEntry {
                     addr: *addr,
-                    length: *len,
+                    length,
                     padding: 0,
                 }
                 .as_bytes(),

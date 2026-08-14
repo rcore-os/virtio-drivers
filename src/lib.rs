@@ -66,7 +66,7 @@ pub mod transport;
 use device::socket::SocketError;
 use thiserror::Error;
 
-pub use self::hal::{BufferDirection, Dma, Hal, PhysAddr};
+pub use self::hal::{BufferDirection, Hal, PhysAddr};
 pub use safe_mmio::UniqueMmioPointer;
 
 /// The page size in bytes supported by the library (4 KiB).

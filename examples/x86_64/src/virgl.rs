@@ -52,7 +52,7 @@ const HEIGHT: u32 = 256;
 const TRANSFER_SIZE: u32 = WIDTH * HEIGHT * 4;
 /// Blob resource (guest-backed).
 const RESOURCE_ID_BLOB: u32 = 101;
-const BLOB_SIZE: u32 = PAGE_SIZE as u32;
+const BLOB_SIZE: usize = PAGE_SIZE;
 
 /// Number of contiguous pages for `size` bytes.
 const fn pages(size: usize) -> usize {
@@ -264,17 +264,22 @@ pub fn run(gpu: &mut VirtIOGpu<HalImpl, impl Transport>) {
     // ── 11/15: blob resource (feature-gated) ──
     if gpu.has_resource_blob() {
         let (blob_paddr, _blob_vaddr) =
-            HalImpl::dma_alloc(pages(BLOB_SIZE as usize), BufferDirection::Both, false);
-        gpu.resource_create_blob(
-            1,
-            RESOURCE_ID_BLOB,
-            BLOB_MEM_GUEST,
-            0,
-            BLOB_SIZE as u64,
-            0,
-            &[(blob_paddr, BLOB_SIZE)],
-        )
-        .expect("[VIRGL] 11/15 resource_create_blob(GUEST) failed");
+            HalImpl::dma_alloc(pages(BLOB_SIZE), BufferDirection::Both, false);
+        // SAFETY: `blob_paddr` is a dedicated DMA allocation that is valid
+        // device-accessible memory, outlives the blob resource (nothing frees
+        // it before the resource is unref'd), and is not aliased.
+        unsafe {
+            gpu.resource_create_blob(
+                1,
+                RESOURCE_ID_BLOB,
+                BLOB_MEM_GUEST,
+                0,
+                BLOB_SIZE as u64,
+                0,
+                &[(blob_paddr, BLOB_SIZE)],
+            )
+            .expect("[VIRGL] 11/15 resource_create_blob(GUEST) failed");
+        }
         gpu.resource_unref(RESOURCE_ID_BLOB)
             .expect("[VIRGL] 11/15 resource_unref(101) failed");
         info!("[VIRGL] 11/15 resource_create_blob(GUEST) OK");
