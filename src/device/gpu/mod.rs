@@ -8,13 +8,13 @@ use crate::config::{ReadOnly, WriteOnly, read_config};
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
-use crate::{Error, PAGE_SIZE, Result, pages};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use crate::{Error, Result, pages};
+use alloc::{vec, vec::Vec};
 use bitflags::bitflags;
+use core::cmp::min;
 use core::mem::size_of;
 use log::info;
-use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Number of descriptors per virtqueue (const generic bound on `VirtQueue`).
 ///
@@ -52,8 +52,6 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
     /// Queue for sending cursor commands.
     cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
-    /// Recv buffer for queue.
-    queue_buf_recv: Box<[u8]>,
     /// Whether EDID feature was negotiated.
     has_edid: bool,
     /// Whether `VIRTIO_F_ACCESS_PLATFORM` was negotiated.
@@ -96,8 +94,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             access_platform,
         )?;
 
-        let queue_buf_recv = FromZeros::new_box_zeroed_with_elems(PAGE_SIZE).unwrap();
-
         transport.finish_init();
 
         let has_edid = negotiated_features.contains(Features::EDID);
@@ -116,7 +112,6 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             rect: None,
             control_queue,
             cursor_queue,
-            queue_buf_recv,
             has_edid,
             access_platform,
             has_virgl,
@@ -289,24 +284,41 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// The call is synchronous: `req` lives on the stack until the device has
     /// consumed it (the used ring entry is popped below), so `req.as_bytes()`
     /// can be handed to the queue directly without copying.
-    fn request<Req: IntoBytes + Immutable, Rsp: FromBytes>(&mut self, req: Req) -> Result<Rsp> {
-        Ok(self.request_with_len(req)?.0)
-    }
-
-    /// Like `request`, but also returns how many bytes the device wrote to the
-    /// receive buffer (from the used ring entry). Needed by `get_capset` to
-    /// slice the trailing capset data precisely.
-    fn request_with_len<Req: IntoBytes + Immutable, Rsp: FromBytes>(
+    fn request<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
         &mut self,
         req: Req,
+    ) -> Result<Rsp> {
+        let mut response = Rsp::new_zeroed();
+        self.control_queue.add_notify_wait_pop(
+            &[req.as_bytes()],
+            &mut [response.as_mut_bytes()],
+            &mut self.transport,
+        )?;
+        Ok(response)
+    }
+
+    /// Like `request`, but in addition to the fixed-length response `Rsp` also accepts further
+    /// response bytes in `extra_response`.
+    ///
+    /// Returns the number of bytes written to `extra_response` by the device.
+    fn request_with_extra_response<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
+        &mut self,
+        req: Req,
+        extra_response: &mut [u8],
     ) -> Result<(Rsp, usize)> {
+        let mut response = Rsp::new_zeroed();
         let used_len = self.control_queue.add_notify_wait_pop(
             &[req.as_bytes()],
-            &mut [&mut self.queue_buf_recv],
+            &mut [response.as_mut_bytes(), extra_response],
             &mut self.transport,
         )? as usize;
-        let rsp = Rsp::read_from_prefix(&self.queue_buf_recv).unwrap().0;
-        Ok((rsp, used_len))
+        Ok((
+            response,
+            min(
+                used_len.saturating_sub(size_of::<Rsp>()),
+                extra_response.len(),
+            ),
+        ))
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
@@ -319,25 +331,26 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Send a request with additional data (as a second device-readable buffer)
     /// and block for a response. Used by SUBMIT_3D where the virgl command stream
     /// is sent as a separate scatter-gather buffer alongside the CtrlHeader.
-    fn request_with_data<Req: IntoBytes + Immutable, Rsp: FromBytes>(
+    fn request_with_data<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
         &mut self,
         req: Req,
         data: &[u8],
     ) -> Result<Rsp> {
+        let mut response = Rsp::new_zeroed();
         if data.is_empty() {
             self.control_queue.add_notify_wait_pop(
                 &[req.as_bytes()],
-                &mut [&mut self.queue_buf_recv],
+                &mut [response.as_mut_bytes()],
                 &mut self.transport,
             )?;
         } else {
             self.control_queue.add_notify_wait_pop(
                 &[req.as_bytes(), data],
-                &mut [&mut self.queue_buf_recv],
+                &mut [response.as_mut_bytes()],
                 &mut self.transport,
             )?;
         }
-        Ok(Rsp::read_from_prefix(&self.queue_buf_recv).unwrap().0)
+        Ok(response)
     }
 
     fn get_display_info(&mut self) -> Result<RespDisplayInfo> {
@@ -522,22 +535,22 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     /// Returns `Err` rather than panicking if `size` exceeds the buffer.
     pub fn get_capset(&mut self, capset_id: u32, version: u32, size: u32) -> Result<Vec<u8>> {
         self.require_virgl()?;
-        if size as usize > self.queue_buf_recv.len() - size_of::<CtrlHeader>() {
-            return Err(Error::IoError);
-        }
+        let mut extra_response = vec![0; size as usize];
         // The response is a CtrlHeader (24 bytes) followed by the capset data,
         // all written back into queue_buf_recv. `size` is only an upper bound:
         // slice by the bytes the device actually wrote (`used_len`) so no
         // stale receive-buffer bytes leak into the returned blob.
-        let (hdr, used_len): (CtrlHeader, usize) = self.request_with_len(CmdGetCapset {
-            header: CtrlHeader::with_type(Command::GET_CAPSET),
-            capset_id,
-            capset_version: version,
-        })?;
+        let (hdr, used_len): (CtrlHeader, usize) = self.request_with_extra_response(
+            CmdGetCapset {
+                header: CtrlHeader::with_type(Command::GET_CAPSET),
+                capset_id,
+                capset_version: version,
+            },
+            &mut extra_response,
+        )?;
         hdr.check_type(Command::OK_CAPSET)?;
-        let start = size_of::<CtrlHeader>();
-        let end = used_len.clamp(start, start + size as usize);
-        Ok(self.queue_buf_recv[start..end].to_vec())
+        extra_response.truncate(used_len);
+        Ok(extra_response)
     }
 
     /// Create a 3D rendering context.
@@ -973,7 +986,7 @@ pub struct Rect {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes, Immutable, KnownLayout)]
+#[derive(Debug, FromBytes, Immutable, IntoBytes, KnownLayout)]
 struct RespDisplayInfo {
     header: CtrlHeader,
     rect: Rect,
@@ -990,7 +1003,7 @@ struct CmdGetEdid {
 }
 
 #[repr(C)]
-#[derive(Debug, FromBytes, Immutable, KnownLayout)]
+#[derive(Debug, FromBytes, Immutable, IntoBytes, KnownLayout)]
 struct RespEdid {
     header: CtrlHeader,
     size: u32,
