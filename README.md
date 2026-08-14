@@ -51,8 +51,13 @@ VirtIO guest drivers in Rust. For **no_std** environment.
 
 ```bash
 cd examples/x86_64
-make qemu
+make qemu          # plain 2D virtio-gpu; the virgl 3D tests are skipped
+make qemu gl=on    # GL-capable virtio-gpu; runs the virgl 3D & blob tests
 ```
+
+`gl=on` attaches a `virtio-gpu-gl-pci` device (with `blob=on`) and needs a QEMU built
+with virglrenderer/OpenGL support. Without it the 3D tests are skipped at runtime
+(`has_virgl()` is false), so hosts without GL are unaffected.
 
 ### [aarch64](./examples/aarch64)
 
