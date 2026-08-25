@@ -10,7 +10,7 @@ use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const QUEUE: u16 = 0;
-const QUEUE_SIZE: u16 = 16;
+const QUEUE_SIZE: u16 = 256;
 const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO
     .union(BlkFeature::FLUSH)
     .union(BlkFeature::RING_INDIRECT_DESC)

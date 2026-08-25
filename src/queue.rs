@@ -201,8 +201,10 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
         }
 
         // Write barrier so that device sees changes to descriptor table and available ring before
-        // change to available index.
-        fence(Ordering::SeqCst);
+        // change to available index. A Release fence is sufficient: it ensures all prior writes
+        // (descriptor table, avail ring entry) are ordered before the subsequent Release store to
+        // avail.idx. This matches Linux's dma_wmb() / virtio_wmb() semantics.
+        fence(Ordering::Release);
 
         // increase head of avail ring
         self.avail_idx = self.avail_idx.wrapping_add(1);
