@@ -824,6 +824,10 @@ struct Config {
 
     /// Specifies the number of capsets supported by the device.
     num_capsets: ReadOnly<u32>,
+
+    /// Specifies the alignment requirement for blob resources.
+    /// Valid when `VIRTIO_GPU_F_BLOB_ALIGNMENT` is negotiated.
+    blob_alignment: ReadOnly<u32>,
 }
 
 /// Display configuration has changed.
@@ -840,6 +844,8 @@ bitflags! {
         const CONTEXT_INIT          = 1 << 4;
         /// Blob resources (host-visible memory, dma-buf sharing) are supported.
         const RESOURCE_BLOB         = 1 << 3;
+        /// Blob resource alignment requirements are exposed in the device configuration.
+        const BLOB_ALIGNMENT        = 1 << 5;
 
         // device independent
         const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
