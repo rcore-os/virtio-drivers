@@ -89,17 +89,17 @@ impl StandardTiming {
 /// A Detailed Timing Descriptor from the EDID base block.
 ///
 /// Reference: VESA E-EDID, Section 3.10.2 "Detailed Timing Definitions".
-struct DetailedTiming {
+pub struct DetailedTiming {
     /// Horizontal active pixels.
-    h_active: u32,
+    pub h_active: u32,
     /// Horizontal blanking pixels.
-    h_blank: u32,
+    pub h_blank: u32,
     /// Vertical active pixels.
-    v_active: u32,
+    pub v_active: u32,
     /// Vertical blanking lines.
-    v_blank: u32,
+    pub v_blank: u32,
     /// Pixel clock in Hz.
-    pixel_clock_hz: u32,
+    pub pixel_clock_hz: u32,
 }
 
 impl DetailedTiming {
@@ -108,7 +108,7 @@ impl DetailedTiming {
     /// Returns `None` for a display descriptor (zero pixel clock), or if
     /// the active pixel counts are zero.
     fn parse(bytes: &[u8; DTD_LEN]) -> Option<Self> {
-        let pixel_clock_10khz = u16::from_le_bytes([bytes[0], bytes[1]]) as u32;
+        let pixel_clock_10khz = u32::from(u16::from_le_bytes([bytes[0], bytes[1]]));
         if pixel_clock_10khz == 0 {
             return None;
         }
@@ -141,8 +141,8 @@ impl DetailedTiming {
 /// Wraps the raw EDID byte blob and provides methods to extract display
 /// information such as preferred resolution and supported standard timings.
 pub struct Edid {
-    pub data: [u8; 1024],
-    pub size: u32,
+    pub(super) data: [u8; 1024],
+    pub(super) size: u32,
 }
 
 impl Edid {
@@ -171,17 +171,9 @@ impl Edid {
 
     /// Get the preferred detailed timing from the EDID data.
     ///
-    /// Returns (active width, active height, total width, total height, pixel clock in Hz)
-    /// from the first Detailed Timing Descriptor.
-    pub fn preferred_timing(&self) -> Result<(u32, u32, u32, u32, u32)> {
-        let dtd = self.first_detailed_timing().ok_or(Error::IoError)?;
-        Ok((
-            dtd.h_active,
-            dtd.v_active,
-            dtd.h_active + dtd.h_blank,
-            dtd.v_active + dtd.v_blank,
-            dtd.pixel_clock_hz,
-        ))
+    /// Returns the first Detailed Timing Descriptor.
+    pub fn preferred_timing(&self) -> Result<DetailedTiming> {
+        self.first_detailed_timing().ok_or(Error::IoError)
     }
 
     /// Get the preferred resolution from the EDID data.
@@ -189,8 +181,8 @@ impl Edid {
     /// Returns the resolution from the first Detailed Timing Descriptor,
     /// which per the EDID spec represents the display's preferred mode.
     pub fn preferred_resolution(&self) -> Result<(u32, u32)> {
-        let (width, height, _, _, _) = self.preferred_timing()?;
-        Ok((width, height))
+        let timing = self.preferred_timing()?;
+        Ok((timing.h_active, timing.v_active))
     }
 
     /// Get the list of supported resolutions from EDID standard timings.
@@ -375,16 +367,22 @@ mod tests {
     #[test]
     fn qemu_edid_preferred_timing() {
         let edid = make_edid(qemu_edid(), 256);
-        let (width, height, total_width, total_height, pixel_clock_hz) =
-            edid.preferred_timing().unwrap();
+        let timing = edid.preferred_timing().unwrap();
 
-        assert_eq!((width, height), (1920, 1080));
-        assert_eq!((total_width, total_height), (2592, 1117));
-        assert_eq!(pixel_clock_hz, 217_140_000);
+        assert_eq!((timing.h_active, timing.v_active), (1920, 1080));
+        assert_eq!(
+            (
+                timing.h_active + timing.h_blank,
+                timing.v_active + timing.v_blank
+            ),
+            (2592, 1117)
+        );
+        assert_eq!(timing.pixel_clock_hz, 217_140_000);
 
-        let total_pixels = total_width as u64 * total_height as u64;
+        let total_pixels = u64::from(timing.h_active + timing.h_blank)
+            * u64::from(timing.v_active + timing.v_blank);
         let refresh_millihz =
-            (pixel_clock_hz as u64 * 1000 + total_pixels / 2) / total_pixels;
+            (u64::from(timing.pixel_clock_hz) * 1000 + total_pixels / 2) / total_pixels;
         assert_eq!(refresh_millihz, 74_998);
     }
 
