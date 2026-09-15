@@ -588,12 +588,43 @@ mod tests {
             .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, packet.as_bytes());
         let mut observed = None;
         assert_eq!(
-            manager.poll_with_credit_update(|peer, port| {
-                observed = Some((peer, port));
+            manager.poll_with_credit_update(|peer, port, event_type| {
+                observed = Some((peer, port, event_type));
             }),
             Err(Error::QueueFull)
         );
-        assert_eq!(observed, Some((peer, 4321)));
+        assert_eq!(observed, Some((peer, 4321, VsockEventType::CreditRequest)));
+
+        // A peer can also close the pending connection. Failure to submit the RST must not
+        // hide the terminal event from a caller waiting for connection or I/O progress.
+        packet.op = VirtioVsockOp::Shutdown.into();
+        packet.flags = (StreamShutdown::SEND | StreamShutdown::RECEIVE).into();
+        state
+            .lock()
+            .unwrap()
+            .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, packet.as_bytes());
+        observed = None;
+        assert_eq!(
+            manager.poll_with_credit_update(|peer, port, event_type| {
+                observed = Some((peer, port, event_type));
+            }),
+            Err(Error::QueueFull)
+        );
+        assert_eq!(
+            observed,
+            Some((
+                peer,
+                4321,
+                VsockEventType::Disconnected {
+                    reason: DisconnectReason::Shutdown,
+                }
+            ))
+        );
+        assert_eq!(manager.send_capacity(peer, 4321).unwrap(), 0);
+        assert_eq!(
+            manager.send(peer, 4321, b"closed"),
+            Err(SocketError::PeerSocketShutdown.into())
+        );
         assert_eq!(manager.poll().unwrap(), None);
     }
 
