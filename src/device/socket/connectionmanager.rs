@@ -168,17 +168,18 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
 
     /// Polls the vsock device to receive data or other updates.
     pub fn poll(&mut self) -> Result<Option<VsockEvent>> {
-        self.poll_with_credit_update(|_, _| {})
+        self.poll_with_credit_update(|_, _, _| {})
     }
 
     /// Polls the device, observing credit updates for every packet matching a connection.
     ///
-    /// The observer receives the peer address and local port after credit is recorded, including
-    /// for credit requests handled internally. It runs before sending any response, so updates
-    /// remain observable even if this method subsequently returns an error.
+    /// The observer receives the peer address, local port, and packet event type after credit is
+    /// recorded, including for credit requests handled internally. It runs before sending any
+    /// response, so credit and terminal events remain observable even if this method subsequently
+    /// returns an error. Observing a connection request does not mean it has been accepted.
     pub fn poll_with_credit_update(
         &mut self,
-        observer: impl FnOnce(VsockAddr, u32),
+        observer: impl FnOnce(VsockAddr, u32, VsockEventType),
     ) -> Result<Option<VsockEvent>> {
         let guest_cid = self.driver.guest_cid();
         let connections = &mut self.connections;
@@ -210,7 +211,11 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
 
             // Update stored connection info.
             connection.info.update_for_event(&event);
-            observer(event.source, event.destination.port);
+            observer(
+                event.source,
+                event.destination.port,
+                event.event_type.clone(),
+            );
 
             if let VsockEventType::Received { length } = event.event_type {
                 // Copy to buffer
@@ -564,14 +569,14 @@ mod tests {
             });
             assert_eq!(
                 socket
-                    .poll_with_credit_update(|peer, port| {
-                        observed = Some((peer, port));
+                    .poll_with_credit_update(|peer, port, event_type| {
+                        observed = Some((peer, port, event_type));
                     })
                     .unwrap(),
                 None
             );
         });
-        assert_eq!(observed, Some((peer, 4321)));
+        assert_eq!(observed, Some((peer, 4321, VsockEventType::CreditRequest)));
         assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 16);
     }
 
