@@ -77,13 +77,15 @@ impl ConnectionInfo {
     /// This should be called once received data has been passed to the client, so there is buffer
     /// space available for more.
     pub fn done_forwarding(&mut self, length: usize) {
-        self.fwd_cnt += length as u32;
+        self.fwd_cnt = self.fwd_cnt.wrapping_add(length as u32);
     }
 
     /// Returns the number of bytes of RX buffer space the peer has available to receive packet body
     /// data from us.
-    fn peer_free(&self) -> u32 {
-        self.peer_buf_alloc - (self.tx_cnt - self.peer_fwd_cnt)
+    pub(super) fn peer_free(&self) -> u32 {
+        self.peer_buf_alloc
+            .min(self.buf_alloc)
+            .saturating_sub(self.tx_cnt.wrapping_sub(self.peer_fwd_cnt))
     }
 
     fn new_header(&self, src_cid: u64) -> VirtioVsockHdr {
@@ -340,8 +342,9 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
             len: len.into(),
             ..connection_info.new_header(self.guest_cid)
         };
-        connection_info.tx_cnt += len;
-        self.send_packet_to_tx_queue(&header, buffer)
+        self.send_packet_to_tx_queue(&header, buffer)?;
+        connection_info.tx_cnt = connection_info.tx_cnt.wrapping_add(len);
+        Ok(())
     }
 
     fn check_peer_buffer_is_sufficient(
@@ -472,6 +475,115 @@ mod tests {
     };
     use alloc::{sync::Arc, vec};
     use std::sync::Mutex;
+
+    fn socket() -> (
+        VirtIOSocket<FakeHal, FakeTransport<VirtioVsockConfig>>,
+        Arc<Mutex<State<VirtioVsockConfig>>>,
+    ) {
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
+                QueueStatus::default(),
+                QueueStatus::default(),
+                QueueStatus::default(),
+            ],
+            VirtioVsockConfig {
+                guest_cid_low: ReadOnly::new(66),
+                guest_cid_high: ReadOnly::new(0),
+            },
+        )));
+        let transport = FakeTransport {
+            device_type: DeviceType::Socket,
+            max_queue_size: 32,
+            device_features: 0,
+            state: state.clone(),
+        };
+        (VirtIOSocket::new(transport).unwrap(), state)
+    }
+
+    #[test]
+    fn credit_counters_wrap() {
+        let (mut socket, state) = socket();
+        let mut connection = ConnectionInfo {
+            dst: VsockAddr { cid: 2, port: 1234 },
+            src_port: 4321,
+            buf_alloc: 16,
+            peer_buf_alloc: 32,
+            tx_cnt: 2,
+            peer_fwd_cnt: u32::MAX - 3,
+            fwd_cnt: u32::MAX - 1,
+            ..Default::default()
+        };
+        assert_eq!(connection.peer_free(), 10);
+        connection.tx_cnt = u32::MAX - 1;
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+                state
+                    .lock()
+                    .unwrap()
+                    .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX);
+            });
+            socket.send(&[0; 4], &mut connection).unwrap();
+        });
+        assert_eq!(connection.peer_free(), 10);
+        connection.done_forwarding(4);
+        assert_eq!(connection.new_header(66).fwd_cnt.get(), 2);
+    }
+
+    #[test]
+    fn failed_submission_preserves_credit_and_observation() {
+        use crate::{Error, device::socket::VsockConnectionManager};
+        let (mut driver, state) = socket();
+        // Reserve every descriptor to deterministically reject both data and control packets.
+        // SAFETY: The immutable static bytes remain valid until the queue is dropped. No fake
+        // device accesses this TX queue and there are no output buffers.
+        unsafe { driver.tx.add(&[&[0][..]; QUEUE_SIZE], &mut []) }.unwrap();
+        let peer = VsockAddr { cid: 2, port: 1234 };
+        let mut connection = ConnectionInfo {
+            dst: peer,
+            src_port: 4321,
+            buf_alloc: 16,
+            peer_buf_alloc: 32,
+            ..Default::default()
+        };
+        assert_eq!(driver.send(b"data", &mut connection), Err(Error::QueueFull));
+        assert_eq!(connection.tx_cnt, 0);
+        assert_eq!(connection.peer_free(), 16);
+
+        let mut manager = VsockConnectionManager::new(driver);
+        manager.listen(4321);
+        let mut packet = VirtioVsockHdr {
+            src_cid: peer.cid.into(),
+            dst_cid: 66.into(),
+            src_port: peer.port.into(),
+            dst_port: 4321.into(),
+            socket_type: super::super::protocol::SocketType::Stream.into(),
+            op: VirtioVsockOp::Request.into(),
+            buf_alloc: 16.into(),
+            ..Default::default()
+        };
+        state
+            .lock()
+            .unwrap()
+            .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, packet.as_bytes());
+        // The pending connection remains registered when its acceptance cannot be submitted.
+        assert_eq!(manager.poll(), Err(Error::QueueFull));
+        packet.op = VirtioVsockOp::CreditRequest.into();
+        packet.buf_alloc = 32.into();
+        state
+            .lock()
+            .unwrap()
+            .write_to_queue::<QUEUE_SIZE>(RX_QUEUE_IDX, packet.as_bytes());
+        let mut observed = None;
+        assert_eq!(
+            manager.poll_with_credit_update(|peer, port| {
+                observed = Some((peer, port));
+            }),
+            Err(Error::QueueFull)
+        );
+        assert_eq!(observed, Some((peer, 4321)));
+        assert_eq!(manager.poll().unwrap(), None);
+    }
 
     #[test]
     fn config() {

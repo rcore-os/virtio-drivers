@@ -58,6 +58,7 @@ pub struct VsockConnectionManager<
 struct Connection {
     info: ConnectionInfo,
     buffer: RingBuffer,
+    established: bool,
     /// The peer sent a SHUTDOWN request, but we haven't yet responded with a RST because there is
     /// still data in the buffer.
     peer_requested_shutdown: bool,
@@ -70,6 +71,7 @@ impl Connection {
         Self {
             info,
             buffer: RingBuffer::new(buffer_capacity.try_into().unwrap()),
+            established: false,
             peer_requested_shutdown: false,
         }
     }
@@ -138,12 +140,46 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// Sends the buffer to the destination.
     pub fn send(&mut self, destination: VsockAddr, src_port: u32, buffer: &[u8]) -> Result {
         let (_, connection) = get_connection(&mut self.connections, destination, src_port)?;
+        if connection.peer_requested_shutdown {
+            return Err(SocketError::PeerSocketShutdown.into());
+        }
 
+        if !connection.established {
+            return Err(SocketError::NotConnected.into());
+        }
         self.driver.send(buffer, &mut connection.info)
+    }
+
+    /// Returns the number of bytes that can be sent within the connection's credit window.
+    ///
+    /// Returns zero before establishment or after shutdown, and `NotConnected` if the connection
+    /// does not exist. This does not reserve credit or guarantee TX queue availability.
+    pub fn send_capacity(&self, peer: VsockAddr, src_port: u32) -> Result<usize> {
+        let connection = self
+            .connections
+            .iter()
+            .find(|connection| connection.info.dst == peer && connection.info.src_port == src_port)
+            .ok_or(SocketError::NotConnected)?;
+        if !connection.established || connection.peer_requested_shutdown {
+            return Ok(0);
+        }
+        Ok(connection.info.peer_free() as usize)
     }
 
     /// Polls the vsock device to receive data or other updates.
     pub fn poll(&mut self) -> Result<Option<VsockEvent>> {
+        self.poll_with_credit_update(|_, _| {})
+    }
+
+    /// Polls the device, observing credit updates for every packet matching a connection.
+    ///
+    /// The observer receives the peer address and local port after credit is recorded, including
+    /// for credit requests handled internally. It runs before sending any response, so updates
+    /// remain observable even if this method subsequently returns an error.
+    pub fn poll_with_credit_update(
+        &mut self,
+        observer: impl FnOnce(VsockAddr, u32),
+    ) -> Result<Option<VsockEvent>> {
         let guest_cid = self.driver.guest_cid();
         let connections = &mut self.connections;
         let per_connection_buffer_capacity = self.per_connection_buffer_capacity;
@@ -174,6 +210,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
 
             // Update stored connection info.
             connection.info.update_for_event(&event);
+            observer(event.source, event.destination.port);
 
             if let VsockEventType::Received { length } = event.event_type {
                 // Copy to buffer
@@ -197,6 +234,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
             VsockEventType::ConnectionRequest => {
                 if self.listening_ports.contains(&event.destination.port) {
                     self.driver.accept(&connection.info)?;
+                    connection.established = true;
                 } else {
                     // Reject the connection request and remove it from our list.
                     self.driver.force_close(&connection.info)?;
@@ -206,16 +244,17 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
                     return Ok(None);
                 }
             }
-            VsockEventType::Connected => {}
+            VsockEventType::Connected => {
+                connection.established = true;
+            }
             VsockEventType::Disconnected { reason } => {
+                connection.peer_requested_shutdown = true;
                 // Wait until client reads all data before removing connection.
                 if connection.buffer.is_empty() {
                     if reason == DisconnectReason::Shutdown {
                         self.driver.force_close(&connection.info)?;
                     }
                     self.connections.swap_remove(connection_index);
-                } else {
-                    connection.peer_requested_shutdown = true;
                 }
             }
             VsockEventType::Received { .. } => {
@@ -264,6 +303,10 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     /// Sends a credit update to the given peer.
     pub fn update_credit(&mut self, peer: VsockAddr, src_port: u32) -> Result {
         let (_, connection) = get_connection(&mut self.connections, peer, src_port)?;
+        if connection.peer_requested_shutdown {
+            return Err(SocketError::PeerSocketShutdown.into());
+        }
+
         self.driver.credit_update(&connection.info)
     }
 
@@ -287,7 +330,9 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize>
     pub fn shutdown(&mut self, destination: VsockAddr, src_port: u32) -> Result {
         let (_, connection) = get_connection(&mut self.connections, destination, src_port)?;
 
-        self.driver.shutdown(&connection.info)
+        self.driver.shutdown(&connection.info)?;
+        connection.established = false;
+        Ok(())
     }
 
     /// Forcibly closes the connection without waiting for the peer.
@@ -432,6 +477,103 @@ mod tests {
     use core::mem::size_of;
     use std::{sync::Mutex, thread};
     use zerocopy::{FromBytes, IntoBytes};
+
+    // Exercises real packet decoding and connection accounting with only the device replaced.
+    #[test]
+    fn credit_window_tracks_packets() {
+        let config_space = VirtioVsockConfig {
+            guest_cid_low: ReadOnly::new(66),
+            guest_cid_high: ReadOnly::new(0),
+        };
+        let state = Arc::new(Mutex::new(State::new(
+            vec![
+                QueueStatus::default(),
+                QueueStatus::default(),
+                QueueStatus::default(),
+            ],
+            config_space,
+        )));
+        let transport = FakeTransport {
+            device_type: DeviceType::Socket,
+            max_queue_size: 32,
+            device_features: 0,
+            state: state.clone(),
+        };
+        let mut socket = VsockConnectionManager::new_with_capacity(
+            VirtIOSocket::<FakeHal, _>::new(transport).unwrap(),
+            16,
+        );
+        let peer = VsockAddr { cid: 2, port: 1234 };
+        socket.connections.push(Connection::new(peer, 4321, 16));
+        assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 0);
+        let packet = |op: VirtioVsockOp, allocation: u32, forwarded: u32| VirtioVsockHdr {
+            src_cid: peer.cid.into(),
+            dst_cid: 66.into(),
+            src_port: peer.port.into(),
+            dst_port: 4321.into(),
+            socket_type: SocketType::Stream.into(),
+            op: op.into(),
+            buf_alloc: allocation.into(),
+            fwd_cnt: forwarded.into(),
+            ..Default::default()
+        };
+        state.lock().unwrap().write_to_queue::<QUEUE_SIZE>(
+            RX_QUEUE_IDX,
+            packet(VirtioVsockOp::Response, 64, 0).as_bytes(),
+        );
+        socket.poll().unwrap();
+        assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 16);
+
+        // Outstanding data consumes the smaller local/peer window.
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+                state
+                    .lock()
+                    .unwrap()
+                    .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX);
+            });
+            socket.send(peer, 4321, &[1; 12]).unwrap();
+        });
+        assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 4);
+
+        // Shrinking below outstanding bytes must saturate to zero.
+        state.lock().unwrap().write_to_queue::<QUEUE_SIZE>(
+            RX_QUEUE_IDX,
+            packet(VirtioVsockOp::CreditUpdate, 8, 0).as_bytes(),
+        );
+        socket.poll().unwrap();
+        assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 0);
+
+        // A CREDIT_REQUEST alone can reopen the window, and must be observable even though
+        // poll consumes the protocol request internally.
+        state.lock().unwrap().write_to_queue::<QUEUE_SIZE>(
+            RX_QUEUE_IDX,
+            packet(VirtioVsockOp::CreditRequest, 64, 12).as_bytes(),
+        );
+        let mut observed = None;
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                State::wait_until_queue_notified(&state, TX_QUEUE_IDX);
+                let response = state
+                    .lock()
+                    .unwrap()
+                    .read_from_queue::<QUEUE_SIZE>(TX_QUEUE_IDX);
+                let header = VirtioVsockHdr::read_from_bytes(&response).unwrap();
+                assert_eq!(header.op.get(), VirtioVsockOp::CreditUpdate as u16);
+            });
+            assert_eq!(
+                socket
+                    .poll_with_credit_update(|peer, port| {
+                        observed = Some((peer, port));
+                    })
+                    .unwrap(),
+                None
+            );
+        });
+        assert_eq!(observed, Some((peer, 4321)));
+        assert_eq!(socket.send_capacity(peer, 4321).unwrap(), 16);
+    }
 
     #[test]
     fn send_recv() {
@@ -644,6 +786,8 @@ mod tests {
             hello_from_host.as_bytes()
         );
         socket.shutdown(host_address, guest_port).unwrap();
+        assert_eq!(socket.send_capacity(host_address, guest_port).unwrap(), 0);
+        assert!(socket.send(host_address, guest_port, b"closed").is_err());
 
         handle.join().unwrap();
     }
