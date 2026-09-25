@@ -78,13 +78,18 @@ impl ConnectionInfo {
     /// This should be called once received data has been passed to the client, so there is buffer
     /// space available for more.
     pub fn done_forwarding(&mut self, length: usize) {
-        self.fwd_cnt += length as u32;
+        self.fwd_cnt = self.fwd_cnt.wrapping_add(length as u32);
     }
 
     /// Returns the number of bytes of RX buffer space the peer has available to receive packet body
     /// data from us.
     fn peer_free(&self) -> u32 {
-        self.peer_buf_alloc - (self.tx_cnt - self.peer_fwd_cnt)
+        let outstanding = self.tx_cnt.wrapping_sub(self.peer_fwd_cnt);
+        // If the peer sent inconsistent vsock packet headers and `outstanding` is larger than
+        // `peer_buf_alloc` `wrapping_sub` could produce an incorrect and large value. There's no
+        // way to recover from a buggy peer at this level so we use saturating_sub to map
+        // `outstanding > peer_buf_alloc` to zero.
+        self.peer_buf_alloc.saturating_sub(outstanding)
     }
 
     fn new_header(&self, src_cid: u64) -> VirtioVsockHdr {
@@ -344,7 +349,7 @@ impl<H: Hal, T: Transport, const RX_BUFFER_SIZE: usize> VirtIOSocket<H, T, RX_BU
             len: len.into(),
             ..connection_info.new_header(self.guest_cid)
         };
-        connection_info.tx_cnt += len;
+        connection_info.tx_cnt = connection_info.tx_cnt.wrapping_add(len);
         self.send_packet_to_tx_queue(&header, buffer)
     }
 
