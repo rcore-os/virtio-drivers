@@ -213,6 +213,10 @@ impl<H: Hal, const SIZE: usize> VirtQueue<H, SIZE> {
                 .store(self.avail_idx, Ordering::Release);
         }
 
+        // Full barrier so that the device sees our update to `avail.idx` before we read
+        // `avail_event` or the used ring flags.
+        fence(Ordering::SeqCst);
+
         Ok(head)
     }
 
