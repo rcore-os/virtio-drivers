@@ -56,7 +56,9 @@ impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
     }
 
     fn set_status(&mut self, status: DeviceStatus) {
-        self.state.lock().unwrap().status = status;
+        let mut state = self.state.lock().unwrap();
+        state.status = status;
+        state.status_history.push(status);
     }
 
     fn set_guest_page_size(&mut self, guest_page_size: u32) {
@@ -152,6 +154,8 @@ impl<C: FromBytes + Immutable + IntoBytes> Transport for FakeTransport<C> {
 pub struct State<C> {
     /// The status of the fake device.
     pub status: DeviceStatus,
+    /// Every status the driver has set, in order.
+    pub status_history: Vec<DeviceStatus>,
     /// The features which the driver says it supports.
     pub driver_features: u64,
     /// The guest page size set by the driver.
@@ -170,6 +174,7 @@ impl<C> Debug for State<C> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_struct("State")
             .field("status", &self.status)
+            .field("status_history", &self.status_history)
             .field("driver_features", &self.driver_features)
             .field("guest_page_size", &self.guest_page_size)
             .field("interrupt_pending", &self.interrupt_pending)
@@ -185,6 +190,7 @@ impl<C> State<C> {
     pub const fn new(queues: Vec<QueueStatus>, config_space: C) -> Self {
         Self {
             status: DeviceStatus::empty(),
+            status_history: Vec::new(),
             driver_features: 0,
             guest_page_size: 0,
             interrupt_pending: false,
