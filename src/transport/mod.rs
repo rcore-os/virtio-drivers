@@ -81,6 +81,9 @@ pub trait Transport {
         supported_features: F,
     ) -> F {
         self.set_status(DeviceStatus::empty());
+        // Set ACKNOWLEDGE and DRIVER as separate steps, as the spec has them: some devices, like
+        // Firecracker's, reject a write that sets both at once.
+        self.set_status(DeviceStatus::ACKNOWLEDGE);
         self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
 
         let device_feature_bits = self.read_device_features();
@@ -294,6 +297,10 @@ impl TryFrom<u8> for DeviceType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::common::Feature;
+    use alloc::{sync::Arc, vec};
+    use fake::{FakeTransport, State};
+    use std::sync::Mutex;
 
     #[test]
     fn debug_device_status() {
@@ -301,6 +308,38 @@ mod tests {
         assert_eq!(
             format!("{:?}", status),
             "DeviceStatus(ACKNOWLEDGE | DRIVER | 0x20)"
+        );
+    }
+
+    #[test]
+    fn init_sets_status_bits_in_order() {
+        let state = Arc::new(Mutex::new(State::new(vec![], ())));
+        let mut transport = FakeTransport {
+            device_type: DeviceType::Network,
+            max_queue_size: 0,
+            device_features: 0,
+            state: state.clone(),
+        };
+
+        transport.begin_init(Feature::empty());
+        transport.finish_init();
+
+        // Virtio 3.1.1: reset, then set ACKNOWLEDGE, then DRIVER, then FEATURES_OK, then
+        // DRIVER_OK, each as a step of its own. Some devices, like Firecracker's, reject a write
+        // that sets more than one of them at once.
+        let acknowledge = DeviceStatus::ACKNOWLEDGE;
+        let driver = acknowledge | DeviceStatus::DRIVER;
+        let features_ok = driver | DeviceStatus::FEATURES_OK;
+        let driver_ok = features_ok | DeviceStatus::DRIVER_OK;
+        assert_eq!(
+            state.lock().unwrap().status_history,
+            vec![
+                DeviceStatus::empty(),
+                acknowledge,
+                driver,
+                features_ok,
+                driver_ok
+            ]
         );
     }
 }
