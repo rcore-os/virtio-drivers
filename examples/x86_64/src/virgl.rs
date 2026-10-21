@@ -257,9 +257,12 @@ pub fn run(gpu: &mut VirtIOGpu<HalImpl, impl Transport>) {
     assert_eq!(render_cmd.len(), 19 * 4, "[VIRGL] 10/15 render stream size");
     gpu.submit_3d(1, 1, &render_cmd)
         .expect("[VIRGL] 10/15 submit_3d(CREATE_SURFACE+FBO+CLEAR) failed");
-    // The fence response is sent after the host flushes GL, so rendering is
-    // done once `submit_3d` returns.
-    info!("[VIRGL] 10/15 submit_3d(CREATE_SURFACE+FBO+CLEAR) OK");
+    // Blocking `submit_3d` pops the FLAG_FENCE response itself, so rendering
+    // is already complete here and this returns immediately; kept as an
+    // explicit canary for the fence bookkeeping (see `request_sync_fenced`).
+    gpu.wait_fence(1)
+        .expect("[VIRGL] 10/15 wait_fence(1) failed");
+    info!("[VIRGL] 10/15 submit_3d + wait_fence OK (rendering complete)");
 
     // ── 11/15: blob resource (feature-gated) ──
     if gpu.has_resource_blob() {

@@ -1,9 +1,12 @@
 //! Driver for VirtIO GPU devices.
 
+mod async_api;
+mod ctrl;
 mod edid;
 
 pub use self::edid::Edid;
 
+use self::ctrl::ControlQueue;
 use crate::config::{ReadOnly, WriteOnly, read_config};
 use crate::hal::{BufferDirection, Dma, Hal, PhysAddr};
 use crate::queue::VirtQueue;
@@ -16,15 +19,10 @@ use core::mem::size_of;
 use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Number of descriptors per virtqueue (const generic bound on `VirtQueue`).
-///
-/// `submit_3d` drives a 3-buffer command — the `CtrlHeader` + the virgl command
-/// stream + the response — and `VirtQueue::add` requires the total number of
-/// in/out buffers to fit inside `SIZE` even when `RING_INDIRECT_DESC` is used
-/// (they all go into one indirect list before occupying a single queue slot).
-/// A depth of 16 is the smallest power of two that comfortably covers that and
-/// any future multi-resource submit while keeping descriptor-table memory small.
-const QUEUE_SIZE: u16 = 16;
+/// Number of descriptors on the cursor virtqueue. QEMU advertises only 16 here
+/// (`VIRTIO_GPU_CURSOR_VQ_SIZE`), and `VirtQueue::new` fails with
+/// [`Error::InvalidParam`] if it requests more than the device offers.
+const CURSOR_QUEUE_SIZE: u16 = 16;
 const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
     .union(Features::RING_INDIRECT_DESC)
     .union(Features::VERSION_1)
@@ -41,6 +39,48 @@ const SUPPORTED_FEATURES: Features = Features::RING_EVENT_IDX
 /// a gpu with 3D support on the host machine.
 /// In 2D mode the virtio-gpu device provides support for ARGB Hardware cursors
 /// and multiple scanouts (aka heads).
+///
+/// # Submission model
+///
+/// Every control command comes in two flavours — synchronous by default,
+/// asynchronous on request — with identical wire behaviour:
+///
+/// - **Blocking (default, upstream-compatible)**: `resource_create_2d`,
+///   `set_scanout`, `resource_flush`, `transfer_to_host_*`, `submit_3d`, …
+///   block until the device answers and return `Err` when the device reports
+///   an error. This is the historical behaviour of this driver — existing
+///   consumers work unchanged.
+/// - **Fire-and-forget (`*_async`)**: the same commands enqueue and return
+///   immediately. The host applies commands in strict submission order, so
+///   create → attach → transfer → flush → scanout sequences need no
+///   per-command fence. Commands are delivered to the host at the latest once
+///   8 `*_async` commands accumulate since the last kick, when the ring nears
+///   capacity, or when any blocking command or [`VirtIOGpu::wait_fence`]
+///   runs; call [`VirtIOGpu::ctrl_notify`] to deliver a batch immediately
+///   (one MMIO write per transaction — measurably faster for DRM-style
+///   callers). Device-side errors are logged, not returned.
+///   `submit_3d_async` records `fence_id`; block on
+///   [`VirtIOGpu::wait_fence`] (which also delivers the batch) or poll
+///   [`VirtIOGpu::fence_completed`] together with [`VirtIOGpu::ctrl_notify`]
+///   before reading back anything the batch renders. The fence high-water
+///   mark only advances when completed entries are popped, so a poll loop
+///   with no IRQ handler calling [`VirtIOGpu::pump_completions`] must call it
+///   itself.
+///
+/// Commands whose result the caller always needs (`get_display_info`,
+/// `get_capset`, `transfer_from_host_*`, blob creation with map info, teardown
+/// of backing memory) block in both flavours.
+///
+/// Dropping the driver discards commands that are still in flight; call
+/// [`VirtIOGpu::wait_fence`] for the last submitted fence before freeing any
+/// DMA memory the device may still be reading or writing.
+///
+/// # Stack usage
+///
+/// The driver state (two virtqueues at 64-entry depth plus in-flight
+/// bookkeeping) is roughly 10 KiB and is constructed on the caller's stack by
+/// [`VirtIOGpu::new`] before being moved. Environments with small task stacks
+/// should box it: `Box::new(VirtIOGpu::new(transport)?)`.
 pub struct VirtIOGpu<H: Hal, T: Transport> {
     transport: T,
     rect: Option<Rect>,
@@ -48,10 +88,12 @@ pub struct VirtIOGpu<H: Hal, T: Transport> {
     frame_buffer_dma: Option<Dma<H>>,
     /// DMA area of cursor image buffer.
     cursor_buffer_dma: Option<Dma<H>>,
-    /// Queue for sending control commands.
-    control_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    /// Asynchronous control-queue machinery: the control [`VirtQueue`] plus
+    /// in-flight tracking, the parking FIFO, kick suppression and fence
+    /// bookkeeping (see the `ctrl` module).
+    ctrl: ControlQueue<H>,
     /// Queue for sending cursor commands.
-    cursor_queue: VirtQueue<H, { QUEUE_SIZE as usize }>,
+    cursor_queue: VirtQueue<H, { CURSOR_QUEUE_SIZE as usize }>,
     /// Whether EDID feature was negotiated.
     has_edid: bool,
     /// Whether `VIRTIO_F_ACCESS_PLATFORM` was negotiated.
@@ -79,9 +121,8 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
         let access_platform = negotiated_features.contains(Features::ACCESS_PLATFORM);
 
-        let control_queue = VirtQueue::new(
+        let ctrl = ControlQueue::new(
             &mut transport,
-            QUEUE_TRANSMIT,
             negotiated_features.contains(Features::RING_INDIRECT_DESC),
             negotiated_features.contains(Features::RING_EVENT_IDX),
             access_platform,
@@ -110,7 +151,7 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
             frame_buffer_dma: None,
             cursor_buffer_dma: None,
             rect: None,
-            control_queue,
+            ctrl,
             cursor_queue,
             has_edid,
             access_platform,
@@ -281,24 +322,24 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Send a request to the device and block for a response.
     ///
-    /// The call is synchronous: `req` lives on the stack until the device has
-    /// consumed it (the used ring entry is popped below), so `req.as_bytes()`
-    /// can be handed to the queue directly without copying.
+    /// Fully synchronous and zero-copy: `req` and the response live in this call's
+    /// stack frame, so they are handed to the queue as borrowed buffers and the
+    /// device writes the response in place (see [`ControlQueue::request_sync`]).
     fn request<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
         &mut self,
         req: Req,
     ) -> Result<Rsp> {
         let mut response = Rsp::new_zeroed();
-        self.control_queue.add_notify_wait_pop(
+        self.ctrl.request_sync(
+            &mut self.transport,
             &[req.as_bytes()],
             &mut [response.as_mut_bytes()],
-            &mut self.transport,
         )?;
         Ok(response)
     }
 
     /// Like `request`, but in addition to the fixed-length response `Rsp` also accepts further
-    /// response bytes in `extra_response`.
+    /// response bytes in `extra_response` (written in place, zero-copy).
     ///
     /// Returns the number of bytes written to `extra_response` by the device.
     fn request_with_extra_response<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
@@ -307,30 +348,36 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         extra_response: &mut [u8],
     ) -> Result<(Rsp, usize)> {
         let mut response = Rsp::new_zeroed();
-        let used_len = self.control_queue.add_notify_wait_pop(
+        let used_len = self.ctrl.request_sync(
+            &mut self.transport,
             &[req.as_bytes()],
             &mut [response.as_mut_bytes(), extra_response],
-            &mut self.transport,
-        )? as usize;
-        Ok((
-            response,
-            min(
-                used_len.saturating_sub(size_of::<Rsp>()),
-                extra_response.len(),
-            ),
-        ))
+        )?;
+        let n = min(
+            used_len.saturating_sub(size_of::<Rsp>() as u32) as usize,
+            extra_response.len(),
+        );
+        Ok((response, n))
     }
 
     /// Send a mouse cursor operation request to the device and block for a response.
+    ///
+    /// The cursor queue is separate from the control queue and has no mutual
+    /// ordering guarantee with it, while cursor commands reference resources
+    /// created by control commands. `ctrl_notify` flushes the control
+    /// accumulator here so the host sees the resource before the cursor
+    /// command that uses it; the residual window is host-processing latency
+    /// (the same race Linux has between its per-ioctl notifies).
     fn cursor_request<Req: IntoBytes + Immutable>(&mut self, req: Req) -> Result {
+        self.ctrl.notify(&mut self.transport);
         self.cursor_queue
             .add_notify_wait_pop(&[req.as_bytes()], &mut [], &mut self.transport)?;
         Ok(())
     }
 
     /// Send a request with additional data (as a second device-readable buffer)
-    /// and block for a response. Used by SUBMIT_3D where the virgl command stream
-    /// is sent as a separate scatter-gather buffer alongside the CtrlHeader.
+    /// and block for a response. Used where a command carries a payload (e.g.
+    /// RESOURCE_CREATE_BLOB's mem-entry list) alongside the CtrlHeader.
     fn request_with_data<Req: IntoBytes + Immutable, Rsp: FromBytes + IntoBytes>(
         &mut self,
         req: Req,
@@ -338,16 +385,16 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     ) -> Result<Rsp> {
         let mut response = Rsp::new_zeroed();
         if data.is_empty() {
-            self.control_queue.add_notify_wait_pop(
+            self.ctrl.request_sync(
+                &mut self.transport,
                 &[req.as_bytes()],
                 &mut [response.as_mut_bytes()],
-                &mut self.transport,
             )?;
         } else {
-            self.control_queue.add_notify_wait_pop(
+            self.ctrl.request_sync(
+                &mut self.transport,
                 &[req.as_bytes(), data],
                 &mut [response.as_mut_bytes()],
-                &mut self.transport,
             )?;
         }
         Ok(response)
@@ -378,6 +425,9 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Bind a resource as the scanout (display output) for the given scanout ID.
     /// The `rect` specifies the display area.
+    ///
+    /// Fire-and-forget (Linux `virtio_gpu_primary_plane_update` doesn't wait); see the
+    /// [submission model](Self#submission-model) for the ordering argument.
     pub fn set_scanout(&mut self, rect: Rect, scanout_id: u32, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(SetScanout {
             header: CtrlHeader::with_type(Command::SET_SCANOUT),
@@ -390,6 +440,9 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 
     /// Flush a resource's contents to the display. The `rect` specifies the
     /// area to refresh.
+    ///
+    /// Fire-and-forget (Linux `virtio_gpu_cmd_resource_flush` doesn't wait); see the
+    /// [submission model](Self#submission-model) for the ordering argument.
     pub fn resource_flush(&mut self, rect: Rect, resource_id: u32) -> Result {
         let rsp: CtrlHeader = self.request(ResourceFlush {
             header: CtrlHeader::with_type(Command::RESOURCE_FLUSH),
@@ -586,6 +639,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
     }
 
     /// Attach a resource to a 3D context.
+    ///
+    /// Fire-and-forget (Linux `virtio_gpu_cmd_ctx_attach_resource` doesn't wait); see
+    /// the [submission model](Self#submission-model) for the ordering argument. This
+    /// was the last synchronous control-command RTT in the steady resource-create path
+    /// (Mesa creates ~6.9 fresh textures per frame, each attached here).
     pub fn ctx_attach_resource(&mut self, ctx_id: u32, resource_id: u32) -> Result {
         self.require_virgl()?;
         let rsp: CtrlHeader = self.request(CmdCtxResource {
@@ -698,32 +756,50 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
         rsp.check_type(Command::OK_NODATA)
     }
 
-    /// Submit a virgl command stream to a 3D context.
+    /// Submit a virgl command stream to a 3D context without waiting for completion.
     ///
+    /// Validates the virgl command stream length and returns its wire size.
+    ///
+    /// The stream is a sequence of 32-bit dwords; the host passes
+    /// `size / 4` dwords to `virgl_renderer_submit_cmd`, so a length that is
+    /// not a multiple of 4 would be silently truncated.
+    fn submit_3d_size(cmds: &[u8]) -> Result<u32> {
+        if !cmds.len().is_multiple_of(4) {
+            return Err(Error::InvalidParam);
+        }
+        u32::try_from(cmds.len()).map_err(|_| Error::IoError)
+    }
+
     /// `cmds` is the encoded virgl command stream produced by the Mesa virgl
     /// Gallium driver in userspace. It is sent as a separate scatter-gather
     /// buffer alongside the SUBMIT_3D header.
     ///
-    /// `fence_id` is assigned by the upper layer. The host signals the fence
-    /// once the command stream has been fully processed.
+    /// `fence_id` is assigned by the upper layer. The command carries
+    /// `VIRTIO_GPU_FLAG_FENCE`, so the response — and therefore this call's
+    /// return — happens only after the host has finished rendering the batch.
+    /// On return the rendering is complete (upstream behaviour). For
+    /// asynchronous submission see [`VirtIOGpu::submit_3d_async`].
     pub fn submit_3d(&mut self, ctx_id: u32, fence_id: u64, cmds: &[u8]) -> Result {
         self.require_virgl()?;
-        // The virgl command stream is a sequence of 32-bit dwords; the host
-        // passes `size / 4` dwords to `virgl_renderer_submit_cmd`, so a length
-        // that is not a multiple of 4 would be silently truncated.
-        if !cmds.len().is_multiple_of(4) {
-            return Err(Error::InvalidParam);
-        }
-        let size = u32::try_from(cmds.len()).map_err(|_| Error::IoError)?;
-        let rsp: CtrlHeader = self.request_with_data(
-            CmdSubmit3D {
-                header: CtrlHeader::with_fence(Command::SUBMIT_3D, ctx_id, fence_id),
-                size,
-                _padding: 0,
-            },
-            cmds,
+        // The FLAG_FENCE response is written by the host only after rendering
+        // finished, so popping it completes the fence — record that here, or a
+        // following `wait_fence(fence_id)` would wait on an already-fired
+        // fence forever.
+        let req = CmdSubmit3D {
+            header: CtrlHeader::with_fence(Command::SUBMIT_3D, ctx_id, fence_id),
+            size: Self::submit_3d_size(cmds)?,
+            _padding: 0,
+        };
+        let mut rsp = [0u8; size_of::<CtrlHeader>()];
+        self.ctrl.request_sync_fenced(
+            &mut self.transport,
+            &[req.as_bytes(), cmds],
+            &mut [&mut rsp],
+            fence_id,
         )?;
-        rsp.check_type(Command::OK_NODATA)
+        CtrlHeader::read_from_bytes(&rsp)
+            .expect("response buffer is exactly one CtrlHeader")
+            .check_type(Command::OK_NODATA)
     }
 
     /// Create a blob resource (host-visible memory / dma-buf sharing).
@@ -800,6 +876,11 @@ impl<H: Hal, T: Transport> VirtIOGpu<H, T> {
 }
 
 impl<H: Hal, T: Transport> Drop for VirtIOGpu<H, T> {
+    /// Unsets the queues so the device stops accessing their DMA areas.
+    ///
+    /// Fire-and-forget commands that are still in flight are *not* waited
+    /// for; see the [submission model](Self#submission-model) note about waiting
+    /// on the last fence before freeing DMA memory the device may still touch.
     fn drop(&mut self) {
         // Clear any pointers pointing to DMA regions, so the device doesn't try to access them
         // after they have been freed.
