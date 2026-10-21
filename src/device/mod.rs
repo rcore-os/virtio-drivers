@@ -1,5 +1,6 @@
 //! Drivers for specific VirtIO devices.
 
+pub mod balloon;
 pub mod blk;
 #[cfg(feature = "alloc")]
 pub mod console;
