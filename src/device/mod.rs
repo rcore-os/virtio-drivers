@@ -7,6 +7,7 @@ pub mod console;
 pub mod gpu;
 #[cfg(feature = "alloc")]
 pub mod input;
+pub mod iommu;
 
 pub mod net;
 
