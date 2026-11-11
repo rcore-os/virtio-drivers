@@ -7,6 +7,7 @@
 
 use crate::{Error, Result};
 use alloc::vec::Vec;
+use core::cmp::Reverse;
 
 /// The number of standard timing entries in the base EDID block.
 const NUM_STANDARD_TIMINGS: usize = 8;
@@ -197,7 +198,7 @@ impl Edid {
             .filter_map(|i| self.standard_timing(i))
             .map(|st| (st.h_pixels, st.v_pixels))
             .collect();
-        resolutions.sort_by(|a, b| (b.0 as u64 * b.1 as u64).cmp(&(a.0 as u64 * a.1 as u64)));
+        resolutions.sort_by_key(|a| Reverse(a.0 as u64 * a.1 as u64));
         resolutions
     }
 }
