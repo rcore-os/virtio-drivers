@@ -124,12 +124,12 @@ impl From<alloc::string::FromUtf8Error> for Error {
 
 /// Align `size` up to a page.
 fn align_up(size: usize) -> usize {
-    (size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
+    size.next_multiple_of(PAGE_SIZE)
 }
 
 /// Align `size` up to a page.
 fn align_up_phys(size: PhysAddr) -> PhysAddr {
-    (size + PAGE_SIZE_PHYS - 1) & !(PAGE_SIZE_PHYS - 1)
+    size.next_multiple_of(PAGE_SIZE_PHYS)
 }
 
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
