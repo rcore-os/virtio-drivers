@@ -5,7 +5,6 @@ use core::{
     array,
     convert::TryFrom,
     fmt::{self, Display, Formatter},
-    ops::Deref,
     ptr::NonNull,
 };
 use log::warn;
@@ -400,7 +399,7 @@ impl ConfigurationAccess for MmioCam<'_> {
         let address = self.cam.cam_offset(device_function, register_offset);
         // Right shift to convert from byte offset to word offset.
         self.mmio
-            .deref()
+            .as_shared()
             .get((address >> 2) as usize)
             .unwrap()
             .read()
