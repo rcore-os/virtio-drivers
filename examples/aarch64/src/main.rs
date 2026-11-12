@@ -549,15 +549,11 @@ impl PciMemory32Allocator {
     /// It will have alignment matching the size. The size must be a power of 2.
     pub fn allocate_memory_32(&mut self, size: u32) -> u32 {
         assert!(size.is_power_of_two());
-        let allocated_address = align_up(self.start, size);
+        let allocated_address = self.start.next_multiple_of(size);
         assert!(allocated_address + size <= self.end);
         self.start = allocated_address + size;
         allocated_address
     }
-}
-
-const fn align_up(value: u32, alignment: u32) -> u32 {
-    ((value - 1) | (alignment - 1)) + 1
 }
 
 fn dump_bar_contents(

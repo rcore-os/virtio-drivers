@@ -429,9 +429,7 @@ impl RingBuffer {
         // The number of bytes to copy out between `start` and the end of the buffer.
         let read_before_wraparound = min(bytes_read, self.buffer.len() - self.start);
         // The number of bytes to copy out from the beginning of the buffer after wrapping around.
-        let read_after_wraparound = bytes_read
-            .checked_sub(read_before_wraparound)
-            .unwrap_or_default();
+        let read_after_wraparound = bytes_read.saturating_sub(read_before_wraparound);
 
         out[0..read_before_wraparound]
             .copy_from_slice(&self.buffer[self.start..self.start + read_before_wraparound]);

@@ -124,15 +124,48 @@ impl From<alloc::string::FromUtf8Error> for Error {
 
 /// Align `size` up to a page.
 fn align_up(size: usize) -> usize {
-    (size + PAGE_SIZE) & !(PAGE_SIZE - 1)
+    size.next_multiple_of(PAGE_SIZE)
 }
 
 /// Align `size` up to a page.
 fn align_up_phys(size: PhysAddr) -> PhysAddr {
-    (size + PAGE_SIZE_PHYS) & !(PAGE_SIZE_PHYS - 1)
+    size.next_multiple_of(PAGE_SIZE_PHYS)
 }
 
 /// The number of pages required to store `size` bytes, rounded up to a whole number of pages.
 fn pages(size: usize) -> usize {
     size.div_ceil(PAGE_SIZE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn align_up_just_below() {
+        assert_eq!(align_up(PAGE_SIZE - 1), PAGE_SIZE);
+        assert_eq!(align_up(PAGE_SIZE * 3 - 1), PAGE_SIZE * 3);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS - 1), PAGE_SIZE_PHYS);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS * 3 - 1), PAGE_SIZE_PHYS * 3);
+    }
+
+    #[test]
+    fn align_up_just_above() {
+        assert_eq!(align_up(1), PAGE_SIZE);
+        assert_eq!(align_up(PAGE_SIZE + 1), PAGE_SIZE * 2);
+        assert_eq!(align_up(PAGE_SIZE * 3 + 1), PAGE_SIZE * 4);
+        assert_eq!(align_up_phys(1), PAGE_SIZE_PHYS);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS + 1), PAGE_SIZE_PHYS * 2);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS * 3 + 1), PAGE_SIZE_PHYS * 4);
+    }
+
+    #[test]
+    fn align_up_already_aligned() {
+        assert_eq!(align_up(0), 0);
+        assert_eq!(align_up(PAGE_SIZE), PAGE_SIZE);
+        assert_eq!(align_up(PAGE_SIZE * 3), PAGE_SIZE * 3);
+        assert_eq!(align_up_phys(0), 0);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS), PAGE_SIZE_PHYS);
+        assert_eq!(align_up_phys(PAGE_SIZE_PHYS * 3), PAGE_SIZE_PHYS * 3);
+    }
 }
