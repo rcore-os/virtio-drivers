@@ -13,7 +13,6 @@ use crate::{
 };
 use core::{
     mem::{align_of, size_of},
-    ops::Deref,
     ptr::NonNull,
 };
 use safe_mmio::{
@@ -331,7 +330,7 @@ impl Transport for PciTransport {
             unsafe {
                 let ptr = config_space.ptr().cast::<T>().byte_add(offset);
                 Ok(config_space
-                    .deref()
+                    .as_shared()
                     .child(NonNull::new(ptr.cast_mut()).unwrap())
                     .read_unsafe())
             }
