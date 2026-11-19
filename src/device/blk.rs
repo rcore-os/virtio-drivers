@@ -5,7 +5,6 @@ use crate::hal::Hal;
 use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, Result};
-use bitflags::bitflags;
 use log::info;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -510,7 +509,7 @@ impl Default for BlkResp {
 /// size.
 pub const SECTOR_SIZE: usize = 512;
 
-bitflags! {
+crate::feature_bitflag! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct BlkFeature: u64 {
         /// Device supports request barriers. (legacy)
@@ -547,22 +546,6 @@ bitflags! {
         const LIFETIME      = 1 << 15;
         /// Device can support the secure erase command.
         const SECURE_ERASE  = 1 << 16;
-
-        // device independent
-        const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
-        const ANY_LAYOUT            = 1 << 27; // legacy
-        const RING_INDIRECT_DESC    = 1 << 28;
-        const RING_EVENT_IDX        = 1 << 29;
-        const UNUSED                = 1 << 30; // legacy
-        const VERSION_1             = 1 << 32; // detect legacy
-
-        // the following since virtio v1.1
-        const ACCESS_PLATFORM       = 1 << 33;
-        const RING_PACKED           = 1 << 34;
-        const IN_ORDER              = 1 << 35;
-        const ORDER_PLATFORM        = 1 << 36;
-        const SR_IOV                = 1 << 37;
-        const NOTIFICATION_DATA     = 1 << 38;
     }
 }
 

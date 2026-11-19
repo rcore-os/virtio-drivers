@@ -10,7 +10,6 @@ use crate::queue::VirtQueue;
 use crate::transport::{InterruptStatus, Transport};
 use crate::{Error, Result, pages};
 use alloc::{vec, vec::Vec};
-use bitflags::bitflags;
 use core::cmp::min;
 use core::mem::size_of;
 use log::info;
@@ -833,7 +832,7 @@ struct Config {
 /// Display configuration has changed.
 const EVENT_DISPLAY: u32 = 1 << 0;
 
-bitflags! {
+crate::feature_bitflag! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         /// virgl 3D mode is supported.
@@ -846,22 +845,6 @@ bitflags! {
         const RESOURCE_BLOB         = 1 << 3;
         /// Blob resource alignment requirements are exposed in the device configuration.
         const BLOB_ALIGNMENT        = 1 << 5;
-
-        // device independent
-        const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
-        const ANY_LAYOUT            = 1 << 27; // legacy
-        const RING_INDIRECT_DESC    = 1 << 28;
-        const RING_EVENT_IDX        = 1 << 29;
-        const UNUSED                = 1 << 30; // legacy
-        const VERSION_1             = 1 << 32; // detect legacy
-
-        // since virtio v1.1
-        const ACCESS_PLATFORM       = 1 << 33;
-        const RING_PACKED           = 1 << 34;
-        const IN_ORDER              = 1 << 35;
-        const ORDER_PLATFORM        = 1 << 36;
-        const SR_IOV                = 1 << 37;
-        const NOTIFICATION_DATA     = 1 << 38;
     }
 }
 

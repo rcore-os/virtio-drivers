@@ -148,55 +148,12 @@ impl<H: Hal, T: Transport> Drop for VirtIORtc<H, T> {
     }
 }
 
-bitflags::bitflags! {
+crate::feature_bitflag! {
     /// virtio-rtc specific features
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Feature: u64 {
         /// Alarm functionality
         const ALARM                 = 1 << 0;
-
-        // device independent
-        /// Legacy/Unused.
-        const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
-        /// Legacy/Unused.
-        const ANY_LAYOUT            = 1 << 27; // legacy
-        /// Indirect descriptors
-        const RING_INDIRECT_DESC    = 1 << 28;
-        /// `avail_event` and `used_event` fields
-        const RING_EVENT_IDX        = 1 << 29;
-        /// Legacy/Unused.
-        const UNUSED                = 1 << 30; // legacy
-        /// VirtIO version 1 compliance
-        const VERSION_1             = 1 << 32; // detect legacy
-
-        // since virtio v1.1
-        /// Limited device access to memory
-        const ACCESS_PLATFORM       = 1 << 33;
-        /// Packed virtqueue layout.
-        const RING_PACKED           = 1 << 34;
-        /// Optimisations for in-order buffer usage
-        const IN_ORDER              = 1 << 35;
-        /// Platform ordering for memory access
-        const ORDER_PLATFORM        = 1 << 36;
-        /// Single root I/O virtualization
-        const SR_IOV                = 1 << 37;
-        /// Extra data in device notifications
-        const NOTIFICATION_DATA     = 1 << 38;
-
-        // since virtio v1.2
-        /// Driver uses the data provided by the device as a virtqueue identifier in available
-        /// buffer notifications.
-        const NOTIF_CONFIG_DATA     = 1 << 39;
-        /// Driver can reset a queue individually
-        const RING_RESET            = 1 << 40;
-
-        // since virtio v1.3
-        /// Device exposes one or more administration virtqueues.
-        const ADMIN_VQ              = 1 << 41;
-
-        // since virtio v1.4
-        /// the driver can suspend the device by set the `SUSPEND` bit to 1.
-        const SUSPEND               = 1 << 43;
     }
 }
 
