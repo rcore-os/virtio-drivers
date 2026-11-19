@@ -17,7 +17,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 const MAX_BUFFER_LEN: usize = 65535;
 const MIN_BUFFER_LEN: usize = 1526;
 
-bitflags! {
+crate::feature_bitflag! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         /// Device handles packets with partial checksum.
@@ -72,13 +72,6 @@ bitflags! {
         const MQ = 1 << 22;
         /// Set MAC address through control channel.
         const CTL_MAC_ADDR = 1 << 23;
-
-        // device independent
-        const RING_INDIRECT_DESC = 1 << 28;
-        const RING_EVENT_IDX = 1 << 29;
-        const VERSION_1 = 1 << 32; // legacy
-        // since virtio v1.1
-        const ACCESS_PLATFORM = 1 << 33;
     }
 }
 
