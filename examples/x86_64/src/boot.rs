@@ -3,7 +3,7 @@ use core::arch::global_asm;
 use x86_64::registers::control::{Cr0Flags, Cr4Flags};
 use x86_64::registers::model_specific::EferFlags;
 
-const BOOT_STACK_SIZE: usize = 0x4000; // 16K
+const BOOT_STACK_SIZE: usize = 0x10000; // 64K
 
 /// Flags set in the ’flags’ member of the multiboot header.
 ///
